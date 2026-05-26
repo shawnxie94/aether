@@ -1,0 +1,20 @@
+{
+  "name": "aether",
+  "interface": {
+    "displayName": "Aether"
+  },
+  "plugins": [
+    {
+      "name": "aether",
+      "source": {
+        "source": "local",
+        "path": "./plugins/aether"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}
