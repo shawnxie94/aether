@@ -1,8 +1,7 @@
 interface:
   display_name: "Aether Image Generate"
-  short_description: "Generate and record styled images"
+  short_description: "Generate new images only on request"
   brand_color: "#4F7CAC"
-  default_prompt: "Use $image-generate to generate an image and record the Aether run."
+  default_prompt: "Use $image-generate to create a new image from this refined prompt and record the Aether run."
 policy:
-  allow_implicit_invocation: true
-
+  allow_implicit_invocation: false

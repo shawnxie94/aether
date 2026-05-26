@@ -1,0 +1,8 @@
+interface:
+  display_name: "Aether Orchestrator"
+  short_description: "Route Aether style, prompt, and image tasks"
+  brand_color: "#4F7CAC"
+  default_prompt: "Use $aether-orchestrator to route this Aether request to style capture, prompt refinement, or explicit image generation."
+policy:
+  allow_implicit_invocation: true
+

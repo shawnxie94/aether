@@ -1,8 +1,7 @@
 interface:
   display_name: "Aether Style Capture"
-  short_description: "Capture reusable image styles"
+  short_description: "Capture styles from reference images"
   brand_color: "#4F7CAC"
-  default_prompt: "Use $style-capture to analyze and save this reference image style."
+  default_prompt: "Use $style-capture to analyze these reference image(s) and source prompt(s), then save the reusable style."
 policy:
-  allow_implicit_invocation: true
-
+  allow_implicit_invocation: false

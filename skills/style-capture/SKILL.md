@@ -1,11 +1,13 @@
 ---
 name: style-capture
-description: Use when the user sends one or more reference images, optionally with source image-generation prompts, and wants Aether to analyze, deduplicate, and persist a reusable visual style card.
+description: Use when the user sends one or more reference images, screenshots, or image files, optionally with the prompts that generated them, and wants Aether to analyze, deduplicate, or persist reusable visual style. This is the default Aether skill for image plus prompt inputs unless the user explicitly asks to generate a new image.
 ---
 
 # Aether Style Capture
 
 Use this skill for Aether style sedimentation.
+
+Default to this skill when the user provides reference image(s) plus prompt text and does not explicitly ask to create a new output image.
 
 Load `references/style-taxonomy.md` when deciding whether an observed trait is reusable style or one-off content.
 Use `references/style-card-template.json` as the output shape.
@@ -83,3 +85,4 @@ PYTHONPATH=src python -m aether_core.cli similarity save --json <similarity-resu
 - For multiple references, separate common style traits from per-image differences.
 - Do not perform irreversible merges without user confirmation.
 - Preserve source prompts in `source_references` when provided.
+- Do not call image-generation skills from this workflow unless the user asks to generate an image after style capture is complete.

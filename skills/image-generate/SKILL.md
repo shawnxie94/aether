@@ -1,11 +1,11 @@
 ---
 name: image-generate
-description: Use when the user wants Aether to generate an image from a refined prompt, call the configured underlying Codex image skill, and record the generation run.
+description: Use only when the user explicitly asks Aether to create, generate, render, or output a new image from a refined prompt, then call the configured underlying Codex image skill and record the run. Do not use for uploaded/reference images, screenshots, style extraction, style sedimentation, or image plus source-prompt inputs; those should use style-capture.
 ---
 
 # Aether Image Generate
 
-Use this skill after a prompt has been refined and the user wants image output recorded in Aether.
+Use this skill after a prompt has been refined and the user explicitly wants new image output recorded in Aether.
 
 Load `references/generation-contract.md` if generation status or record fields are unclear.
 Use `references/generation-run-template.json` as the output shape.
@@ -50,5 +50,7 @@ PYTHONPATH=src python -m aether_core.cli generation feedback <run_id> --liked tr
 ## Rules
 
 - This skill is the Aether workflow skill. The actual image-generation capability is selected by `generation.defaultGenerationSkill`.
+- If the user provided image(s) as references and did not explicitly ask for a new generated image, switch to `style-capture` instead.
+- If the user only asks to analyze, remember, store, deduplicate, or extract style from image(s), switch to `style-capture` instead.
 - Do not store provider secrets in Aether config.
 - Always record success or failure so the generation history remains auditable.

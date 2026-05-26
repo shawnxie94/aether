@@ -83,6 +83,7 @@ Plugin metadata lives in `.codex-plugin/plugin.json`.
 
 Skills live in:
 
+- `skills/aether-orchestrator`
 - `skills/style-capture`
 - `skills/prompt-refine`
 - `skills/image-generate`

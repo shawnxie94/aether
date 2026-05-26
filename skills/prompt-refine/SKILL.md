@@ -1,6 +1,6 @@
 ---
 name: prompt-refine
-description: Use when the user gives a fuzzy image-generation prompt and wants Aether to refine it with a selected or recommended style card using Codex as the refinement engine.
+description: Use when the user gives a text-only fuzzy image-generation prompt and wants Aether to refine it with a selected or recommended style card using Codex as the refinement engine. If the user also provides reference image(s), prefer style-capture unless they explicitly ask only for text prompt refinement.
 ---
 
 # Aether Prompt Refine
@@ -66,3 +66,4 @@ The JSON should include:
 - Enhance visual language without replacing the user's core idea.
 - Include assumptions when adding details the user did not specify.
 - If no style is provided, recommend active styles and ask before applying one.
+- Do not use this as the default for reference image plus source-prompt inputs; use `style-capture` for style sedimentation.
