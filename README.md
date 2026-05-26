@@ -9,6 +9,7 @@ It keeps model reasoning inside Codex and uses the local project core for determ
 - config discovery
 - local SQLite storage
 - style cards
+- style library browsing
 - style similarity scoring
 - prompt refinement records
 - generation run records
@@ -32,6 +33,20 @@ Create a style card:
 cd plugins/aether
 PYTHONPATH=src python -m aether_core.cli style create --json style-card.json
 PYTHONPATH=src python -m aether_core.cli style create --json style-card.json --ingest-assets
+```
+
+List all style cards as a compact catalog:
+
+```bash
+cd plugins/aether
+PYTHONPATH=src python -m aether_core.cli style list --summary
+```
+
+Inspect a style's reusable parameters and reference images:
+
+```bash
+cd plugins/aether
+PYTHONPATH=src python -m aether_core.cli style describe style_neon-melancholy
 ```
 
 Compare a new style profile against active styles:
@@ -97,6 +112,7 @@ Plugin metadata lives in `plugins/aether/.codex-plugin/plugin.json`.
 Skills live in:
 
 - `plugins/aether/skills/aether-orchestrator`
+- `plugins/aether/skills/style-library`
 - `plugins/aether/skills/style-capture`
 - `plugins/aether/skills/prompt-refine`
 - `plugins/aether/skills/image-generate`

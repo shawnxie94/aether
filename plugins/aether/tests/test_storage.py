@@ -1,7 +1,9 @@
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
+from aether_core.cli import style_description, style_summary
 from aether_core.storage import AetherStore
 
 
@@ -69,6 +71,45 @@ class StorageTests(unittest.TestCase):
                 }
             )
             self.assertTrue(asset["id"].startswith("asset_"))
+
+    def test_style_catalog_summary_and_description(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            store = AetherStore(root / "aether.sqlite")
+            store.init()
+
+            style = store.create_style(
+                {
+                    "name": "Soft Editorial",
+                    "summary": "quiet studio editorial look",
+                    "tags": ["editorial"],
+                    "source_references": [
+                        {
+                            "image_path": "references/soft-editorial.png",
+                            "source_prompt": "soft studio portrait",
+                            "role": "positive_reference",
+                        }
+                    ],
+                    "style_profile": {"lighting": "large softbox", "mood": "calm"},
+                    "prompt_template": "{source_prompt}, soft editorial lighting",
+                    "negative_prompt": "harsh shadows",
+                    "status": "active",
+                }
+            )
+
+            summary = style_summary(style)
+            self.assertEqual(summary["id"], style["id"])
+            self.assertEqual(summary["reference_count"], 1)
+            self.assertNotIn("style_profile", summary)
+
+            config = SimpleNamespace(resolve_path=lambda value: (root / value).resolve())
+            description = style_description(config, style)
+            self.assertEqual(description["parameter_definition"]["style_profile"]["lighting"], "large softbox")
+            self.assertEqual(description["parameter_definition"]["negative_prompt"], "harsh shadows")
+            self.assertEqual(
+                description["reference_images"][0]["display_path"],
+                str((root / "references/soft-editorial.png").resolve()),
+            )
 
 
 if __name__ == "__main__":

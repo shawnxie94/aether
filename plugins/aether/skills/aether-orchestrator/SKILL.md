@@ -1,6 +1,6 @@
 ---
 name: aether-orchestrator
-description: Default entrypoint for Aether plugin requests. Use for any Aether workflow, especially when the user provides images, source image prompts, fuzzy prompts, asks to capture style, refine prompts, generate images, or is ambiguous. Route to style-capture, prompt-refine, or image-generate according to the request; image plus source-prompt inputs default to style-capture unless the user explicitly asks to generate a new image.
+description: Default entrypoint for Aether plugin requests. Use for any Aether workflow, especially when the user provides images, source image prompts, fuzzy prompts, asks to capture style, browse existing styles, refine prompts, generate images, or is ambiguous. Route to style-library, style-capture, prompt-refine, or image-generate according to the request; image plus source-prompt inputs default to style-capture unless the user explicitly asks to generate a new image.
 ---
 
 # Aether Orchestrator
@@ -13,6 +13,8 @@ Choose exactly one primary route unless the user explicitly asks for a multi-ste
 
 | User input | Route |
 | --- | --- |
+| "列出风格", "风格列表", "已有风格", "查看风格库", "show/list/browse styles" | `style-library` |
+| Request for a style's parameters, concrete definition, prompt template, negative prompt, or reference images | `style-library` |
 | Reference image(s), screenshot(s), image file(s), optionally with source prompt(s) | `style-capture` |
 | "沉淀", "记住", "保存风格", "分析风格", "判断是否已有", "style card" | `style-capture` |
 | Text-only fuzzy image prompt asking for better wording, expansion, or model-ready prompt | `prompt-refine` |
@@ -31,6 +33,7 @@ Choose exactly one primary route unless the user explicitly asks for a multi-ste
 
 ## Route Handoff
 
+- For style library browsing, read and follow `../style-library/SKILL.md`.
 - For style capture, read and follow `../style-capture/SKILL.md`.
 - For prompt refinement, read and follow `../prompt-refine/SKILL.md`.
 - For image generation, read and follow `../image-generate/SKILL.md`.

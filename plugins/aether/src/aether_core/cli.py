@@ -112,9 +112,63 @@ def cmd_style_merge(args: argparse.Namespace) -> None:
     dump_json(store.update_style_status(args.source_style_id, "merged", merged_into_style_id=args.target_style_id))
 
 
+def style_summary(style: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": style["id"],
+        "name": style["name"],
+        "summary": style["summary"],
+        "tags": style["tags"],
+        "status": style["status"],
+        "reference_count": len(style.get("source_references", [])),
+        "parent_style_id": style.get("parent_style_id"),
+        "merged_into_style_id": style.get("merged_into_style_id"),
+        "updated_at": style["updated_at"],
+    }
+
+
+def _display_path(config: Any, image_path: str) -> str:
+    path = Path(image_path).expanduser()
+    if path.is_absolute():
+        return str(path)
+    return str(config.resolve_path(path))
+
+
+def style_description(config: Any, style: dict[str, Any]) -> dict[str, Any]:
+    reference_images: list[dict[str, Any]] = []
+    for index, reference in enumerate(style.get("source_references", []), start=1):
+        if not isinstance(reference, dict):
+            continue
+        image_path = reference.get("image_path")
+        item = {
+            "index": index,
+            "image_path": image_path,
+            "display_path": _display_path(config, image_path) if image_path else None,
+            "role": reference.get("role", ""),
+            "source_prompt": reference.get("source_prompt", ""),
+            "user_note": reference.get("user_note", ""),
+            "asset_id": reference.get("asset_id", ""),
+            "sha256": reference.get("sha256", ""),
+        }
+        reference_images.append({key: value for key, value in item.items() if value not in (None, "")})
+
+    return {
+        "style": style_summary(style),
+        "parameter_definition": {
+            "style_profile": style.get("style_profile", {}),
+            "prompt_template": style.get("prompt_template", ""),
+            "negative_prompt": style.get("negative_prompt", ""),
+        },
+        "reference_images": reference_images,
+    }
+
+
 def cmd_style_list(args: argparse.Namespace) -> None:
     _, store = _store()
-    dump_json(store.list_styles(status=args.status))
+    styles = store.list_styles(status=args.status)
+    if args.summary:
+        dump_json([style_summary(style) for style in styles])
+    else:
+        dump_json(styles)
 
 
 def cmd_style_get(args: argparse.Namespace) -> None:
@@ -123,6 +177,14 @@ def cmd_style_get(args: argparse.Namespace) -> None:
     if not style:
         raise SystemExit(f"Style not found: {args.style_id}")
     dump_json(style)
+
+
+def cmd_style_describe(args: argparse.Namespace) -> None:
+    config, store = _store()
+    style = store.get_style(args.style_id)
+    if not style:
+        raise SystemExit(f"Style not found: {args.style_id}")
+    dump_json(style_description(config, style))
 
 
 def cmd_style_compare(args: argparse.Namespace) -> None:
@@ -273,10 +335,14 @@ def build_parser() -> argparse.ArgumentParser:
     style_branch.set_defaults(func=cmd_style_branch)
     style_list = style_sub.add_parser("list")
     style_list.add_argument("--status")
+    style_list.add_argument("--summary", action="store_true", help="Return compact style catalog rows.")
     style_list.set_defaults(func=cmd_style_list)
     style_get = style_sub.add_parser("get")
     style_get.add_argument("style_id")
     style_get.set_defaults(func=cmd_style_get)
+    style_describe = style_sub.add_parser("describe")
+    style_describe.add_argument("style_id")
+    style_describe.set_defaults(func=cmd_style_describe)
     style_compare = style_sub.add_parser("compare")
     style_compare.add_argument("--profile", required=True, help="Style profile JSON file path, or '-' for stdin.")
     style_compare.add_argument("--status", default="active")
