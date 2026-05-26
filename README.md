@@ -19,7 +19,7 @@ PYTHONPATH=src python -m aether_core.cli init
 PYTHONPATH=src python -m aether_core.cli doctor
 ```
 
-The project reads configuration from `config.json` by default. Set `AETHER_CONFIG_PATH` to override.
+The project reads configuration from `~/.config/aether/config.json` first, then falls back to the nearest workspace `config.json`, then `.aether/config.json` in the current directory.
 
 ## CLI Examples
 

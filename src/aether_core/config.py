@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 import json
-import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 
-CONFIG_ENV = "AETHER_CONFIG_PATH"
+GLOBAL_CONFIG_PATH = Path("~/.config/aether/config.json")
 
 
 @dataclass(frozen=True)
@@ -27,10 +26,10 @@ class LoadedConfig:
         return self.resolve_path(self.data["storage"]["databasePath"])
 
 
-def find_config(start: Path | None = None, env: dict[str, str] | None = None) -> Path:
-    env = env or os.environ
-    if env.get(CONFIG_ENV):
-        return Path(env[CONFIG_ENV]).expanduser().resolve()
+def find_config(start: Path | None = None) -> Path:
+    global_candidate = GLOBAL_CONFIG_PATH.expanduser()
+    if global_candidate.exists():
+        return global_candidate.resolve()
 
     current = (start or Path.cwd()).resolve()
     for candidate_root in [current, *current.parents]:
@@ -42,13 +41,7 @@ def find_config(start: Path | None = None, env: dict[str, str] | None = None) ->
     if workspace_candidate.exists():
         return workspace_candidate.resolve()
 
-    global_candidate = Path("~/.config/aether/config.json").expanduser()
-    if global_candidate.exists():
-        return global_candidate.resolve()
-
-    raise FileNotFoundError(
-        f"Could not find config.json. Set {CONFIG_ENV} or run from an Aether workspace."
-    )
+    raise FileNotFoundError("Could not find config.json for Aether.")
 
 
 def load_config(path: str | Path | None = None) -> LoadedConfig:
@@ -66,4 +59,3 @@ def ensure_configured_dirs(config: LoadedConfig) -> list[Path]:
     for path in paths:
         path.mkdir(parents=True, exist_ok=True)
     return paths
-
