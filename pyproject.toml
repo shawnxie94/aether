@@ -1,0 +1,16 @@
+[project]
+name = "aether"
+version = "0.1.0"
+description = "Codex plugin backed style memory and prompt refinement system for AI image generation."
+requires-python = ">=3.9"
+dependencies = []
+
+[project.scripts]
+aether = "aether_core.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]

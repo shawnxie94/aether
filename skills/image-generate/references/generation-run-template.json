@@ -1,0 +1,17 @@
+{
+  "source_prompt": "original user prompt",
+  "refined_prompt": "final prompt used for generation",
+  "negative_prompt": "",
+  "style_id": "style_example",
+  "generation_skill": "imagegen",
+  "skill_params": {
+    "aspectRatio": "1:1",
+    "quality": "standard"
+  },
+  "skill_result_meta": {},
+  "outputs": [],
+  "status": "generated",
+  "feedback": {},
+  "error": ""
+}
+

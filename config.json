@@ -1,0 +1,81 @@
+{
+  "schemaVersion": 1,
+  "project": {
+    "name": "aether",
+    "description": "Personal style memory and prompt refinement system for AI image generation",
+    "productForm": "codex-plugin"
+  },
+  "storage": {
+    "databasePath": ".aether/aether.sqlite",
+    "assetRoot": ".aether/assets",
+    "referenceImageDir": ".aether/assets/references",
+    "generatedImageDir": ".aether/assets/generated",
+    "runDir": ".aether/runs",
+    "cacheDir": ".aether/cache"
+  },
+  "style": {
+    "capture": {
+      "defaultReferenceMode": "single-style",
+      "preserveSourcePrompts": true,
+      "maxReferenceImages": 12
+    },
+    "similarityThresholds": {
+      "existingStyle": 0.86,
+      "styleBranch": 0.72
+    },
+    "similarityWeights": {
+      "artStyle": 0.18,
+      "colorPalette": 0.14,
+      "lighting": 0.14,
+      "mood": 0.12,
+      "composition": 0.1,
+      "cameraLanguage": 0.1,
+      "materials": 0.08,
+      "era": 0.06,
+      "visualKeywords": 0.05,
+      "negativePrompt": 0.03
+    },
+    "defaultEmbeddingStorage": "sqlite-json",
+    "allowUserOverrideOnDedupe": true
+  },
+  "prompt": {
+    "refinementEngine": "codex",
+    "defaultVariantCount": 2,
+    "preserveUserIntent": true,
+    "includeNegativePrompt": true
+  },
+  "generation": {
+    "defaultGenerationSkill": "imagegen",
+    "availableGenerationSkills": [
+      {
+        "name": "imagegen",
+        "description": "Default Codex image generation skill"
+      },
+      {
+        "name": "rightcodes-imagegen",
+        "description": "Generate images through Right Codes Draw"
+      }
+    ],
+    "defaultParams": {
+      "aspectRatio": "1:1",
+      "quality": "standard"
+    },
+    "saveOutputs": true
+  },
+  "codex": {
+    "configPathEnv": "AETHER_CONFIG_PATH",
+    "skillInstallRoot": "~/.codex/skills",
+    "readProjectConfigFromWorkspace": true,
+    "skills": {
+      "styleCapture": "style-capture",
+      "promptRefine": "prompt-refine",
+      "imageGenerate": "image-generate"
+    }
+  },
+  "backend": {
+    "mode": "on-demand",
+    "autoStart": false,
+    "host": "127.0.0.1",
+    "port": 3850
+  }
+}

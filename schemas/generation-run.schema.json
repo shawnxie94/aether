@@ -1,0 +1,21 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Aether Generation Run",
+  "type": "object",
+  "required": ["refined_prompt", "generation_skill"],
+  "properties": {
+    "id": {"type": "string"},
+    "source_prompt": {"type": "string"},
+    "refined_prompt": {"type": "string"},
+    "negative_prompt": {"type": "string"},
+    "style_id": {"type": ["string", "null"]},
+    "generation_skill": {"type": "string"},
+    "skill_params": {"type": "object"},
+    "skill_result_meta": {"type": "object"},
+    "outputs": {"type": "array"},
+    "status": {"type": "string"},
+    "feedback": {"type": "object"},
+    "error": {"type": "string"}
+  }
+}
+

@@ -1,0 +1,18 @@
+{
+  "source_prompt": "a fuzzy user prompt",
+  "style_id": "style_example",
+  "target_generation_skill": "imagegen",
+  "constraints": {},
+  "intent_analysis": {
+    "subject": "",
+    "scene": "",
+    "action": "",
+    "mood": "",
+    "explicit_constraints": []
+  },
+  "refined_prompt": "",
+  "negative_prompt": "",
+  "variants": [],
+  "assumptions": []
+}
+

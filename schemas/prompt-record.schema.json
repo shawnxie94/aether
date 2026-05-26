@@ -1,0 +1,19 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Aether Prompt Record",
+  "type": "object",
+  "required": ["source_prompt", "refined_prompt"],
+  "properties": {
+    "id": {"type": "string"},
+    "source_prompt": {"type": "string"},
+    "style_id": {"type": ["string", "null"]},
+    "target_generation_skill": {"type": ["string", "null"]},
+    "constraints": {"type": "object"},
+    "intent_analysis": {"type": "object"},
+    "refined_prompt": {"type": "string"},
+    "negative_prompt": {"type": "string"},
+    "variants": {"type": "array"},
+    "assumptions": {"type": "array", "items": {"type": "string"}}
+  }
+}
+

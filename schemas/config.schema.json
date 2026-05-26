@@ -1,0 +1,36 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Aether Config",
+  "type": "object",
+  "required": ["schemaVersion", "project", "storage", "style", "prompt", "generation", "codex", "backend"],
+  "properties": {
+    "schemaVersion": {"type": "integer"},
+    "project": {
+      "type": "object",
+      "required": ["name", "productForm"],
+      "properties": {
+        "name": {"type": "string"},
+        "description": {"type": "string"},
+        "productForm": {"type": "string"}
+      }
+    },
+    "storage": {
+      "type": "object",
+      "required": ["databasePath", "assetRoot", "referenceImageDir", "generatedImageDir", "runDir", "cacheDir"],
+      "properties": {
+        "databasePath": {"type": "string"},
+        "assetRoot": {"type": "string"},
+        "referenceImageDir": {"type": "string"},
+        "generatedImageDir": {"type": "string"},
+        "runDir": {"type": "string"},
+        "cacheDir": {"type": "string"}
+      }
+    },
+    "style": {"type": "object"},
+    "prompt": {"type": "object"},
+    "generation": {"type": "object"},
+    "codex": {"type": "object"},
+    "backend": {"type": "object"}
+  }
+}
+

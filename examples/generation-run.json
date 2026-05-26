@@ -1,0 +1,17 @@
+{
+  "source_prompt": "a lonely girl walking through a future city",
+  "refined_prompt": "A lonely girl walking through a rain-soaked futuristic city at night, cinematic wide shot, neon reflections, low-key lighting.",
+  "negative_prompt": "flat lighting, crowded composition",
+  "style_id": "style_neon-melancholy",
+  "generation_skill": "imagegen",
+  "skill_params": {
+    "aspectRatio": "16:9",
+    "quality": "standard"
+  },
+  "skill_result_meta": {},
+  "outputs": [],
+  "status": "generated",
+  "feedback": {},
+  "error": ""
+}
+

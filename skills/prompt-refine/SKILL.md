@@ -1,0 +1,68 @@
+---
+name: prompt-refine
+description: Use when the user gives a fuzzy image-generation prompt and wants Aether to refine it with a selected or recommended style card using Codex as the refinement engine.
+---
+
+# Aether Prompt Refine
+
+Use this skill to turn a fuzzy image prompt into a style-aware generation prompt.
+
+Load `references/refinement-rules.md` when deciding how far to expand or reinterpret a prompt.
+Use `references/prompt-record-template.json` as the output shape.
+
+## Workflow
+
+1. Resolve config and inspect available styles when needed:
+
+```bash
+PYTHONPATH=src python -m aether_core.cli config show
+PYTHONPATH=src python -m aether_core.cli style list --status active
+```
+
+2. If the user specifies a style, load it:
+
+```bash
+PYTHONPATH=src python -m aether_core.cli style get <style_id>
+```
+
+3. Use Codex current model to analyze the source prompt:
+
+- subject
+- scene
+- action
+- mood
+- constraints
+- missing assumptions
+
+4. Refine the prompt by combining the user intent with the selected style card. Preserve the user's subject, scene, action, emotion, and explicit constraints.
+
+5. Optionally render from the stored style template before semantic refinement:
+
+```bash
+PYTHONPATH=src python -m aether_core.cli prompt render --style-id <style_id> --source-prompt "<prompt>"
+```
+
+6. Validate and save a prompt record. Prefer the bundled script:
+
+```bash
+python skills/prompt-refine/scripts/save_prompt_record.py --json <prompt-record.json>
+```
+
+The JSON should include:
+
+- `source_prompt`
+- `style_id`
+- `target_generation_skill`
+- `constraints`
+- `intent_analysis`
+- `refined_prompt`
+- `negative_prompt`
+- `variants`
+- `assumptions`
+
+## Rules
+
+- Codex is the refinement engine; do not call or configure a separate LLM.
+- Enhance visual language without replacing the user's core idea.
+- Include assumptions when adding details the user did not specify.
+- If no style is provided, recommend active styles and ask before applying one.

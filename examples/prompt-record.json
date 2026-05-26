@@ -1,0 +1,20 @@
+{
+  "source_prompt": "a lonely girl walking through a future city",
+  "style_id": "style_neon-melancholy",
+  "target_generation_skill": "imagegen",
+  "constraints": {
+    "aspectRatio": "16:9"
+  },
+  "intent_analysis": {
+    "subject": "a lonely girl",
+    "scene": "future city",
+    "action": "walking",
+    "mood": "lonely",
+    "explicit_constraints": []
+  },
+  "refined_prompt": "A lonely girl walking through a rain-soaked futuristic city at night, cinematic wide shot, neon reflections, low-key lighting, soft bloom, wet asphalt, restrained melancholic mood.",
+  "negative_prompt": "flat lighting, crowded composition, overly saturated colors",
+  "variants": [],
+  "assumptions": ["Night lighting is inferred from the selected neon style."]
+}
+

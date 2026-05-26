@@ -1,0 +1,32 @@
+{
+  "name": "Neon Melancholy",
+  "summary": "Lonely cinematic cyberpunk visuals with neon reflections, low-key lighting, and rain-soaked streets.",
+  "tags": ["cyberpunk", "neon", "lonely", "cinematic", "rain"],
+  "source_references": [
+    {
+      "image_path": "examples/reference-placeholder.png",
+      "source_prompt": "a lonely figure in a rainy neon city",
+      "user_note": "preserve the wet reflections and lonely mood",
+      "role": "positive_reference"
+    }
+  ],
+  "style_profile": {
+    "art_style": "cinematic cyberpunk illustration",
+    "color_palette": ["deep blue", "magenta neon", "muted amber"],
+    "lighting": "low-key lighting, neon rim light, soft bloom",
+    "composition": "wide shot, large negative space, centered subject",
+    "mood": ["lonely", "nostalgic", "distant"],
+    "camera_language": "cinematic wide angle, shallow depth of field",
+    "materials": ["wet asphalt", "glass reflection", "metal panels"],
+    "era": "retro futuristic",
+    "line_and_shape": "clean silhouettes, soft edges, elongated vertical shapes",
+    "detail_density": "medium-high detail with restrained background clutter",
+    "post_processing": "soft bloom, subtle film grain, low contrast shadows",
+    "visual_keywords": ["neon alley", "rain", "urban solitude"],
+    "negative_traits": ["overly saturated colors", "crowded scenes", "flat lighting"]
+  },
+  "prompt_template": "{source_prompt}, {style_summary}, {style_profile}",
+  "negative_prompt": "overly saturated colors, crowded composition, flat lighting",
+  "status": "draft"
+}
+

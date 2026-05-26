@@ -1,0 +1,26 @@
+{
+  "name": "aether",
+  "version": "0.1.0",
+  "description": "Personal style memory, prompt refinement, and image generation workflow plugin for Codex.",
+  "author": {
+    "name": "Aether"
+  },
+  "license": "MIT",
+  "keywords": ["style-memory", "prompt-refinement", "image-generation", "codex"],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Aether",
+    "shortDescription": "Capture visual styles, refine prompts, and record image generations.",
+    "longDescription": "Aether turns reference images and source prompts into reusable style cards, refines fuzzy image prompts with Codex, and records generation runs through configurable Codex image skills.",
+    "developerName": "Aether",
+    "category": "Productivity",
+    "capabilities": ["Interactive", "Write"],
+    "defaultPrompt": [
+      "沉淀这组参考图的共同风格",
+      "用已有风格帮我精修这段生图提示词",
+      "基于精修提示词生成图片并记录结果"
+    ],
+    "brandColor": "#4F7CAC"
+  }
+}
+
