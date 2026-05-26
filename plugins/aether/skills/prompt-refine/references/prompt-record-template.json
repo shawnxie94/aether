@@ -12,7 +12,10 @@
   },
   "refined_prompt": "",
   "negative_prompt": "",
+  "generation_params": {
+    "aspectRatio": "1:1",
+    "quality": "standard"
+  },
   "variants": [],
   "assumptions": []
 }
-

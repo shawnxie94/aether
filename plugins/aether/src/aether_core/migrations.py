@@ -5,7 +5,7 @@ import sqlite3
 from .storage_time import now_iso
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 3
 
 
 def ensure_migration_table(conn: sqlite3.Connection) -> None:
@@ -25,4 +25,3 @@ def record_schema_version(conn: sqlite3.Connection, version: int = SCHEMA_VERSIO
         "insert or ignore into schema_migrations (version, applied_at) values (?, ?)",
         (version, now_iso()),
     )
-

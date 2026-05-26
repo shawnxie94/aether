@@ -27,6 +27,8 @@ def validate_style(payload: dict[str, Any]) -> None:
 def validate_prompt_record(payload: dict[str, Any]) -> None:
     _require(payload, "source_prompt", str)
     _require(payload, "refined_prompt", str)
+    if "generation_params" in payload and not isinstance(payload["generation_params"], dict):
+        raise ValidationError("Field generation_params must be a dict")
     if "variants" in payload and not isinstance(payload["variants"], list):
         raise ValidationError("Field variants must be a list")
     if "assumptions" in payload and not isinstance(payload["assumptions"], list):
@@ -40,6 +42,8 @@ def validate_generation_run(payload: dict[str, Any]) -> None:
         raise ValidationError("Field outputs must be a list")
     if "skill_params" in payload and not isinstance(payload["skill_params"], dict):
         raise ValidationError("Field skill_params must be a dict")
+    if "visual_review" in payload and not isinstance(payload["visual_review"], dict):
+        raise ValidationError("Field visual_review must be a dict")
 
 
 def validate_payload(kind: str, payload: dict[str, Any]) -> None:
@@ -51,4 +55,3 @@ def validate_payload(kind: str, payload: dict[str, Any]) -> None:
         validate_generation_run(payload)
     else:
         raise ValidationError(f"Unknown validation kind: {kind}")
-

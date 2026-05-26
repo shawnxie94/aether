@@ -12,10 +12,10 @@
     "generation_skill": {"type": "string"},
     "skill_params": {"type": "object"},
     "skill_result_meta": {"type": "object"},
+    "visual_review": {"type": "object"},
     "outputs": {"type": "array"},
     "status": {"type": "string"},
     "feedback": {"type": "object"},
     "error": {"type": "string"}
   }
 }
-

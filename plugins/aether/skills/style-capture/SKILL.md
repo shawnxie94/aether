@@ -20,11 +20,36 @@ Use `references/style-card-template.json` as the output shape.
 PYTHONPATH=src python -m aether_core.cli config show
 ```
 
-2. Ingest provided image files when local paths are available:
+2. Resolve and ingest reference images.
+
+When local image paths are available, ingest them directly:
 
 ```bash
 PYTHONPATH=src python -m aether_core.cli asset ingest --path <image-path> --kind reference
 ```
+
+When the user provides a Codex chat attachment and no normal local image path is exposed, inspect the current Codex session JSONL for the corresponding user message. Chat attachments can appear as message content items shaped like:
+
+```json
+{"type": "input_image", "image_url": "data:image/png;base64,..."}
+```
+
+For these attachments:
+
+- Prefer the bundled extraction script:
+
+```bash
+python skills/style-capture/scripts/extract_chat_attachment.py --reference-name <stable-reference-name>
+```
+
+- Use `--session <rollout-jsonl>` when the current session is not the newest file under `$CODEX_HOME/sessions`.
+- Use `--style-id <style-id>` after a style is saved when an existing style reference needs to be patched in place.
+- The script extracts the `data:image/*;base64,...` payload, decodes it into `cacheDir/chat-attachments/<stable-reference-name>.<ext>`, ingests it as a `reference` asset, and emits a `source_reference` JSON object.
+- Store the canonical ingested asset path from that output in `source_references[].image_path`.
+- Preserve the original chat reference in `source_references[].original_image_path`, such as `chat_attachment:<stable-reference-name>`.
+- Store `asset_id`, `sha256`, `mime_type`, and `size_bytes` on the source reference when available.
+- Do not store the full base64 data URL in the style card.
+- Do not mark a chat attachment as "no local file path available" until this session-data extraction path has been checked.
 
 3. Analyze all provided reference images with Codex vision. If the user also provides source prompts per image, treat them as clues, not ground truth.
 
@@ -85,4 +110,5 @@ PYTHONPATH=src python -m aether_core.cli similarity save --json <similarity-resu
 - For multiple references, separate common style traits from per-image differences.
 - Do not perform irreversible merges without user confirmation.
 - Preserve source prompts in `source_references` when provided.
+- Preserve chat attachment images as ingested reference assets whenever the session exposes an `input_image` data URL.
 - Do not call image-generation skills from this workflow unless the user asks to generate an image after style capture is complete.

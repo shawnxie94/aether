@@ -12,8 +12,8 @@
     "intent_analysis": {"type": "object"},
     "refined_prompt": {"type": "string"},
     "negative_prompt": {"type": "string"},
+    "generation_params": {"type": "object"},
     "variants": {"type": "array"},
     "assumptions": {"type": "array", "items": {"type": "string"}}
   }
 }
-

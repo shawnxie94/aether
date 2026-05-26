@@ -87,12 +87,16 @@ cd plugins/aether
 PYTHONPATH=src python -m aether_core.cli prompt save --json prompt-record.json
 ```
 
+Prompt records include `generation_params`, so prompt refinement can recommend an image `aspectRatio` and image generation can carry that value into `skill_params`.
+
 Record a generation:
 
 ```bash
 cd plugins/aether
 PYTHONPATH=src python -m aether_core.cli generation record --json generation-run.json
 ```
+
+Generation records include `visual_review` so Aether can capture post-generation style consistency checks and recommend prompt revision or regeneration when the generated image drifts from the selected style.
 
 Validate JSON before saving:
 

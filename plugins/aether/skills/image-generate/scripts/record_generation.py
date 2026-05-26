@@ -11,8 +11,49 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from aether_core.config import ensure_configured_dirs, load_config
+from aether_core.generation_params import apply_generation_skill_params
 from aether_core.storage import AetherStore
 from aether_core.validation import validate_generation_run
+
+
+def apply_retry_metadata(payload: dict, args: argparse.Namespace) -> dict:
+    retry_fields = {
+        "attempt": args.attempt,
+        "max_attempts": args.max_attempts,
+        "retry_of": args.retry_of,
+        "retryable": None if args.retryable is None else args.retryable == "true",
+    }
+    retry_metadata = {key: value for key, value in retry_fields.items() if value is not None}
+    if not retry_metadata:
+        return payload
+
+    meta = payload.setdefault("skill_result_meta", {})
+    meta["retry"] = {**meta.get("retry", {}), **retry_metadata}
+    return payload
+
+
+def apply_visual_review_default(payload: dict) -> dict:
+    if isinstance(payload.get("visual_review"), dict) and payload["visual_review"]:
+        return payload
+    if payload.get("status") != "generated":
+        return payload
+
+    reason = "Visual review was not provided before recording this generated output."
+    if not payload.get("outputs"):
+        reason = "Visual review was skipped because no output image path was provided."
+    elif not payload.get("style_id"):
+        reason = "Visual review was skipped because no style_id was provided."
+
+    payload["visual_review"] = {
+        "reviewed": False,
+        "style_consistency": "not_reviewed",
+        "score": None,
+        "matched_traits": [],
+        "deviations": [reason],
+        "recommendation": "use",
+        "suggested_revision": "",
+    }
+    return payload
 
 
 def main() -> None:
@@ -20,12 +61,19 @@ def main() -> None:
     parser.add_argument("--json", required=True, help="Generation run JSON path, or '-' for stdin.")
     parser.add_argument("--liked", choices=["true", "false"])
     parser.add_argument("--notes")
+    parser.add_argument("--attempt", type=int, help="One-based generation attempt number.")
+    parser.add_argument("--max-attempts", type=int, help="Maximum attempts planned for this generation request.")
+    parser.add_argument("--retry-of", help="Generation run id or logical request id this attempt retries.")
+    parser.add_argument("--retryable", choices=["true", "false"], help="Whether the failure should be considered retryable.")
     args = parser.parse_args()
 
-    payload = json.load(sys.stdin) if args.json == "-" else json.loads(Path(args.json).read_text(encoding="utf-8"))
-    validate_generation_run(payload)
     config = load_config()
     ensure_configured_dirs(config)
+    payload = json.load(sys.stdin) if args.json == "-" else json.loads(Path(args.json).read_text(encoding="utf-8"))
+    payload = apply_generation_skill_params(payload, config)
+    payload = apply_retry_metadata(payload, args)
+    payload = apply_visual_review_default(payload)
+    validate_generation_run(payload)
     store = AetherStore(config.database_path)
     store.init()
     record = store.create_generation_run(payload)
@@ -43,4 +91,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

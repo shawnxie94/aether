@@ -74,6 +74,7 @@ class AetherStore:
                   intent_analysis_json text not null default '{}',
                   refined_prompt text not null,
                   negative_prompt text not null default '',
+                  generation_params_json text not null default '{}',
                   variants_json text not null default '[]',
                   assumptions_json text not null default '[]',
                   created_at text not null
@@ -88,6 +89,7 @@ class AetherStore:
                   generation_skill text not null,
                   skill_params_json text not null default '{}',
                   skill_result_meta_json text not null default '{}',
+                  visual_review_json text not null default '{}',
                   outputs_json text not null default '[]',
                   status text not null default 'created',
                   feedback_json text not null default '{}',
@@ -97,6 +99,8 @@ class AetherStore:
                 );
                 """
             )
+            self._ensure_column(conn, "prompt_records", "generation_params_json", "text not null default '{}'")
+            self._ensure_column(conn, "generation_runs", "visual_review_json", "text not null default '{}'")
             record_schema_version(conn)
 
     def create_style(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -276,6 +280,7 @@ class AetherStore:
             "intent_analysis": payload.get("intent_analysis", {}),
             "refined_prompt": payload["refined_prompt"],
             "negative_prompt": payload.get("negative_prompt", ""),
+            "generation_params": payload.get("generation_params", {}),
             "variants": payload.get("variants", []),
             "assumptions": payload.get("assumptions", []),
             "created_at": payload.get("created_at", now_iso()),
@@ -285,9 +290,9 @@ class AetherStore:
                 """
                 insert into prompt_records (
                   id, source_prompt, style_id, target_generation_skill, constraints_json,
-                  intent_analysis_json, refined_prompt, negative_prompt, variants_json,
-                  assumptions_json, created_at
-                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  intent_analysis_json, refined_prompt, negative_prompt, generation_params_json,
+                  variants_json, assumptions_json, created_at
+                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     record["id"],
@@ -298,12 +303,18 @@ class AetherStore:
                     json_dumps(record["intent_analysis"]),
                     record["refined_prompt"],
                     record["negative_prompt"],
+                    json_dumps(record["generation_params"]),
                     json_dumps(record["variants"]),
                     json_dumps(record["assumptions"]),
                     record["created_at"],
                 ),
             )
         return record
+
+    def _ensure_column(self, conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:
+        columns = {row["name"] for row in conn.execute(f"pragma table_info({table})").fetchall()}
+        if column not in columns:
+            conn.execute(f"alter table {table} add column {column} {definition}")
 
     def create_generation_run(self, payload: dict[str, Any]) -> dict[str, Any]:
         validate_generation_run(payload)
@@ -317,6 +328,7 @@ class AetherStore:
             "generation_skill": payload["generation_skill"],
             "skill_params": payload.get("skill_params", {}),
             "skill_result_meta": payload.get("skill_result_meta", {}),
+            "visual_review": payload.get("visual_review", {}),
             "outputs": payload.get("outputs", []),
             "status": payload.get("status", "created"),
             "feedback": payload.get("feedback", {}),
@@ -329,9 +341,9 @@ class AetherStore:
                 """
                 insert into generation_runs (
                   id, source_prompt, refined_prompt, negative_prompt, style_id,
-                  generation_skill, skill_params_json, skill_result_meta_json, outputs_json,
-                  status, feedback_json, error, created_at, updated_at
-                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  generation_skill, skill_params_json, skill_result_meta_json, visual_review_json,
+                  outputs_json, status, feedback_json, error, created_at, updated_at
+                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     record["id"],
@@ -342,6 +354,7 @@ class AetherStore:
                     record["generation_skill"],
                     json_dumps(record["skill_params"]),
                     json_dumps(record["skill_result_meta"]),
+                    json_dumps(record["visual_review"]),
                     json_dumps(record["outputs"]),
                     record["status"],
                     json_dumps(record["feedback"]),
@@ -397,6 +410,7 @@ class AetherStore:
             "generation_skill": row["generation_skill"],
             "skill_params": json_loads(row["skill_params_json"], {}),
             "skill_result_meta": json_loads(row["skill_result_meta_json"], {}),
+            "visual_review": json_loads(row["visual_review_json"], {}),
             "outputs": json_loads(row["outputs_json"], []),
             "status": row["status"],
             "feedback": json_loads(row["feedback_json"], {}),

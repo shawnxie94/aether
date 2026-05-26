@@ -4,14 +4,36 @@
   "negative_prompt": "",
   "style_id": "style_example",
   "generation_skill": "imagegen",
+  "prompt_record": {
+    "id": "prompt_example",
+    "generation_params": {
+      "aspectRatio": "1:1",
+      "quality": "standard"
+    }
+  },
   "skill_params": {
     "aspectRatio": "1:1",
     "quality": "standard"
   },
-  "skill_result_meta": {},
+  "skill_result_meta": {
+    "retry": {
+      "attempt": 1,
+      "max_attempts": 3,
+      "retry_of": null,
+      "retryable": false
+    }
+  },
+  "visual_review": {
+    "reviewed": true,
+    "style_consistency": "pass",
+    "score": 0.9,
+    "matched_traits": [],
+    "deviations": [],
+    "recommendation": "use",
+    "suggested_revision": ""
+  },
   "outputs": [],
   "status": "generated",
   "feedback": {},
   "error": ""
 }
-

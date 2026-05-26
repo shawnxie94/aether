@@ -36,9 +36,11 @@ class StorageTests(unittest.TestCase):
                     "style_id": style["id"],
                     "refined_prompt": "cinematic neon lonely girl in future city",
                     "negative_prompt": "flat lighting",
+                    "generation_params": {"aspectRatio": "16:9"},
                 }
             )
             self.assertTrue(prompt["id"].startswith("prompt_"))
+            self.assertEqual(prompt["generation_params"]["aspectRatio"], "16:9")
 
             generation = store.create_generation_run(
                 {
@@ -47,6 +49,11 @@ class StorageTests(unittest.TestCase):
                     "style_id": style["id"],
                     "generation_skill": "imagegen",
                     "status": "generated",
+                    "visual_review": {
+                        "reviewed": True,
+                        "style_consistency": "pass",
+                        "score": 0.9,
+                    },
                     "outputs": ["generated.png"],
                 }
             )
@@ -56,6 +63,7 @@ class StorageTests(unittest.TestCase):
 
             self.assertEqual(updated["status"], "liked")
             self.assertTrue(updated["feedback"]["liked"])
+            self.assertEqual(updated["visual_review"]["style_consistency"], "pass")
 
             archived = store.update_style_status(style["id"], "archived")
             self.assertEqual(archived["status"], "archived")

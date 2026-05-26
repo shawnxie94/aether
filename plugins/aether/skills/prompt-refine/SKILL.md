@@ -31,10 +31,13 @@ PYTHONPATH=src python -m aether_core.cli style get <style_id>
 - scene
 - action
 - mood
+- composition and likely output format
 - constraints
 - missing assumptions
 
 4. Refine the prompt by combining the user intent with the selected style card. Preserve the user's subject, scene, action, emotion, and explicit constraints.
+
+Also recommend image generation parameters in `generation_params`. Always include `aspectRatio`; use an explicit user-requested ratio when present, otherwise choose the most suitable ratio for the composition. Fall back to `generation.defaultParams.aspectRatio` from config when there is no strong composition signal. Put the reason for the ratio recommendation in `assumptions`, not inside `generation_params`.
 
 5. Optionally render from the stored style template before semantic refinement:
 
@@ -45,7 +48,7 @@ PYTHONPATH=src python -m aether_core.cli prompt render --style-id <style_id> --s
 6. Validate and save a prompt record. Prefer the bundled script:
 
 ```bash
-python skills/prompt-refine/scripts/save_prompt_record.py --json <prompt-record.json>
+python skills/prompt-refine/scripts/save_prompt_record.py --json <prompt-record.json> --emit-confirmation
 ```
 
 The JSON should include:
@@ -57,6 +60,7 @@ The JSON should include:
 - `intent_analysis`
 - `refined_prompt`
 - `negative_prompt`
+- `generation_params`, including `aspectRatio`
 - `variants`
 - `assumptions`
 
@@ -66,4 +70,6 @@ The JSON should include:
 - Enhance visual language without replacing the user's core idea.
 - Include assumptions when adding details the user did not specify.
 - If no style is provided, recommend active styles and ask before applying one.
+- If the user explicitly asked to generate an image, save the prompt record first, relay the script's complete `confirmation_message` including the full refined prompt, full negative prompt, suggested image params, and assumptions, then ask the user to confirm or revise before handing off to `image-generate`.
+- Skip the confirmation checkpoint only when the user explicitly says to auto-generate after refinement.
 - Do not use this as the default for reference image plus source-prompt inputs; use `style-capture` for style sedimentation.

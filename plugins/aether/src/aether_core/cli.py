@@ -7,6 +7,7 @@ from typing import Any
 
 from .assets import ingest_asset
 from .config import ensure_configured_dirs, load_config
+from .generation_params import apply_generation_skill_params, apply_prompt_generation_params
 from .jsonio import dump_json, read_json_arg
 from .similarity import compare_profiles, decision_for_score
 from .storage import AetherStore
@@ -228,8 +229,9 @@ def cmd_asset_ingest(args: argparse.Namespace) -> None:
 
 
 def cmd_prompt_save(args: argparse.Namespace) -> None:
-    _, store = _store()
+    config, store = _store()
     payload = read_json_arg(args.json)
+    payload = apply_prompt_generation_params(payload, config)
     dump_json(store.save_prompt_record(payload))
 
 
@@ -264,6 +266,7 @@ def cmd_prompt_render(args: argparse.Namespace) -> None:
         "intent_analysis": {},
         "refined_prompt": rendered,
         "negative_prompt": style["negative_prompt"],
+        "generation_params": config.data.get("generation", {}).get("defaultParams", {}),
         "variants": [],
         "assumptions": ["Rendered from style prompt_template without Codex semantic refinement."],
     }
@@ -274,8 +277,9 @@ def cmd_prompt_render(args: argparse.Namespace) -> None:
 
 
 def cmd_generation_record(args: argparse.Namespace) -> None:
-    _, store = _store()
+    config, store = _store()
     payload = read_json_arg(args.json)
+    payload = apply_generation_skill_params(payload, config)
     dump_json(store.create_generation_run(payload))
 
 
