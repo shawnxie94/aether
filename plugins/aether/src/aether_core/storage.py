@@ -383,6 +383,91 @@ class AetherStore:
         current["updated_at"] = timestamp
         return current
 
+    def get_generation_run(self, run_id: str) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            row = conn.execute("select * from generation_runs where id = ?", (run_id,)).fetchone()
+        return self._generation_from_row(row) if row else None
+
+    def list_generation_runs(
+        self,
+        style_id: str | None = None,
+        status: str | None = None,
+        review: str | None = None,
+        limit: int | None = 20,
+    ) -> list[dict[str, Any]]:
+        query = "select * from generation_runs"
+        clauses: list[str] = []
+        params: list[Any] = []
+        if style_id:
+            clauses.append("style_id = ?")
+            params.append(style_id)
+        if status:
+            clauses.append("status = ?")
+            params.append(status)
+        if clauses:
+            query += " where " + " and ".join(clauses)
+        query += " order by updated_at desc"
+        with self.connect() as conn:
+            rows = conn.execute(query, tuple(params)).fetchall()
+        runs = [self._generation_from_row(row) for row in rows]
+        if review:
+            runs = [run for run in runs if run.get("visual_review", {}).get("style_consistency") == review]
+        return runs[:limit] if limit is not None and limit >= 0 else runs
+
+    def generation_stats(self, style_id: str | None = None) -> dict[str, Any]:
+        runs = self.list_generation_runs(style_id=style_id, limit=None)
+        by_status: dict[str, int] = {}
+        by_review: dict[str, int] = {}
+        by_style: dict[str, dict[str, Any]] = {}
+        feedback: dict[str, int] = {"liked": 0, "rejected": 0, "unrated": 0}
+        deviations: dict[str, int] = {}
+
+        for run in runs:
+            status = run.get("status") or "unknown"
+            by_status[status] = by_status.get(status, 0) + 1
+
+            review = run.get("visual_review", {}).get("style_consistency") or "not_reviewed"
+            by_review[review] = by_review.get(review, 0) + 1
+
+            style_key = run.get("style_id") or "(none)"
+            style_stats = by_style.setdefault(
+                style_key,
+                {
+                    "total": 0,
+                    "liked": 0,
+                    "rejected": 0,
+                    "review": {},
+                },
+            )
+            style_stats["total"] += 1
+            style_stats["review"][review] = style_stats["review"].get(review, 0) + 1
+
+            liked = run.get("feedback", {}).get("liked")
+            if liked is True or run.get("status") == "liked":
+                feedback["liked"] += 1
+                style_stats["liked"] += 1
+            elif liked is False or run.get("status") == "rejected":
+                feedback["rejected"] += 1
+                style_stats["rejected"] += 1
+            else:
+                feedback["unrated"] += 1
+
+            for deviation in run.get("visual_review", {}).get("deviations", []):
+                if isinstance(deviation, str) and deviation:
+                    deviations[deviation] = deviations.get(deviation, 0) + 1
+
+        return {
+            "total": len(runs),
+            "by_status": by_status,
+            "by_review": by_review,
+            "feedback": feedback,
+            "by_style": by_style,
+            "common_deviations": [
+                {"deviation": key, "count": count}
+                for key, count in sorted(deviations.items(), key=lambda item: item[1], reverse=True)
+            ],
+        }
+
     def _style_from_row(self, row: sqlite3.Row) -> dict[str, Any]:
         return {
             "id": row["id"],

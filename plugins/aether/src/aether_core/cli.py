@@ -296,6 +296,71 @@ def cmd_generation_feedback(args: argparse.Namespace) -> None:
     dump_json(store.update_generation_feedback(args.run_id, feedback, status))
 
 
+def _text_preview(value: str, limit: int = 120) -> str:
+    normalized = " ".join(value.split())
+    if len(normalized) <= limit:
+        return normalized
+    return normalized[: limit - 1].rstrip() + "…"
+
+
+def _first_output_path(outputs: list[Any]) -> str:
+    if not outputs:
+        return ""
+    first = outputs[0]
+    if isinstance(first, dict):
+        return first.get("image_path") or first.get("asset_path") or first.get("path") or first.get("url") or ""
+    if isinstance(first, str):
+        return first
+    return ""
+
+
+def generation_summary(run: dict[str, Any]) -> dict[str, Any]:
+    review = run.get("visual_review", {})
+    return {
+        "id": run["id"],
+        "style_id": run.get("style_id"),
+        "status": run.get("status"),
+        "generation_skill": run.get("generation_skill"),
+        "prompt_preview": _text_preview(run.get("refined_prompt", "")),
+        "aspect_ratio": run.get("skill_params", {}).get("aspectRatio"),
+        "output_count": len(run.get("outputs", [])),
+        "first_output": _first_output_path(run.get("outputs", [])),
+        "style_consistency": review.get("style_consistency"),
+        "review_score": review.get("score"),
+        "recommendation": review.get("recommendation"),
+        "liked": run.get("feedback", {}).get("liked"),
+        "updated_at": run.get("updated_at"),
+    }
+
+
+def cmd_generation_list(args: argparse.Namespace) -> None:
+    _, store = _store()
+    dump_json(
+        [
+            generation_summary(run)
+            for run in store.list_generation_runs(
+                style_id=args.style_id,
+                status=args.status,
+                review=args.review,
+                limit=args.limit,
+            )
+        ]
+    )
+
+
+def cmd_generation_get(args: argparse.Namespace) -> None:
+    _, store = _store()
+    run = store.get_generation_run(args.run_id)
+    if not run:
+        raise SystemExit(f"Generation run not found: {args.run_id}")
+    dump_json(run)
+
+
+def cmd_generation_stats(args: argparse.Namespace) -> None:
+    _, store = _store()
+    dump_json(store.generation_stats(style_id=args.style_id))
+
+
 def cmd_validate(args: argparse.Namespace) -> None:
     payload = read_json_arg(args.json)
     validate_payload(args.kind, payload)
@@ -395,6 +460,18 @@ def build_parser() -> argparse.ArgumentParser:
     generation_record = generation_sub.add_parser("record")
     generation_record.add_argument("--json", required=True)
     generation_record.set_defaults(func=cmd_generation_record)
+    generation_list = generation_sub.add_parser("list")
+    generation_list.add_argument("--style-id")
+    generation_list.add_argument("--status")
+    generation_list.add_argument("--review")
+    generation_list.add_argument("--limit", type=int, default=20)
+    generation_list.set_defaults(func=cmd_generation_list)
+    generation_get = generation_sub.add_parser("get")
+    generation_get.add_argument("run_id")
+    generation_get.set_defaults(func=cmd_generation_get)
+    generation_stats = generation_sub.add_parser("stats")
+    generation_stats.add_argument("--style-id")
+    generation_stats.set_defaults(func=cmd_generation_stats)
     generation_feedback = generation_sub.add_parser("feedback")
     generation_feedback.add_argument("run_id")
     generation_feedback.add_argument("--liked", choices=["true", "false"])

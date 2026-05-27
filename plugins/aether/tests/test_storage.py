@@ -119,6 +119,54 @@ class StorageTests(unittest.TestCase):
                 str((root / "references/soft-editorial.png").resolve()),
             )
 
+    def test_generation_list_get_and_stats(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = AetherStore(Path(temp_dir) / "aether.sqlite")
+            store.init()
+
+            first = store.create_generation_run(
+                {
+                    "source_prompt": "source one",
+                    "refined_prompt": "refined one",
+                    "style_id": "style_a",
+                    "generation_skill": "imagegen",
+                    "status": "generated",
+                    "visual_review": {
+                        "style_consistency": "major_deviation",
+                        "score": 0.4,
+                        "deviations": ["lost texture", "wrong palette"],
+                    },
+                    "outputs": [{"image_path": "/tmp/one.png"}],
+                }
+            )
+            second = store.create_generation_run(
+                {
+                    "source_prompt": "source two",
+                    "refined_prompt": "refined two",
+                    "style_id": "style_a",
+                    "generation_skill": "imagegen",
+                    "status": "generated",
+                    "visual_review": {
+                        "style_consistency": "pass",
+                        "score": 0.9,
+                    },
+                    "outputs": [{"image_path": "/tmp/two.png"}],
+                }
+            )
+            store.update_generation_feedback(second["id"], {"liked": True}, "liked")
+
+            self.assertEqual(store.get_generation_run(first["id"])["id"], first["id"])
+            self.assertEqual(len(store.list_generation_runs(style_id="style_a")), 2)
+            self.assertEqual(len(store.list_generation_runs(review="major_deviation")), 1)
+            self.assertEqual(store.list_generation_runs(status="liked")[0]["id"], second["id"])
+
+            stats = store.generation_stats(style_id="style_a")
+            self.assertEqual(stats["total"], 2)
+            self.assertEqual(stats["by_review"]["major_deviation"], 1)
+            self.assertEqual(stats["by_review"]["pass"], 1)
+            self.assertEqual(stats["feedback"]["liked"], 1)
+            self.assertEqual(stats["common_deviations"][0]["deviation"], "lost texture")
+
 
 if __name__ == "__main__":
     unittest.main()

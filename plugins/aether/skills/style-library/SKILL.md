@@ -1,11 +1,11 @@
 ---
 name: style-library
-description: Use when the user asks to list, browse, search, inspect, or show existing Aether styles, including requests for a style's concrete parameter definition, prompt template, negative prompt, or reference images.
+description: Use when the user asks to list, browse, search, inspect, or show existing Aether styles or generation history, including requests for a style's concrete parameter definition, prompt template, negative prompt, reference images, recent generations, visual review results, or generation stats.
 ---
 
 # Aether Style Library
 
-Use this skill to browse existing Aether style cards without creating, refining, or generating images.
+Use this skill to browse existing Aether style cards and generation history without creating, refining, or generating images.
 
 ## Workflow
 
@@ -55,9 +55,62 @@ PYTHONPATH=src python -m aether_core.cli style describe <style_id>
 
 Also include source prompt, user note, role, or asset id when present.
 
+## Generation History
+
+When the user asks for recent generation history, use:
+
+```bash
+PYTHONPATH=src python -m aether_core.cli generation list
+```
+
+Useful filters:
+
+```bash
+PYTHONPATH=src python -m aether_core.cli generation list --style-id <style_id>
+PYTHONPATH=src python -m aether_core.cli generation list --status generated
+PYTHONPATH=src python -m aether_core.cli generation list --review major_deviation
+PYTHONPATH=src python -m aether_core.cli generation list --limit 10
+```
+
+Present generation list rows with:
+
+- `id`
+- `style_id`
+- `status`
+- `prompt_preview`
+- `aspect_ratio`
+- `first_output`
+- `style_consistency`
+- `review_score`
+- `recommendation`
+- `liked`
+- `updated_at`
+
+When the user asks for a complete generation record, use:
+
+```bash
+PYTHONPATH=src python -m aether_core.cli generation get <generation_run_id>
+```
+
+When the user asks for generation quality or review trends, use:
+
+```bash
+PYTHONPATH=src python -m aether_core.cli generation stats
+PYTHONPATH=src python -m aether_core.cli generation stats --style-id <style_id>
+```
+
+Summarize:
+
+- total generation count
+- status counts
+- visual review counts
+- liked/rejected/unrated counts
+- per-style totals
+- common deviations
+
 ## Rules
 
 - Do not call `style-capture`, `prompt-refine`, or `image-generate` from this workflow unless the user asks for a follow-up action after browsing.
-- Do not mutate style records when the user only asks to list or inspect styles.
+- Do not mutate style or generation records when the user only asks to list, inspect, or summarize.
 - If the user names a style ambiguously, list matching candidates and ask one concise question.
 - If there are no styles, say the style library is empty and suggest using `style-capture` only if the user wants to save a new style.
