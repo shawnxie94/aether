@@ -73,6 +73,16 @@ cd plugins/aether
 PYTHONPATH=src python -m aether_core.cli asset ingest --path reference.png --kind reference
 ```
 
+Inspect local assets:
+
+```bash
+cd plugins/aether
+PYTHONPATH=src python -m aether_core.cli asset list --kind generated
+PYTHONPATH=src python -m aether_core.cli asset stats
+PYTHONPATH=src python -m aether_core.cli asset duplicates --kind generated
+PYTHONPATH=src python -m aether_core.cli asset unreferenced --kind generated
+```
+
 Render a prompt from a style template:
 
 ```bash

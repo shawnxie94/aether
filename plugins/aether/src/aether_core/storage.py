@@ -269,6 +269,93 @@ class AetherStore:
             )
         return record
 
+    def list_assets(self, kind: str | None = None, limit: int | None = 50) -> list[dict[str, Any]]:
+        query = "select * from assets"
+        params: tuple[Any, ...] = ()
+        if kind:
+            query += " where kind = ?"
+            params = (kind,)
+        query += " order by created_at desc"
+        with self.connect() as conn:
+            rows = conn.execute(query, params).fetchall()
+        assets = [self._asset_from_row(row) for row in rows]
+        return assets[:limit] if limit is not None and limit >= 0 else assets
+
+    def asset_stats(self) -> dict[str, Any]:
+        assets = self.list_assets(limit=None)
+        by_kind: dict[str, dict[str, int]] = {}
+        missing_files = 0
+        total_size = 0
+        for asset in assets:
+            kind = asset["kind"]
+            kind_stats = by_kind.setdefault(kind, {"count": 0, "size_bytes": 0, "missing_files": 0})
+            kind_stats["count"] += 1
+            kind_stats["size_bytes"] += asset["size_bytes"]
+            total_size += asset["size_bytes"]
+            if not Path(asset["asset_path"]).exists():
+                kind_stats["missing_files"] += 1
+                missing_files += 1
+        return {
+            "total": len(assets),
+            "size_bytes": total_size,
+            "missing_files": missing_files,
+            "by_kind": by_kind,
+        }
+
+    def duplicate_assets(self, kind: str | None = None) -> list[dict[str, Any]]:
+        groups: dict[str, list[dict[str, Any]]] = {}
+        for asset in self.list_assets(kind=kind, limit=None):
+            groups.setdefault(asset["sha256"], []).append(asset)
+        return [
+            {
+                "sha256": sha256,
+                "count": len(assets),
+                "size_bytes": sum(asset["size_bytes"] for asset in assets),
+                "assets": assets,
+            }
+            for sha256, assets in sorted(groups.items(), key=lambda item: len(item[1]), reverse=True)
+            if len(assets) > 1
+        ]
+
+    def unreferenced_assets(self, kind: str | None = None) -> list[dict[str, Any]]:
+        referenced_ids, referenced_paths = self._referenced_asset_keys()
+        assets = self.list_assets(kind=kind, limit=None)
+        return [
+            asset
+            for asset in assets
+            if asset["id"] not in referenced_ids and asset["asset_path"] not in referenced_paths
+        ]
+
+    def _referenced_asset_keys(self) -> tuple[set[str], set[str]]:
+        referenced_ids: set[str] = set()
+        referenced_paths: set[str] = set()
+
+        for style in self.list_styles():
+            for reference in style.get("source_references", []):
+                if isinstance(reference, dict):
+                    asset_id = reference.get("asset_id")
+                    if isinstance(asset_id, str) and asset_id:
+                        referenced_ids.add(asset_id)
+                    for key in ("asset_path", "image_path"):
+                        value = reference.get(key)
+                        if isinstance(value, str) and value:
+                            referenced_paths.add(value)
+
+        for run in self.list_generation_runs(limit=None):
+            for output in run.get("outputs", []):
+                if isinstance(output, dict):
+                    asset_id = output.get("asset_id")
+                    if isinstance(asset_id, str) and asset_id:
+                        referenced_ids.add(asset_id)
+                    for key in ("asset_path", "image_path"):
+                        value = output.get(key)
+                        if isinstance(value, str) and value:
+                            referenced_paths.add(value)
+                elif isinstance(output, str) and output:
+                    referenced_paths.add(output)
+
+        return referenced_ids, referenced_paths
+
     def save_prompt_record(self, payload: dict[str, Any]) -> dict[str, Any]:
         validate_prompt_record(payload)
         record = {
@@ -483,6 +570,18 @@ class AetherStore:
             "merged_into_style_id": row["merged_into_style_id"],
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
+        }
+
+    def _asset_from_row(self, row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "id": row["id"],
+            "kind": row["kind"],
+            "source_path": row["source_path"],
+            "asset_path": row["asset_path"],
+            "sha256": row["sha256"],
+            "mime_type": row["mime_type"],
+            "size_bytes": row["size_bytes"],
+            "created_at": row["created_at"],
         }
 
     def _generation_from_row(self, row: sqlite3.Row) -> dict[str, Any]:

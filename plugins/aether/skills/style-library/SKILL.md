@@ -108,6 +108,19 @@ Summarize:
 - per-style totals
 - common deviations
 
+## Asset Governance
+
+When the user asks about local asset size, duplicates, generated image inventory, or cleanup candidates, use the read-only asset commands:
+
+```bash
+PYTHONPATH=src python -m aether_core.cli asset list --kind generated
+PYTHONPATH=src python -m aether_core.cli asset stats
+PYTHONPATH=src python -m aether_core.cli asset duplicates --kind generated
+PYTHONPATH=src python -m aether_core.cli asset unreferenced --kind generated
+```
+
+Report unreferenced assets as cleanup candidates only. Do not delete files or database rows unless the user explicitly asks for deletion.
+
 ## Rules
 
 - Do not call `style-capture`, `prompt-refine`, or `image-generate` from this workflow unless the user asks for a follow-up action after browsing.

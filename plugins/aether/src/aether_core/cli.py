@@ -229,6 +229,26 @@ def cmd_asset_ingest(args: argparse.Namespace) -> None:
     dump_json(store.create_asset(asset))
 
 
+def cmd_asset_list(args: argparse.Namespace) -> None:
+    _, store = _store()
+    dump_json(store.list_assets(kind=args.kind, limit=args.limit))
+
+
+def cmd_asset_stats(_: argparse.Namespace) -> None:
+    _, store = _store()
+    dump_json(store.asset_stats())
+
+
+def cmd_asset_duplicates(args: argparse.Namespace) -> None:
+    _, store = _store()
+    dump_json(store.duplicate_assets(kind=args.kind))
+
+
+def cmd_asset_unreferenced(args: argparse.Namespace) -> None:
+    _, store = _store()
+    dump_json(store.unreferenced_assets(kind=args.kind))
+
+
 def cmd_prompt_save(args: argparse.Namespace) -> None:
     config, store = _store()
     payload = read_json_arg(args.json)
@@ -442,6 +462,18 @@ def build_parser() -> argparse.ArgumentParser:
     asset_ingest.add_argument("--path", required=True)
     asset_ingest.add_argument("--kind", choices=["reference", "generated"], default="reference")
     asset_ingest.set_defaults(func=cmd_asset_ingest)
+    asset_list = asset_sub.add_parser("list")
+    asset_list.add_argument("--kind", choices=["reference", "generated"])
+    asset_list.add_argument("--limit", type=int, default=50)
+    asset_list.set_defaults(func=cmd_asset_list)
+    asset_stats = asset_sub.add_parser("stats")
+    asset_stats.set_defaults(func=cmd_asset_stats)
+    asset_duplicates = asset_sub.add_parser("duplicates")
+    asset_duplicates.add_argument("--kind", choices=["reference", "generated"])
+    asset_duplicates.set_defaults(func=cmd_asset_duplicates)
+    asset_unreferenced = asset_sub.add_parser("unreferenced")
+    asset_unreferenced.add_argument("--kind", choices=["reference", "generated"])
+    asset_unreferenced.set_defaults(func=cmd_asset_unreferenced)
 
     prompt = sub.add_parser("prompt")
     prompt_sub = prompt.add_subparsers(required=True)
