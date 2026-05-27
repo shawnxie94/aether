@@ -232,7 +232,7 @@ Phase 5 的目标是让本地资产库长期可维护。
 建议能力：
 
 - 多 workspace 配置
-- 项目级 style library
+- 项目级 visual memory
 - 跨项目风格复制
 - 全局风格收藏
 - 项目间资产引用检查

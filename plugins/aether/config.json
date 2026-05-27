@@ -67,7 +67,7 @@
     "skillInstallRoot": "~/.codex/skills",
     "readProjectConfigFromWorkspace": true,
     "skills": {
-      "styleLibrary": "style-library",
+      "visualMemory": "visual-memory",
       "visualAssetCapture": "visual-asset-capture",
       "promptRefine": "prompt-refine",
       "imageGenerate": "image-generate"

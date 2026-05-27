@@ -1,11 +1,11 @@
 ---
-name: style-library
-description: Use when the user asks to list, browse, search, inspect, or show existing Aether visual assets or generation history, including requests for a reusable asset's concrete parameter definition, prompt fragments, negative fragments, reference images, recent generations, visual review results, or generation stats.
+name: visual-memory
+description: Use when the user asks to browse, search, inspect, or summarize Aether's persisted visual memory, including visual assets, visual systems, recipes, candidates, generation history, evidence, quality stats, and local asset inventory.
 ---
 
-# Aether Visual Asset Library
+# Aether Visual Memory Browser
 
-Use this skill to browse existing Aether visual assets and generation history without creating, refining, or generating images.
+Use this skill to browse Aether's persisted visual memory without creating, refining, mutating, or generating images.
 
 ## Workflow
 
@@ -15,7 +15,7 @@ Use this skill to browse existing Aether visual assets and generation history wi
 aether config show
 ```
 
-2. When the user asks for the available style list, asset list, or reusable modules, output visual assets as a compact catalog:
+2. When the user asks for the available visual assets, styles, asset list, memory list, or reusable modules, output visual assets as a compact catalog:
 
 ```bash
 aether visual-asset list --summary
@@ -184,4 +184,4 @@ Report unreferenced assets as cleanup candidates only. Do not delete files or da
 - Do not call `visual-asset-capture`, `prompt-refine`, or `image-generate` from this workflow unless the user asks for a follow-up action after browsing.
 - Do not mutate visual assets or generation records when the user only asks to list, inspect, or summarize.
 - If the user names an asset ambiguously, list matching candidates and ask one concise question.
-- If there are no visual assets, say the visual asset library is empty and suggest using `visual-asset-capture` only if the user wants to save new assets.
+- If there are no visual assets, say the visual memory is empty and suggest using `visual-asset-capture` only if the user wants to save new assets.

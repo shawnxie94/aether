@@ -1,6 +1,6 @@
 ---
 name: aether-orchestrator
-description: Default entrypoint for Aether plugin requests. Use for any Aether workflow, especially when the user provides images, source image prompts, fuzzy prompts, asks to capture reusable visual assets, browse existing visual assets, refine prompts, generate images, edit generated images, or is ambiguous. Route to style-library, visual-asset-capture, prompt-refine, or image-generate according to the request; image plus source-prompt inputs default to visual-asset-capture unless the user explicitly asks to generate or edit an image.
+description: Default entrypoint for Aether plugin requests. Use for any Aether workflow, especially when the user provides images, source image prompts, fuzzy prompts, asks to capture reusable visual assets, browse persisted visual memory, refine prompts, generate images, edit generated images, or is ambiguous. Route to visual-memory, visual-asset-capture, prompt-refine, or image-generate according to the request; image plus source-prompt inputs default to visual-asset-capture unless the user explicitly asks to generate or edit an image.
 ---
 
 # Aether Orchestrator
@@ -13,8 +13,8 @@ Choose one primary route for single-stage tasks. Use a multi-step route when the
 
 | User input | Route |
 | --- | --- |
-| "列出风格", "风格列表", "已有风格", "查看风格库", "show/list/browse styles", "素材列表", "素材库" | `style-library` |
-| Request for a visual asset's parameters, concrete definition, prompt fragments, negative fragments, or reference images | `style-library` |
+| "列出风格", "风格列表", "已有风格", "查看风格库", "show/list/browse styles", "素材列表", "素材库", "视觉记忆", "visual memory", "世界观", "流派", "系列", "推荐组合" | `visual-memory` |
+| Request for a visual asset, visual system, recipe, candidate, generation history, evidence, quality stats, concrete definition, prompt fragments, negative fragments, or reference images | `visual-memory` |
 | Reference image(s), screenshot(s), image file(s), optionally with source prompt(s) | `visual-asset-capture` |
 | "沉淀", "记住", "保存风格", "分析风格", "判断是否已有", "保存素材", "分析素材" | `visual-asset-capture` |
 | Text-only fuzzy image prompt asking for better wording, expansion, or model-ready prompt | `prompt-refine` |
@@ -41,7 +41,7 @@ Choose one primary route for single-stage tasks. Use a multi-step route when the
 
 ## Route Handoff
 
-- For style library browsing, read and follow `../style-library/SKILL.md`.
+- For visual memory browsing, read and follow `../visual-memory/SKILL.md`.
 - For visual asset capture, read and follow `../visual-asset-capture/SKILL.md`.
 - For prompt refinement, read and follow `../prompt-refine/SKILL.md`.
 - For image generation and generated-image editing, read and follow `../image-generate/SKILL.md`.

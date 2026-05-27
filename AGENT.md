@@ -8,7 +8,7 @@
 - Codex plugin manifest: `plugins/aether/.codex-plugin/plugin.json`
 - Skill entrypoints:
   - `plugins/aether/skills/aether-orchestrator`
-  - `plugins/aether/skills/style-library`
+  - `plugins/aether/skills/visual-memory`
   - `plugins/aether/skills/visual-asset-capture`
   - `plugins/aether/skills/prompt-refine`
   - `plugins/aether/skills/image-generate`
@@ -79,7 +79,7 @@ Do not delete or rewrite user data directories unless explicitly requested.
 
 ## Skill Workflow Rules
 
-- Use `style-library` only for listing or inspecting existing visual assets and generation history.
+- Use `visual-memory` only for listing or inspecting persisted visual assets, visual systems, recipes, candidates, generation history, evidence, quality stats, and local asset inventory.
 - Use `visual-asset-capture` for reference images, screenshots, source-image prompts, or reusable visual asset sedimentation.
 - Use `prompt-refine` before generation when the user gives a raw or fuzzy text prompt.
 - Use `image-generate` after the user explicitly asks to generate/create/render/output a new image, or asks to edit an existing generated image.

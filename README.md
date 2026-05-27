@@ -10,7 +10,7 @@ It keeps model reasoning inside Codex and uses the local project core for determ
 - local SQLite storage
 - visual asset memory
 - visual systems and recommendation recipes
-- visual asset library browsing
+- visual memory browsing
 - prompt refinement records
 - generation run records
 - Codex plugin and skill entrypoints
@@ -140,7 +140,7 @@ Plugin metadata lives in `plugins/aether/.codex-plugin/plugin.json`.
 Skills live in:
 
 - `plugins/aether/skills/aether-orchestrator`
-- `plugins/aether/skills/style-library`
+- `plugins/aether/skills/visual-memory`
 - `plugins/aether/skills/visual-asset-capture`
 - `plugins/aether/skills/prompt-refine`
 - `plugins/aether/skills/image-generate`
