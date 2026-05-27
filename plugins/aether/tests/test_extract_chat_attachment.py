@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 
 
-SCRIPT = Path(__file__).resolve().parents[1] / "skills" / "style-capture" / "scripts" / "extract_chat_attachment.py"
+SCRIPT = Path(__file__).resolve().parents[1] / "skills" / "visual-asset-capture" / "scripts" / "extract_chat_attachment.py"
 
 
 class ExtractChatAttachmentTests(unittest.TestCase):

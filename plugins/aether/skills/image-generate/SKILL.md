@@ -1,6 +1,6 @@
 ---
 name: image-generate
-description: Use only when the user explicitly asks Aether to create, generate, render, or output a new image from a refined prompt, then call the configured underlying Codex image skill and record the run. Do not use for uploaded/reference images, screenshots, style extraction, style sedimentation, or image plus source-prompt inputs; those should use style-capture.
+description: Use only when the user explicitly asks Aether to create, generate, render, or output a new image from a refined prompt, then call the configured underlying Codex image skill and record the run. Do not use for uploaded/reference images, screenshots, visual asset extraction, visual asset sedimentation, or image plus source-prompt inputs; those should use visual-asset-capture.
 ---
 
 # Aether Image Generate
@@ -15,7 +15,7 @@ Use `references/generation-run-template.json` as the output shape.
 1. Resolve project config:
 
 ```bash
-PYTHONPATH=src python -m aether_core.cli config show
+aether config show
 ```
 
 2. Read `generation.defaultGenerationSkill` and `generation.defaultParams` from `config.json`. This is the underlying Codex image skill to use, such as `imagegen` or `rightcodes-imagegen`, plus default provider parameters such as `aspectRatio`.
@@ -46,7 +46,7 @@ Default to `max_attempts = 3` with short backoff between attempts. Do not retry 
 If generation succeeded and selected visual assets are present, load each asset that has an `asset_id`:
 
 ```bash
-PYTHONPATH=src python -m aether_core.cli visual-asset get <visual_asset_id>
+aether visual-asset get <visual_asset_id>
 ```
 
 Use Codex vision to inspect the generated output image(s) against the selected assets' `profile`, `prompt_fragments`, `negative_fragments`, and `source_references`. Compare reusable visual traits, not one-off subject content.
@@ -95,14 +95,14 @@ The JSON should include:
 7. Ask the user for feedback. Save feedback when provided:
 
 ```bash
-PYTHONPATH=src python -m aether_core.cli generation feedback <run_id> --liked true --notes "<notes>"
+aether generation feedback <run_id> --liked true --notes "<notes>"
 ```
 
 Generation recording automatically links generated outputs and visual review evidence back to each selected visual asset. Feedback recording adds user-feedback evidence. To inspect the resulting recommendation signal:
 
 ```bash
-PYTHONPATH=src python -m aether_core.cli visual-asset evidence <visual_asset_id>
-PYTHONPATH=src python -m aether_core.cli visual-asset quality <visual_asset_id>
+aether visual-asset evidence <visual_asset_id>
+aether visual-asset quality <visual_asset_id>
 ```
 
 ## Rules
@@ -114,8 +114,8 @@ PYTHONPATH=src python -m aether_core.cli visual-asset quality <visual_asset_id>
 - Do not record successful generations with unarchived output images. Archive first, then save the generation run.
 - Do not use this skill directly for a raw, fuzzy, or short text prompt; switch to `prompt-refine` first and come back with a refined prompt or saved prompt record.
 - For a prompt record created in the same conversation turn, confirm that the user approved the refined prompt before making a paid or external generation call, unless they explicitly opted into auto-generation after refinement.
-- If the user provided image(s) as references and did not explicitly ask for a new generated image, switch to `style-capture` instead.
-- If the user only asks to analyze, remember, store, deduplicate, or extract style from image(s), switch to `style-capture` instead.
+- If the user provided image(s) as references and did not explicitly ask for a new generated image, switch to `visual-asset-capture` instead.
+- If the user only asks to analyze, remember, store, deduplicate, or extract reusable visual assets from image(s), switch to `visual-asset-capture` instead.
 - Do not store provider secrets in Aether config.
 - Always record success or failure so the generation history remains auditable.
 - Retry transient generation failures up to the configured maximum and record each attempt, including the final success or final failure.

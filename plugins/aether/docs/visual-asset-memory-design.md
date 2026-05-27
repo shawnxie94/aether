@@ -787,7 +787,7 @@ Visual review 可以反向修正素材质量。
 
 ### Step 2: 图片解析输出候选素材
 
-让 `style-capture` 额外输出 `candidate_assets`。
+让 `visual-asset-capture` 额外输出 `candidate_assets`。
 
 当前实现支持全部 12 类素材：
 
@@ -807,9 +807,9 @@ Visual review 可以反向修正素材质量。
 候选批次保存命令：
 
 ```bash
-PYTHONPATH=src python -m aether_core.cli visual-asset candidates create --json <candidate-batch.json>
-PYTHONPATH=src python -m aether_core.cli visual-asset candidates list --status pending --summary
-PYTHONPATH=src python -m aether_core.cli visual-asset candidates get <candidate-id>
+aether visual-asset candidates create --json <candidate-batch.json>
+aether visual-asset candidates list --status pending --summary
+aether visual-asset candidates get <candidate-id>
 ```
 
 ### Step 3: 素材确认与入库
@@ -824,10 +824,10 @@ PYTHONPATH=src python -m aether_core.cli visual-asset candidates get <candidate-
 确认命令：
 
 ```bash
-PYTHONPATH=src python -m aether_core.cli visual-asset candidates decide <candidate-id> new_asset
-PYTHONPATH=src python -m aether_core.cli visual-asset candidates decide <candidate-id> existing_asset --target-asset-id <existing-asset-id>
-PYTHONPATH=src python -m aether_core.cli visual-asset candidates decide <candidate-id> asset_variant --target-asset-id <parent-asset-id>
-PYTHONPATH=src python -m aether_core.cli visual-asset candidates decide <candidate-id> ignore
+aether visual-asset candidates decide <candidate-id> new_asset
+aether visual-asset candidates decide <candidate-id> existing_asset --target-asset-id <existing-asset-id>
+aether visual-asset candidates decide <candidate-id> asset_variant --target-asset-id <parent-asset-id>
+aether visual-asset candidates decide <candidate-id> ignore
 ```
 
 ### Step 4: Prompt 精修召回素材
@@ -837,8 +837,8 @@ PYTHONPATH=src python -m aether_core.cli visual-asset candidates decide <candida
 组合命令：
 
 ```bash
-PYTHONPATH=src python -m aether_core.cli prompt compose --source-prompt "<prompt>" --query "<keywords>"
-PYTHONPATH=src python -m aether_core.cli prompt compose --source-prompt "<prompt>" --asset-id <visual_asset_id> --save
+aether prompt compose --source-prompt "<prompt>" --query "<keywords>"
+aether prompt compose --source-prompt "<prompt>" --asset-id <visual_asset_id> --save
 ```
 
 ### Step 5: 生成后反向更新权重
@@ -848,8 +848,8 @@ PYTHONPATH=src python -m aether_core.cli prompt compose --source-prompt "<prompt
 生成记录会自动写回素材证据。查看证据与质量分：
 
 ```bash
-PYTHONPATH=src python -m aether_core.cli visual-asset evidence <visual_asset_id>
-PYTHONPATH=src python -m aether_core.cli visual-asset quality <visual_asset_id>
+aether visual-asset evidence <visual_asset_id>
+aether visual-asset quality <visual_asset_id>
 ```
 
 ## 9. 风险

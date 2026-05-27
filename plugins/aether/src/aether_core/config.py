@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -27,6 +28,10 @@ class LoadedConfig:
 
 
 def find_config(start: Path | None = None) -> Path:
+    env_candidate = os.environ.get("AETHER_CONFIG_PATH")
+    if env_candidate:
+        return Path(env_candidate).expanduser().resolve()
+
     global_candidate = GLOBAL_CONFIG_PATH.expanduser()
     if global_candidate.exists():
         return global_candidate.resolve()

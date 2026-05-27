@@ -1,6 +1,6 @@
 ---
 name: prompt-refine
-description: Use when the user gives a text-only fuzzy image-generation prompt and wants Aether to refine it with selected or recommended visual assets using Codex as the refinement engine. If the user also provides reference image(s), prefer style-capture unless they explicitly ask only for text prompt refinement.
+description: Use when the user gives a text-only fuzzy image-generation prompt and wants Aether to refine it with selected or recommended visual assets using Codex as the refinement engine. If the user also provides reference image(s), prefer visual-asset-capture unless they explicitly ask only for text prompt refinement.
 ---
 
 # Aether Prompt Refine
@@ -15,22 +15,22 @@ Use `references/prompt-record-template.json` as the output shape.
 1. Resolve config and inspect available visual assets:
 
 ```bash
-PYTHONPATH=src python -m aether_core.cli config show
-PYTHONPATH=src python -m aether_core.cli visual-asset list --status active --summary
+aether config show
+aether visual-asset list --status active --summary
 ```
 
 2. If the user specifies a reusable module, load it:
 
 ```bash
-PYTHONPATH=src python -m aether_core.cli visual-asset get <visual_asset_id>
+aether visual-asset get <visual_asset_id>
 ```
 
 3. Recall visual assets by type/query when they could improve the prompt:
 
 ```bash
-PYTHONPATH=src python -m aether_core.cli visual-asset list --summary --status active
-PYTHONPATH=src python -m aether_core.cli visual-asset list --type lighting --query "<keyword>" --summary
-PYTHONPATH=src python -m aether_core.cli visual-asset get <visual_asset_id>
+aether visual-asset list --summary --status active
+aether visual-asset list --type lighting --query "<keyword>" --summary
+aether visual-asset get <visual_asset_id>
 ```
 
 Prefer assets explicitly requested by the user, then assets matching the subject, scene, mood, target visual style, and historical generation quality.
@@ -38,8 +38,8 @@ Prefer assets explicitly requested by the user, then assets matching the subject
 For the default deterministic recall and composition pass, use:
 
 ```bash
-PYTHONPATH=src python -m aether_core.cli prompt compose --source-prompt "<prompt>" --query "<keywords>"
-PYTHONPATH=src python -m aether_core.cli prompt compose --source-prompt "<prompt>" --asset-id <visual_asset_id> --save
+aether prompt compose --source-prompt "<prompt>" --query "<keywords>"
+aether prompt compose --source-prompt "<prompt>" --asset-id <visual_asset_id> --save
 ```
 
 Use the composed output as the first draft, then let Codex improve wording while preserving `selected_assets`, `composition_plan`, `generation_params`, and `conflicts`.
@@ -104,4 +104,4 @@ The JSON should include:
 - Do not use a visual asset if it conflicts with explicit user constraints.
 - If the user explicitly asked to generate an image, save the prompt record first, relay the script's complete `confirmation_message` including the full refined prompt, full negative prompt, suggested image params, and assumptions, then ask the user to confirm or revise before handing off to `image-generate`.
 - Skip the confirmation checkpoint only when the user explicitly says to auto-generate after refinement.
-- Do not use this as the default for reference image plus source-prompt inputs; use `style-capture` for style sedimentation.
+- Do not use this as the default for reference image plus source-prompt inputs; use `visual-asset-capture` for visual asset sedimentation.

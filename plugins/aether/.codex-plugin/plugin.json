@@ -1,23 +1,31 @@
 {
   "name": "aether",
-  "version": "0.1.0",
-  "description": "Personal style memory, style library browsing, prompt refinement, and explicit image generation workflow plugin for Codex.",
+  "version": "0.0.1",
+  "description": "Personal visual asset memory, asset library browsing, prompt refinement, and explicit image generation workflow plugin for Codex.",
   "author": {
     "name": "Aether"
   },
   "license": "MIT",
-  "keywords": ["style-memory", "prompt-refinement", "image-generation", "codex"],
+  "keywords": [
+    "visual-asset-memory",
+    "prompt-refinement",
+    "image-generation",
+    "codex"
+  ],
   "skills": "./skills/",
   "interface": {
     "displayName": "Aether",
-    "shortDescription": "Capture and browse styles, refine prompts, and record explicit image generations.",
-    "longDescription": "Aether treats reference images plus source prompts as style-capture inputs by default, turns them into reusable style cards, lists and inspects existing style definitions with reference images, refines fuzzy text prompts with Codex, and records generation runs only when the user explicitly asks to create new images.",
+    "shortDescription": "Capture and browse visual assets, refine prompts, and record explicit image generations.",
+    "longDescription": "Aether treats reference images plus source prompts as visual-asset-capture inputs by default, turns them into reusable visual assets, lists and inspects existing asset definitions with reference images, refines fuzzy text prompts with Codex, and records generation runs only when the user explicitly asks to create new images.",
     "developerName": "Aether",
     "category": "Productivity",
-    "capabilities": ["Interactive", "Write"],
+    "capabilities": [
+      "Interactive",
+      "Write"
+    ],
     "defaultPrompt": [
-      "用 $aether-orchestrator 沉淀这组参考图的共同风格",
-      "用 $aether-orchestrator 列出现有全部风格并查看参考图",
+      "用 $aether-orchestrator 沉淀这组参考图的可复用视觉素材",
+      "用 $aether-orchestrator 列出现有全部视觉素材并查看参考图",
       "用 $aether-orchestrator 精修这段生图提示词",
       "用 $aether-orchestrator 基于精修提示词生成图片并记录"
     ],

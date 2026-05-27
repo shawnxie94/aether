@@ -1,7 +1,7 @@
 [project]
 name = "aether"
-version = "0.1.0"
-description = "Codex plugin backed style memory and prompt refinement system for AI image generation."
+version = "0.0.1"
+description = "Codex plugin backed visual asset memory and prompt refinement system for AI image generation."
 requires-python = ">=3.9"
 dependencies = []
 

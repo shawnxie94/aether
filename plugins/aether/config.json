@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "project": {
     "name": "aether",
-    "description": "Personal style memory and prompt refinement system for AI image generation",
+    "description": "Personal visual asset memory and prompt refinement system for AI image generation",
     "productForm": "codex-plugin"
   },
   "storage": {
@@ -68,7 +68,7 @@
     "readProjectConfigFromWorkspace": true,
     "skills": {
       "styleLibrary": "style-library",
-      "styleCapture": "style-capture",
+      "visualAssetCapture": "visual-asset-capture",
       "promptRefine": "prompt-refine",
       "imageGenerate": "image-generate"
     }

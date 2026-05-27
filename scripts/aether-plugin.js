@@ -1,0 +1,177 @@
+#!/usr/bin/env node
+"use strict";
+
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
+const { spawnSync } = require("child_process");
+
+const packageRoot = path.resolve(__dirname, "..");
+const pluginRoot = path.join(packageRoot, "plugins", "aether");
+const marketplacePath = path.join(packageRoot, ".agents", "plugins", "marketplace.json");
+const localInstallScript = path.join(pluginRoot, "scripts", "install-local.sh");
+const persistentMarketplaceRoot = path.join(
+  process.env.AETHER_MARKETPLACE_ROOT || path.join(os.homedir(), ".aether", "codex-marketplace"),
+  "aether-codex-plugin"
+);
+
+function usage() {
+  console.log(`Aether Codex plugin installer
+
+Usage:
+  aether-codex-plugin install [--skip-marketplace] [--skip-local]
+  aether-codex-plugin doctor
+  aether-codex-plugin marketplace-path
+
+Commands:
+  install            Register the bundled Codex marketplace and initialize local Aether CLI/config.
+  doctor             Check that the packaged marketplace and plugin files are present.
+  marketplace-path   Print the package root path to pass to codex plugin marketplace add.
+`);
+}
+
+function hasFlag(args, flag) {
+  return args.includes(flag);
+}
+
+function ensurePath(targetPath, label) {
+  if (!fs.existsSync(targetPath)) {
+    console.error(`Missing ${label}: ${targetPath}`);
+    process.exit(1);
+  }
+}
+
+function copyPath(source, target) {
+  fs.cpSync(source, target, {
+    recursive: true,
+    force: true,
+    dereference: false,
+    filter: (item) => {
+      const base = path.basename(item);
+      return ![
+        ".git",
+        ".aether",
+        "dist",
+        "node_modules",
+        "__pycache__",
+        ".pytest_cache",
+      ].includes(base) && !base.endsWith(".pyc");
+    },
+  });
+}
+
+function preparePersistentMarketplace() {
+  ensurePath(marketplacePath, "Codex marketplace manifest");
+  ensurePath(path.join(pluginRoot, ".codex-plugin", "plugin.json"), "Codex plugin manifest");
+
+  fs.rmSync(persistentMarketplaceRoot, { recursive: true, force: true });
+  fs.mkdirSync(path.join(persistentMarketplaceRoot, "plugins"), { recursive: true });
+
+  copyPath(path.join(packageRoot, ".agents"), path.join(persistentMarketplaceRoot, ".agents"));
+  copyPath(pluginRoot, path.join(persistentMarketplaceRoot, "plugins", "aether"));
+
+  for (const filename of ["README.md", "AGENT.md", "package.json"]) {
+    const source = path.join(packageRoot, filename);
+    if (fs.existsSync(source)) {
+      fs.copyFileSync(source, path.join(persistentMarketplaceRoot, filename));
+    }
+  }
+
+  const rootSrc = path.join(persistentMarketplaceRoot, "src");
+  try {
+    fs.symlinkSync("plugins/aether/src", rootSrc);
+  } catch (error) {
+    if (error.code !== "EEXIST") {
+      copyPath(path.join(pluginRoot, "src"), rootSrc);
+    }
+  }
+
+  return persistentMarketplaceRoot;
+}
+
+function run(command, args, options = {}) {
+  const result = spawnSync(command, args, {
+    cwd: packageRoot,
+    env: process.env,
+    stdio: "inherit",
+  });
+  if (result.error) {
+    if (!options.allowFailure) {
+      console.error(`Failed to run ${command}: ${result.error.message}`);
+      process.exit(1);
+    }
+    return false;
+  }
+  if (result.status !== 0) {
+    if (!options.allowFailure) {
+      process.exit(result.status || 1);
+    }
+    return false;
+  }
+  return true;
+}
+
+function doctor() {
+  ensurePath(marketplacePath, "Codex marketplace manifest");
+  ensurePath(path.join(pluginRoot, ".codex-plugin", "plugin.json"), "Codex plugin manifest");
+  ensurePath(localInstallScript, "local install script");
+  console.log(JSON.stringify(
+    {
+      ok: true,
+      packageRoot,
+      persistentMarketplaceRoot,
+      sourceMarketplaceRoot: packageRoot,
+      marketplacePath,
+      pluginRoot,
+    },
+    null,
+    2
+  ));
+}
+
+function install(args) {
+  doctor();
+  const marketplaceRoot = preparePersistentMarketplace();
+  const persistentInstallScript = path.join(marketplaceRoot, "plugins", "aether", "scripts", "install-local.sh");
+
+  if (!hasFlag(args, "--skip-local")) {
+    run("bash", [persistentInstallScript]);
+  }
+
+  if (!hasFlag(args, "--skip-marketplace")) {
+    const added = run("codex", ["plugin", "marketplace", "add", marketplaceRoot], { allowFailure: true });
+    if (!added) {
+      console.error("codex marketplace add failed; trying marketplace upgrade for existing marketplace 'aether'.");
+      const upgraded = run("codex", ["plugin", "marketplace", "upgrade", "aether"], { allowFailure: true });
+      if (!upgraded) {
+        console.error(`Could not register the marketplace automatically. Manual command:
+codex plugin marketplace add ${marketplaceRoot}`);
+        process.exit(1);
+      }
+    }
+  }
+
+  console.log(`
+Aether plugin installation finished.
+Restart Codex or open a new thread so plugin skills reload.
+`);
+}
+
+function main() {
+  const [command = "help", ...args] = process.argv.slice(2);
+  if (command === "help" || command === "--help" || command === "-h") {
+    usage();
+  } else if (command === "doctor") {
+    doctor();
+  } else if (command === "marketplace-path") {
+    console.log(preparePersistentMarketplace());
+  } else if (command === "install") {
+    install(args);
+  } else {
+    console.error(`Unknown command: ${command}`);
+    usage();
+    process.exit(1);
+  }
+}
+
+main();
