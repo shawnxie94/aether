@@ -387,6 +387,31 @@ class StorageTests(unittest.TestCase):
             self.assertEqual(confirmed_recipe["assets"][0]["asset_id"], decided["confirmed_asset_id"])
             self.assertEqual(confirmed_recipe["assets"][0]["role"], "core")
 
+    def test_auto_recipe_slug_uses_unique_suffix_without_overwriting(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = AetherStore(Path(temp_dir) / "aether.sqlite")
+            store.init()
+
+            first = store.create_recipe(
+                {
+                    "name": "Source Image Recipe",
+                    "summary": "first recipe",
+                    "status": "active",
+                }
+            )
+            second = store.create_recipe(
+                {
+                    "name": "Source Image Recipe",
+                    "summary": "second recipe",
+                    "status": "draft",
+                }
+            )
+
+            self.assertEqual(first["id"], "recipe_source-image-recipe")
+            self.assertEqual(second["id"], "recipe_source-image-recipe-2")
+            self.assertEqual(store.get_recipe(first["id"])["summary"], "first recipe")
+            self.assertEqual(store.get_recipe(second["id"])["summary"], "second recipe")
+
     def test_visual_system_candidate_suggestion_and_confirmation(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             store = AetherStore(Path(temp_dir) / "aether.sqlite")

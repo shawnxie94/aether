@@ -1419,7 +1419,7 @@ class AetherStore:
             if not self.get_visual_system(system_id, include_assets=False):
                 raise KeyError(f"Parent visual system not found: {system_id}")
         timestamp = now_iso()
-        recipe_id = payload.get("id") or slugify(payload["name"], "recipe")
+        recipe_id = payload.get("id") or self._unique_slug_id("recipes", slugify(payload["name"], "recipe"))
         record = {
             "id": recipe_id,
             "name": payload["name"],
@@ -1481,6 +1481,17 @@ class AetherStore:
         created = self.get_recipe(recipe_id)
         assert created is not None
         return created
+
+    def _unique_slug_id(self, table: str, base_id: str) -> str:
+        if table not in {"recipes"}:
+            raise ValueError(f"Unsupported table for unique slug id: {table}")
+        candidate = base_id
+        suffix = 2
+        with self.connect() as conn:
+            while conn.execute(f"select 1 from {table} where id = ?", (candidate,)).fetchone():
+                candidate = f"{base_id}-{suffix}"
+                suffix += 1
+        return candidate
 
     def get_recipe(self, recipe_id: str, include_assets: bool = True) -> dict[str, Any] | None:
         with self.connect() as conn:
