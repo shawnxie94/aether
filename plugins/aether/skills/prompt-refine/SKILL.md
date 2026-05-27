@@ -1,31 +1,50 @@
 ---
 name: prompt-refine
-description: Use when the user gives a text-only fuzzy image-generation prompt and wants Aether to refine it with a selected or recommended style card using Codex as the refinement engine. If the user also provides reference image(s), prefer style-capture unless they explicitly ask only for text prompt refinement.
+description: Use when the user gives a text-only fuzzy image-generation prompt and wants Aether to refine it with selected or recommended visual assets using Codex as the refinement engine. If the user also provides reference image(s), prefer style-capture unless they explicitly ask only for text prompt refinement.
 ---
 
 # Aether Prompt Refine
 
-Use this skill to turn a fuzzy image prompt into a style-aware generation prompt.
+Use this skill to turn a fuzzy image prompt into a visual-asset-aware generation prompt.
 
 Load `references/refinement-rules.md` when deciding how far to expand or reinterpret a prompt.
 Use `references/prompt-record-template.json` as the output shape.
 
 ## Workflow
 
-1. Resolve config and inspect available styles when needed:
+1. Resolve config and inspect available visual assets:
 
 ```bash
 PYTHONPATH=src python -m aether_core.cli config show
-PYTHONPATH=src python -m aether_core.cli style list --status active
+PYTHONPATH=src python -m aether_core.cli visual-asset list --status active --summary
 ```
 
-2. If the user specifies a style, load it:
+2. If the user specifies a reusable module, load it:
 
 ```bash
-PYTHONPATH=src python -m aether_core.cli style get <style_id>
+PYTHONPATH=src python -m aether_core.cli visual-asset get <visual_asset_id>
 ```
 
-3. Use Codex current model to analyze the source prompt:
+3. Recall visual assets by type/query when they could improve the prompt:
+
+```bash
+PYTHONPATH=src python -m aether_core.cli visual-asset list --summary --status active
+PYTHONPATH=src python -m aether_core.cli visual-asset list --type lighting --query "<keyword>" --summary
+PYTHONPATH=src python -m aether_core.cli visual-asset get <visual_asset_id>
+```
+
+Prefer assets explicitly requested by the user, then assets matching the subject, scene, mood, target visual style, and historical generation quality.
+
+For the default deterministic recall and composition pass, use:
+
+```bash
+PYTHONPATH=src python -m aether_core.cli prompt compose --source-prompt "<prompt>" --query "<keywords>"
+PYTHONPATH=src python -m aether_core.cli prompt compose --source-prompt "<prompt>" --asset-id <visual_asset_id> --save
+```
+
+Use the composed output as the first draft, then let Codex improve wording while preserving `selected_assets`, `composition_plan`, `generation_params`, and `conflicts`.
+
+4. Use Codex current model to analyze the source prompt:
 
 - subject
 - scene
@@ -35,15 +54,23 @@ PYTHONPATH=src python -m aether_core.cli style get <style_id>
 - constraints
 - missing assumptions
 
-4. Refine the prompt by combining the user intent with the selected style card. Preserve the user's subject, scene, action, emotion, and explicit constraints.
+5. Refine the prompt by combining the user intent with selected visual assets. Preserve the user's subject, scene, action, emotion, and explicit constraints.
 
 Also recommend image generation parameters in `generation_params`. Always include `aspectRatio`; use an explicit user-requested ratio when present, otherwise choose the most suitable ratio for the composition. Fall back to `generation.defaultParams.aspectRatio` from config when there is no strong composition signal. Put the reason for the ratio recommendation in `assumptions`, not inside `generation_params`.
 
-5. Optionally render from the stored style template before semantic refinement:
+When selecting visual assets, keep the composition controlled:
 
-```bash
-PYTHONPATH=src python -m aether_core.cli prompt render --style-id <style_id> --source-prompt "<prompt>"
-```
+- 1 style asset
+- 1 color palette
+- 1 lighting asset
+- 1 composition asset
+- 1 camera asset
+- 1-2 mood assets
+- 0-1 scene asset
+- 0-2 texture, prop, or symbol assets
+- 1 negative rule set
+
+Check conflicts before writing the final prompt. If two assets conflict, preserve the user's explicit request first, then the selected style asset's invariants, then drop optional enhancement assets.
 
 6. Validate and save a prompt record. Prefer the bundled script:
 
@@ -54,22 +81,27 @@ python skills/prompt-refine/scripts/save_prompt_record.py --json <prompt-record.
 The JSON should include:
 
 - `source_prompt`
-- `style_id`
 - `target_generation_skill`
+- `selected_assets`
 - `constraints`
 - `intent_analysis`
+- `composition_plan`
+- selected visual assets in `constraints.selected_assets`
 - `refined_prompt`
 - `negative_prompt`
 - `generation_params`, including `aspectRatio`
 - `variants`
 - `assumptions`
+- `conflicts`
 
 ## Rules
 
 - Codex is the refinement engine; do not call or configure a separate LLM.
 - Enhance visual language without replacing the user's core idea.
 - Include assumptions when adding details the user did not specify.
-- If no style is provided, recommend active styles and ask before applying one.
+- If no visual asset is provided, recommend a small coherent set of active visual assets and ask before applying them when the choice is not obvious.
+- Do not over-compose with too many visual assets; prefer a small coherent set over a long keyword stack.
+- Do not use a visual asset if it conflicts with explicit user constraints.
 - If the user explicitly asked to generate an image, save the prompt record first, relay the script's complete `confirmation_message` including the full refined prompt, full negative prompt, suggested image params, and assumptions, then ask the user to confirm or revise before handing off to `image-generate`.
 - Skip the confirmation checkpoint only when the user explicitly says to auto-generate after refinement.
 - Do not use this as the default for reference image plus source-prompt inputs; use `style-capture` for style sedimentation.

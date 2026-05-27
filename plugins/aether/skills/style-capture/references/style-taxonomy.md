@@ -1,6 +1,6 @@
 # Style Taxonomy
 
-Use this reference when deciding what belongs in `style_profile`.
+Use this reference when deciding which reusable traits belong in a visual asset `profile`.
 
 ## Include
 
@@ -25,4 +25,3 @@ Use this reference when deciding what belongs in `style_profile`.
 - A specific prop that does not define the visual language.
 - Temporary aspect ratio or resolution.
 - Business or narrative text unrelated to visual style.
-

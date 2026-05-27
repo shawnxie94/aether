@@ -33,6 +33,20 @@ def apply_retry_metadata(payload: dict, args: argparse.Namespace) -> dict:
     return payload
 
 
+def selected_assets_from_payload(payload: dict) -> list:
+    if isinstance(payload.get("selected_assets"), list):
+        return payload["selected_assets"]
+    prompt_record = payload.get("prompt_record", {})
+    if not isinstance(prompt_record, dict):
+        return []
+    if isinstance(prompt_record.get("selected_assets"), list):
+        return prompt_record["selected_assets"]
+    constraints = prompt_record.get("constraints", {})
+    if isinstance(constraints, dict) and isinstance(constraints.get("selected_assets"), list):
+        return constraints["selected_assets"]
+    return []
+
+
 def apply_visual_review_default(payload: dict) -> dict:
     if isinstance(payload.get("visual_review"), dict) and payload["visual_review"]:
         return payload
@@ -42,8 +56,8 @@ def apply_visual_review_default(payload: dict) -> dict:
     reason = "Visual review was not provided before recording this generated output."
     if not payload.get("outputs"):
         reason = "Visual review was skipped because no output image path was provided."
-    elif not payload.get("style_id"):
-        reason = "Visual review was skipped because no style_id was provided."
+    elif not selected_assets_from_payload(payload):
+        reason = "Visual review was skipped because no selected visual assets were provided."
 
     payload["visual_review"] = {
         "reviewed": False,

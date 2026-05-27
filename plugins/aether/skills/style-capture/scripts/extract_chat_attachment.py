@@ -103,24 +103,6 @@ def build_source_reference(args: argparse.Namespace, asset: dict[str, Any], mime
     return reference
 
 
-def update_style_reference(
-    store: AetherStore,
-    style_id: str,
-    slot: int,
-    source_reference: dict[str, Any],
-) -> dict[str, Any]:
-    style = store.get_style(style_id)
-    if not style:
-        raise SystemExit(f"Style not found: {style_id}")
-    references = list(style.get("source_references") or [])
-    while len(references) <= slot:
-        references.append({})
-    merged_reference = {**references[slot], **source_reference}
-    references[slot] = merged_reference
-    style["source_references"] = references
-    return store.create_style(style)
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Extract a Codex chat attachment data URL from a session JSONL and ingest it as an Aether reference asset."
@@ -132,8 +114,6 @@ def main() -> None:
     parser.add_argument("--source-prompt")
     parser.add_argument("--user-note")
     parser.add_argument("--kind", choices=["reference", "generated"], default="reference")
-    parser.add_argument("--style-id", help="Optional style id to update with the extracted source reference.")
-    parser.add_argument("--reference-slot", type=int, default=0, help="Source reference slot to replace when --style-id is set.")
     args = parser.parse_args()
 
     session_path = Path(args.session).expanduser().resolve() if args.session else latest_session_path()
@@ -168,8 +148,6 @@ def main() -> None:
         "asset": asset,
         "source_reference": source_reference,
     }
-    if args.style_id:
-        result["updated_style"] = update_style_reference(store, args.style_id, args.reference_slot, source_reference)
 
     json.dump(result, sys.stdout, ensure_ascii=False, indent=2)
     sys.stdout.write("\n")

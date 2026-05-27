@@ -11,7 +11,7 @@ The Aether image-generate skill records the generation workflow. The actual imag
 
 - `source_prompt`
 - `negative_prompt`
-- `style_id`
+- `selected_assets`
 - `skill_params`
 - `skill_result_meta`
 - `visual_review`
@@ -39,16 +39,16 @@ Failed generation runs may have an empty `outputs` array.
 
 ## Visual Review
 
-After successful generation, compare each output image against the selected style card when `style_id` is available.
+After successful generation, compare each output image against the selected visual assets when they are available.
 
 `visual_review` should include:
 
 - `reviewed`: boolean
 - `style_consistency`: `pass`, `minor_deviation`, `major_deviation`, or `not_reviewed`
 - `score`: approximate 0-1 style consistency score
-- `matched_traits`: reusable style traits that are present
-- `deviations`: style traits that drifted from the style card or reference images
+- `matched_traits`: reusable visual traits that are present
+- `deviations`: visual traits that drifted from the selected assets or reference images
 - `recommendation`: `use`, `revise_prompt`, or `regenerate`
 - `suggested_revision`: concise prompt or parameter adjustment when revision is recommended
 
-Use `major_deviation` when the output does not preserve the style's core art direction, color/lighting language, composition rules, or material/rendering treatment.
+Use `major_deviation` when the output does not preserve the selected assets' core art direction, color/lighting language, composition rules, mood, scene logic, or material/rendering treatment.

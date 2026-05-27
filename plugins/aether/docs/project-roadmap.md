@@ -11,7 +11,7 @@
 - 优先增强现有数据资产的可检索、可比较、可演化能力。
 - 避免过早绑定单一图片生成服务或单一审美标准。
 - 所有自动判断都应保留解释和用户确认点。
-- 新能力应尽量复用现有 style card、prompt record、generation run 和 asset 结构。
+- 新能力应尽量复用现有 visual asset、prompt record、generation run 和 asset 结构。
 - 本地个人使用体验优先，团队协作和常驻服务放到后续阶段。
 
 ## 3. Phase 2: 风格资产引擎
@@ -201,7 +201,7 @@ Phase 5 的目标是让本地资产库长期可维护。
 - 未引用资产扫描
 - 失败生成的临时文件清理
 - 大文件统计
-- 按风格、日期、生成 Skill 清理
+- 按素材、日期、生成 Skill 清理
 - 导出前完整性检查
 
 ### 6.2 导入、导出与备份
@@ -211,7 +211,7 @@ Phase 5 的目标是让本地资产库长期可维护。
 导出内容：
 
 - SQLite 数据
-- style cards
+- visual assets
 - prompt records
 - generation runs
 - reference assets

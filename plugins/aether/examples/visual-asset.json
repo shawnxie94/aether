@@ -1,0 +1,30 @@
+{
+  "type": "lighting",
+  "name": "Rainy Neon Reflection",
+  "summary": "Neon light reflected on wet asphalt in a rainy night scene.",
+  "tags": ["neon", "rain", "reflection", "night"],
+  "profile": {
+    "light_source": "neon signage",
+    "direction": "side and rim light",
+    "contrast": "medium-high",
+    "surface_interaction": "wet asphalt mirror reflection"
+  },
+  "source_references": [
+    {
+      "image_path": "/absolute/path/to/reference.png",
+      "role": "lighting_reference"
+    }
+  ],
+  "prompt_fragments": [
+    "rain-soaked asphalt reflections",
+    "magenta and cyan neon rim light"
+  ],
+  "negative_fragments": [
+    "flat lighting",
+    "dry pavement"
+  ],
+  "compatible_with": ["mood:digital melancholy", "scene:rainy urban street"],
+  "avoid_with": ["lighting:flat daylight"],
+  "recommended_aspect_ratios": ["16:9", "3:4"],
+  "status": "draft"
+}

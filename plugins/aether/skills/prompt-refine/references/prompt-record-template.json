@@ -1,14 +1,28 @@
 {
   "source_prompt": "a fuzzy user prompt",
-  "style_id": "style_example",
   "target_generation_skill": "imagegen",
-  "constraints": {},
+  "selected_assets": [],
+  "constraints": {
+    "selected_assets": []
+  },
   "intent_analysis": {
     "subject": "",
     "scene": "",
     "action": "",
     "mood": "",
     "explicit_constraints": []
+  },
+  "composition_plan": {
+    "subject": "",
+    "scene": "",
+    "style": "",
+    "color": "",
+    "lighting": "",
+    "composition": "",
+    "camera": "",
+    "mood": [],
+    "texture": [],
+    "negative_rules": []
   },
   "refined_prompt": "",
   "negative_prompt": "",
@@ -17,5 +31,6 @@
     "quality": "standard"
   },
   "variants": [],
-  "assumptions": []
+  "assumptions": [],
+  "conflicts": []
 }

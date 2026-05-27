@@ -24,9 +24,16 @@ def format_list(values: list) -> str:
 
 def build_confirmation_message(record: dict) -> str:
     generation_params = json.dumps(record.get("generation_params", {}), ensure_ascii=False, indent=2)
+    selected_assets = json.dumps(record.get("selected_assets", []), ensure_ascii=False, indent=2)
+    conflicts = json.dumps(record.get("conflicts", []), ensure_ascii=False, indent=2)
     return "\n".join(
         [
             f"Prompt record saved: `{record['id']}`",
+            "",
+            "**Selected Assets**",
+            "```json",
+            selected_assets,
+            "```",
             "",
             "**Refined Prompt**",
             "```text",
@@ -46,6 +53,11 @@ def build_confirmation_message(record: dict) -> str:
             "**Suggested Image Params**",
             "```json",
             generation_params,
+            "```",
+            "",
+            "**Conflicts**",
+            "```json",
+            conflicts,
             "```",
             "",
             "Ask the user to confirm or revise this complete prompt before calling image-generate.",

@@ -2,10 +2,11 @@
   "source_prompt": "original user prompt",
   "refined_prompt": "final prompt used for generation",
   "negative_prompt": "",
-  "style_id": "style_example",
+  "selected_assets": [],
   "generation_skill": "imagegen",
   "prompt_record": {
     "id": "prompt_example",
+    "selected_assets": [],
     "generation_params": {
       "aspectRatio": "1:1",
       "quality": "standard"

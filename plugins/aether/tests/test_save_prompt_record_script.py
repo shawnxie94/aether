@@ -37,7 +37,7 @@ class SavePromptRecordScriptTests(unittest.TestCase):
             )
             payload = {
                 "source_prompt": "cute character",
-                "style_id": "style_example",
+                "selected_assets": [{"asset_id": "visual_asset_style-example", "type": "style"}],
                 "target_generation_skill": "rightcodes-imagegen",
                 "refined_prompt": "complete refined prompt",
                 "negative_prompt": "complete negative prompt",

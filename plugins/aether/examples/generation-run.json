@@ -2,7 +2,18 @@
   "source_prompt": "a lonely girl walking through a future city",
   "refined_prompt": "A lonely girl walking through a rain-soaked futuristic city at night, cinematic wide shot, neon reflections, low-key lighting.",
   "negative_prompt": "flat lighting, crowded composition",
-  "style_id": "style_neon-melancholy",
+  "selected_assets": [
+    {
+      "asset_id": "visual_asset_style-digital-melancholy",
+      "type": "style",
+      "name": "Digital Melancholy"
+    },
+    {
+      "asset_id": "visual_asset_lighting-rainy-neon-reflection",
+      "type": "lighting",
+      "name": "Rainy Neon Reflection"
+    }
+  ],
   "generation_skill": "imagegen",
   "skill_params": {
     "aspectRatio": "16:9",
@@ -10,8 +21,7 @@
   },
   "skill_result_meta": {},
   "outputs": [],
-  "status": "generated",
+  "status": "created",
   "feedback": {},
   "error": ""
 }
-

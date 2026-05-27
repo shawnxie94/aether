@@ -1,11 +1,11 @@
 ---
 name: style-library
-description: Use when the user asks to list, browse, search, inspect, or show existing Aether styles or generation history, including requests for a style's concrete parameter definition, prompt template, negative prompt, reference images, recent generations, visual review results, or generation stats.
+description: Use when the user asks to list, browse, search, inspect, or show existing Aether visual assets or generation history, including requests for a reusable asset's concrete parameter definition, prompt fragments, negative fragments, reference images, recent generations, visual review results, or generation stats.
 ---
 
-# Aether Style Library
+# Aether Visual Asset Library
 
-Use this skill to browse existing Aether style cards and generation history without creating, refining, or generating images.
+Use this skill to browse existing Aether visual assets and generation history without creating, refining, or generating images.
 
 ## Workflow
 
@@ -15,45 +15,75 @@ Use this skill to browse existing Aether style cards and generation history with
 PYTHONPATH=src python -m aether_core.cli config show
 ```
 
-2. When the user asks for the available style list, output all styles as a compact catalog:
+2. When the user asks for the available style list, asset list, or reusable modules, output visual assets as a compact catalog:
 
 ```bash
-PYTHONPATH=src python -m aether_core.cli style list --summary
+PYTHONPATH=src python -m aether_core.cli visual-asset list --summary
 ```
 
-Use `--status active` only when the user asks for active styles specifically.
+Useful filters:
 
-3. Present each style with:
+```bash
+PYTHONPATH=src python -m aether_core.cli visual-asset list --type style --summary
+PYTHONPATH=src python -m aether_core.cli visual-asset list --type lighting --summary
+PYTHONPATH=src python -m aether_core.cli visual-asset list --status active --summary
+PYTHONPATH=src python -m aether_core.cli visual-asset list --query "<keyword>" --summary
+PYTHONPATH=src python -m aether_core.cli visual-asset list --tag "<tag>" --summary
+```
+
+Present each asset with:
 
 - `id`
+- `type`
 - `name`
 - `status`
 - `summary`
 - `tags`
+- `prompt_fragment_count`
+- `negative_fragment_count`
 - `reference_count`
 - `updated_at`
 
-4. When the user asks for a style's concrete definition, parameters, prompt recipe, negative prompt, or reference images, load the inspect payload:
+3. When the user asks for concrete definition, parameters, prompt recipe, negative prompt, or reference images, load the asset payload:
 
 ```bash
-PYTHONPATH=src python -m aether_core.cli style describe <style_id>
+PYTHONPATH=src python -m aether_core.cli visual-asset get <visual_asset_id>
 ```
 
-5. Present the details in this order:
+Present details in this order:
 
-- name, id, status, summary, and tags
-- `style_profile` as the concrete reusable style parameter definition
-- `prompt_template`
-- `negative_prompt`
+- name, id, type, status, summary, and tags
+- `profile` as the concrete reusable parameter definition
+- `prompt_fragments`
+- `negative_fragments`
+- `compatible_with`
+- `avoid_with`
+- `recommended_aspect_ratios`
 - reference images
 
-6. For reference images, use `reference_images[].display_path` when available. In Codex Desktop responses, show local reference images with Markdown image syntax:
+4. For reference images, use `source_references[].image_path` or `source_references[].asset_path` when available. In Codex Desktop responses, show local reference images with Markdown image syntax:
 
 ```markdown
-![<style-name> reference <index>](/absolute/path/to/reference.png)
+![<asset-name> reference <index>](/absolute/path/to/reference.png)
 ```
 
 Also include source prompt, user note, role, or asset id when present.
+
+## Candidate Queue And Quality
+
+When the user asks for pending extracted modules or confirmation work:
+
+```bash
+PYTHONPATH=src python -m aether_core.cli visual-asset candidates list --status pending --summary
+PYTHONPATH=src python -m aether_core.cli visual-asset candidates get <candidate_id>
+```
+
+When the user asks why an asset is being recommended or how it has performed:
+
+```bash
+PYTHONPATH=src python -m aether_core.cli visual-asset evidence <visual_asset_id>
+PYTHONPATH=src python -m aether_core.cli visual-asset quality <visual_asset_id>
+```
 
 ## Generation History
 
@@ -66,7 +96,7 @@ PYTHONPATH=src python -m aether_core.cli generation list
 Useful filters:
 
 ```bash
-PYTHONPATH=src python -m aether_core.cli generation list --style-id <style_id>
+PYTHONPATH=src python -m aether_core.cli generation list --asset-id <visual_asset_id>
 PYTHONPATH=src python -m aether_core.cli generation list --status generated
 PYTHONPATH=src python -m aether_core.cli generation list --review major_deviation
 PYTHONPATH=src python -m aether_core.cli generation list --limit 10
@@ -75,7 +105,7 @@ PYTHONPATH=src python -m aether_core.cli generation list --limit 10
 Present generation list rows with:
 
 - `id`
-- `style_id`
+- `selected_assets`
 - `status`
 - `prompt_preview`
 - `aspect_ratio`
@@ -96,7 +126,7 @@ When the user asks for generation quality or review trends, use:
 
 ```bash
 PYTHONPATH=src python -m aether_core.cli generation stats
-PYTHONPATH=src python -m aether_core.cli generation stats --style-id <style_id>
+PYTHONPATH=src python -m aether_core.cli generation stats --asset-id <visual_asset_id>
 ```
 
 Summarize:
@@ -105,7 +135,7 @@ Summarize:
 - status counts
 - visual review counts
 - liked/rejected/unrated counts
-- per-style totals
+- per-asset totals
 - common deviations
 
 ## Asset Governance
@@ -124,6 +154,6 @@ Report unreferenced assets as cleanup candidates only. Do not delete files or da
 ## Rules
 
 - Do not call `style-capture`, `prompt-refine`, or `image-generate` from this workflow unless the user asks for a follow-up action after browsing.
-- Do not mutate style or generation records when the user only asks to list, inspect, or summarize.
-- If the user names a style ambiguously, list matching candidates and ask one concise question.
-- If there are no styles, say the style library is empty and suggest using `style-capture` only if the user wants to save a new style.
+- Do not mutate visual assets or generation records when the user only asks to list, inspect, or summarize.
+- If the user names an asset ambiguously, list matching candidates and ask one concise question.
+- If there are no visual assets, say the visual asset library is empty and suggest using `style-capture` only if the user wants to save new assets.

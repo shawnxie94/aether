@@ -1,52 +1,54 @@
 import tempfile
 import unittest
 from pathlib import Path
-from types import SimpleNamespace
 
-from aether_core.cli import style_description, style_summary
 from aether_core.storage import AetherStore
 
 
 class StorageTests(unittest.TestCase):
-    def test_style_prompt_generation_round_trip(self):
+    def test_visual_asset_prompt_generation_round_trip(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             store = AetherStore(Path(temp_dir) / "aether.sqlite")
             store.init()
 
-            style = store.create_style(
+            visual_asset = store.create_visual_asset(
                 {
+                    "type": "style",
                     "name": "Neon Melancholy",
                     "summary": "lonely neon city style",
                     "tags": ["neon", "cinematic"],
                     "status": "active",
-                    "style_profile": {
+                    "profile": {
                         "art_style": "cinematic cyberpunk",
                         "lighting": "neon rim light",
                     },
                 }
             )
 
-            self.assertEqual(style["status"], "active")
-            self.assertEqual(len(store.list_styles()), 1)
-            self.assertEqual(store.get_style(style["id"])["name"], "Neon Melancholy")
+            self.assertEqual(visual_asset["status"], "active")
+            self.assertEqual(len(store.list_visual_assets()), 1)
+            self.assertEqual(store.get_visual_asset(visual_asset["id"])["name"], "Neon Melancholy")
 
             prompt = store.save_prompt_record(
                 {
                     "source_prompt": "lonely girl in future city",
-                    "style_id": style["id"],
+                    "selected_assets": [
+                        {"asset_id": visual_asset["id"], "type": "style"}
+                    ],
                     "refined_prompt": "cinematic neon lonely girl in future city",
                     "negative_prompt": "flat lighting",
                     "generation_params": {"aspectRatio": "16:9"},
                 }
             )
             self.assertTrue(prompt["id"].startswith("prompt_"))
+            self.assertEqual(prompt["selected_assets"][0]["asset_id"], visual_asset["id"])
             self.assertEqual(prompt["generation_params"]["aspectRatio"], "16:9")
 
             generation = store.create_generation_run(
                 {
                     "source_prompt": "lonely girl in future city",
                     "refined_prompt": prompt["refined_prompt"],
-                    "style_id": style["id"],
+                    "selected_assets": prompt["selected_assets"],
                     "generation_skill": "imagegen",
                     "status": "generated",
                     "visual_review": {
@@ -65,7 +67,7 @@ class StorageTests(unittest.TestCase):
             self.assertTrue(updated["feedback"]["liked"])
             self.assertEqual(updated["visual_review"]["style_consistency"], "pass")
 
-            archived = store.update_style_status(style["id"], "archived")
+            archived = store.update_visual_asset_status(visual_asset["id"], "archived")
             self.assertEqual(archived["status"], "archived")
 
             asset = store.create_asset(
@@ -80,45 +82,6 @@ class StorageTests(unittest.TestCase):
             )
             self.assertTrue(asset["id"].startswith("asset_"))
 
-    def test_style_catalog_summary_and_description(self):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
-            store = AetherStore(root / "aether.sqlite")
-            store.init()
-
-            style = store.create_style(
-                {
-                    "name": "Soft Editorial",
-                    "summary": "quiet studio editorial look",
-                    "tags": ["editorial"],
-                    "source_references": [
-                        {
-                            "image_path": "references/soft-editorial.png",
-                            "source_prompt": "soft studio portrait",
-                            "role": "positive_reference",
-                        }
-                    ],
-                    "style_profile": {"lighting": "large softbox", "mood": "calm"},
-                    "prompt_template": "{source_prompt}, soft editorial lighting",
-                    "negative_prompt": "harsh shadows",
-                    "status": "active",
-                }
-            )
-
-            summary = style_summary(style)
-            self.assertEqual(summary["id"], style["id"])
-            self.assertEqual(summary["reference_count"], 1)
-            self.assertNotIn("style_profile", summary)
-
-            config = SimpleNamespace(resolve_path=lambda value: (root / value).resolve())
-            description = style_description(config, style)
-            self.assertEqual(description["parameter_definition"]["style_profile"]["lighting"], "large softbox")
-            self.assertEqual(description["parameter_definition"]["negative_prompt"], "harsh shadows")
-            self.assertEqual(
-                description["reference_images"][0]["display_path"],
-                str((root / "references/soft-editorial.png").resolve()),
-            )
-
     def test_generation_list_get_and_stats(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             store = AetherStore(Path(temp_dir) / "aether.sqlite")
@@ -128,7 +91,9 @@ class StorageTests(unittest.TestCase):
                 {
                     "source_prompt": "source one",
                     "refined_prompt": "refined one",
-                    "style_id": "style_a",
+                    "selected_assets": [
+                        {"asset_id": "visual_asset_style-a", "type": "style"}
+                    ],
                     "generation_skill": "imagegen",
                     "status": "generated",
                     "visual_review": {
@@ -143,7 +108,9 @@ class StorageTests(unittest.TestCase):
                 {
                     "source_prompt": "source two",
                     "refined_prompt": "refined two",
-                    "style_id": "style_a",
+                    "selected_assets": [
+                        {"asset_id": "visual_asset_style-a", "type": "style"}
+                    ],
                     "generation_skill": "imagegen",
                     "status": "generated",
                     "visual_review": {
@@ -156,16 +123,120 @@ class StorageTests(unittest.TestCase):
             store.update_generation_feedback(second["id"], {"liked": True}, "liked")
 
             self.assertEqual(store.get_generation_run(first["id"])["id"], first["id"])
-            self.assertEqual(len(store.list_generation_runs(style_id="style_a")), 2)
+            self.assertEqual(len(store.list_generation_runs(asset_id="visual_asset_style-a")), 2)
             self.assertEqual(len(store.list_generation_runs(review="major_deviation")), 1)
             self.assertEqual(store.list_generation_runs(status="liked")[0]["id"], second["id"])
 
-            stats = store.generation_stats(style_id="style_a")
+            stats = store.generation_stats(asset_id="visual_asset_style-a")
             self.assertEqual(stats["total"], 2)
             self.assertEqual(stats["by_review"]["major_deviation"], 1)
             self.assertEqual(stats["by_review"]["pass"], 1)
             self.assertEqual(stats["feedback"]["liked"], 1)
+            self.assertEqual(stats["by_asset"]["visual_asset_style-a"]["total"], 2)
             self.assertEqual(stats["common_deviations"][0]["deviation"], "lost texture")
+
+    def test_visual_asset_lifecycle_and_search(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = AetherStore(Path(temp_dir) / "aether.sqlite")
+            store.init()
+
+            asset = store.create_visual_asset(
+                {
+                    "type": "lighting",
+                    "name": "Rainy Neon Reflection",
+                    "summary": "neon reflections on wet asphalt",
+                    "tags": ["neon", "rain"],
+                    "profile": {"light_source": "neon signage"},
+                    "prompt_fragments": ["rain-soaked asphalt reflections"],
+                    "negative_fragments": ["flat lighting"],
+                    "recommended_aspect_ratios": ["16:9"],
+                    "status": "draft",
+                }
+            )
+            self.assertTrue(asset["id"].startswith("visual_asset_"))
+            self.assertEqual(store.get_visual_asset(asset["id"])["name"], "Rainy Neon Reflection")
+
+            active = store.update_visual_asset_status(asset["id"], "active")
+            self.assertEqual(active["status"], "active")
+            self.assertEqual(len(store.list_visual_assets(asset_type="lighting", status="active")), 1)
+            self.assertEqual(len(store.list_visual_assets(tag="neon")), 1)
+            self.assertEqual(len(store.list_visual_assets(query="asphalt")), 1)
+
+            branch = store.branch_visual_asset(
+                asset["id"],
+                {
+                    "type": "lighting",
+                    "name": "Rainy Neon Reflection Variant",
+                    "summary": "warmer neon reflections",
+                },
+            )
+            self.assertEqual(branch["parent_asset_id"], asset["id"])
+
+            merged = store.merge_visual_asset(branch["id"], asset["id"])
+            self.assertEqual(merged["status"], "merged")
+            self.assertEqual(merged["merged_into_asset_id"], asset["id"])
+
+    def test_candidate_confirmation_and_evidence_quality(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = AetherStore(Path(temp_dir) / "aether.sqlite")
+            store.init()
+
+            existing = store.create_visual_asset(
+                {
+                    "type": "lighting",
+                    "name": "Rainy Neon Reflection",
+                    "summary": "neon reflections on wet asphalt",
+                    "tags": ["neon", "rain"],
+                    "prompt_fragments": ["rain-soaked asphalt reflections"],
+                    "status": "active",
+                }
+            )
+            batch = store.create_visual_asset_candidate_batch(
+                {
+                    "candidate_assets": [
+                        {
+                            "type": "lighting",
+                            "name": "Rainy Neon Reflection Variant",
+                            "summary": "rainy neon asphalt reflection",
+                            "tags": ["neon", "rain"],
+                            "prompt_fragments": ["wet asphalt neon reflections"],
+                        }
+                    ]
+                }
+            )
+            candidate = batch["candidate_assets"][0]
+            self.assertEqual(candidate["batch_id"], batch["batch_id"])
+            self.assertTrue(candidate["similar_candidates"])
+
+            decided = store.decide_visual_asset_candidate(
+                candidate["id"],
+                "asset_variant",
+                target_asset_id=existing["id"],
+            )
+            self.assertEqual(decided["status"], "confirmed")
+            confirmed = store.get_visual_asset(decided["confirmed_asset_id"])
+            self.assertEqual(confirmed["parent_asset_id"], existing["id"])
+
+            run = store.create_generation_run(
+                {
+                    "source_prompt": "rain city",
+                    "refined_prompt": "rain city with wet neon",
+                    "selected_assets": [{"asset_id": existing["id"], "type": "lighting"}],
+                    "generation_skill": "imagegen",
+                    "status": "generated",
+                    "visual_review": {"style_consistency": "pass", "score": 0.9},
+                    "outputs": [{"image_path": "/tmp/neon.png"}],
+                }
+            )
+            store.update_generation_feedback(run["id"], {"liked": True}, "liked")
+            evidence_types = {
+                item["evidence_type"]
+                for item in store.list_visual_asset_evidence(asset_id=existing["id"], limit=None)
+            }
+            self.assertIn("generated_success", evidence_types)
+            self.assertIn("review", evidence_types)
+            self.assertIn("user_feedback", evidence_types)
+            self.assertGreater(store.visual_asset_quality(existing["id"])["score"], 0.7)
 
 
 if __name__ == "__main__":

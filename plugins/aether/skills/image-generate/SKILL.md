@@ -43,13 +43,13 @@ Default to `max_attempts = 3` with short backoff between attempts. Do not retry 
 
 5. Run a visual style review before presenting the result as final.
 
-If generation succeeded and `style_id` is present, load the style card:
+If generation succeeded and selected visual assets are present, load each asset that has an `asset_id`:
 
 ```bash
-PYTHONPATH=src python -m aether_core.cli style get <style_id>
+PYTHONPATH=src python -m aether_core.cli visual-asset get <visual_asset_id>
 ```
 
-Use Codex vision to inspect the generated output image(s) against the style card's `style_profile`, `negative_prompt`, and `source_references`. Compare reusable visual style traits, not one-off subject content.
+Use Codex vision to inspect the generated output image(s) against the selected assets' `profile`, `prompt_fragments`, `negative_fragments`, and `source_references`. Compare reusable visual traits, not one-off subject content.
 
 Write a `visual_review` object with:
 
@@ -61,7 +61,7 @@ Write a `visual_review` object with:
 - `recommendation`: `use`, `revise_prompt`, or `regenerate`
 - `suggested_revision`: prompt or parameter changes when needed
 
-If there is no output image, no `style_id`, or the image cannot be inspected, set `reviewed: false`, `style_consistency: "not_reviewed"`, and explain why in `deviations`.
+If there is no output image, no selected visual assets, or the image cannot be inspected, set `reviewed: false`, `style_consistency: "not_reviewed"`, and explain why in `deviations`.
 
 For `major_deviation`, do not silently accept the image as style-consistent. Show the user the visual review, explain the drift, and recommend revising the prompt or regenerating.
 
@@ -83,7 +83,7 @@ The JSON should include:
 - `source_prompt`
 - `refined_prompt`
 - `negative_prompt`
-- `style_id`
+- `selected_assets`
 - `generation_skill`
 - `skill_params`, including the final `aspectRatio`
 - `skill_result_meta`
@@ -96,6 +96,13 @@ The JSON should include:
 
 ```bash
 PYTHONPATH=src python -m aether_core.cli generation feedback <run_id> --liked true --notes "<notes>"
+```
+
+Generation recording automatically links generated outputs and visual review evidence back to each selected visual asset. Feedback recording adds user-feedback evidence. To inspect the resulting recommendation signal:
+
+```bash
+PYTHONPATH=src python -m aether_core.cli visual-asset evidence <visual_asset_id>
+PYTHONPATH=src python -m aether_core.cli visual-asset quality <visual_asset_id>
 ```
 
 ## Rules

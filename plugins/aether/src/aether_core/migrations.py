@@ -5,7 +5,7 @@ import sqlite3
 from .storage_time import now_iso
 
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 5
 
 
 def ensure_migration_table(conn: sqlite3.Connection) -> None:

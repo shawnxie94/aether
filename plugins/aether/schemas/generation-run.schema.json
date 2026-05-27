@@ -8,7 +8,7 @@
     "source_prompt": {"type": "string"},
     "refined_prompt": {"type": "string"},
     "negative_prompt": {"type": "string"},
-    "style_id": {"type": ["string", "null"]},
+    "selected_assets": {"type": "array"},
     "generation_skill": {"type": "string"},
     "skill_params": {"type": "object"},
     "skill_result_meta": {"type": "object"},

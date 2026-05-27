@@ -6,14 +6,16 @@
   "properties": {
     "id": {"type": "string"},
     "source_prompt": {"type": "string"},
-    "style_id": {"type": ["string", "null"]},
     "target_generation_skill": {"type": ["string", "null"]},
+    "selected_assets": {"type": "array"},
     "constraints": {"type": "object"},
     "intent_analysis": {"type": "object"},
+    "composition_plan": {"type": "object"},
     "refined_prompt": {"type": "string"},
     "negative_prompt": {"type": "string"},
     "generation_params": {"type": "object"},
     "variants": {"type": "array"},
-    "assumptions": {"type": "array", "items": {"type": "string"}}
+    "assumptions": {"type": "array", "items": {"type": "string"}},
+    "conflicts": {"type": "array"}
   }
 }

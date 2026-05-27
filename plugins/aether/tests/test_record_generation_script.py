@@ -39,7 +39,7 @@ class RecordGenerationScriptTests(unittest.TestCase):
                 "source_prompt": "source",
                 "refined_prompt": "refined",
                 "negative_prompt": "negative",
-                "style_id": "style_example",
+                "selected_assets": [{"asset_id": "visual_asset_style-example", "type": "style"}],
                 "generation_skill": "rightcodes-imagegen",
                 "skill_params": {},
                 "skill_result_meta": {"provider": "test"},
@@ -157,7 +157,7 @@ class RecordGenerationScriptTests(unittest.TestCase):
             payload = {
                 "source_prompt": "source",
                 "refined_prompt": "refined",
-                "style_id": "style_example",
+                "selected_assets": [{"asset_id": "visual_asset_style-example", "type": "style"}],
                 "generation_skill": "imagegen",
                 "outputs": [str(root / "generated.png")],
                 "status": "generated",
