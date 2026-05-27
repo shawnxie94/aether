@@ -1,4 +1,9 @@
 {
+  "mode": "generate",
+  "source_generation_id": null,
+  "source_output_asset_id": null,
+  "edit_instruction": "",
+  "edit_regions": [],
   "source_prompt": "original user prompt",
   "refined_prompt": "final prompt used for generation",
   "negative_prompt": "",
@@ -31,7 +36,9 @@
     "matched_traits": [],
     "deviations": [],
     "recommendation": "use",
-    "suggested_revision": ""
+    "suggested_revision": "",
+    "suggested_edit_instruction": "",
+    "localized_deviations": []
   },
   "outputs": [
     {

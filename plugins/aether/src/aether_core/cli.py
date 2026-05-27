@@ -306,10 +306,14 @@ def generation_summary(run: dict[str, Any]) -> dict[str, Any]:
     review = run.get("visual_review", {})
     return {
         "id": run["id"],
+        "mode": run.get("mode", "generate"),
+        "source_generation_id": run.get("source_generation_id"),
+        "source_output_asset_id": run.get("source_output_asset_id"),
         "selected_assets": run.get("selected_assets", []),
         "status": run.get("status"),
         "generation_skill": run.get("generation_skill"),
         "prompt_preview": _text_preview(run.get("refined_prompt", "")),
+        "edit_instruction_preview": _text_preview(run.get("edit_instruction", "")),
         "aspect_ratio": run.get("skill_params", {}).get("aspectRatio"),
         "output_count": len(run.get("outputs", [])),
         "first_output": _first_output_path(run.get("outputs", [])),

@@ -189,6 +189,62 @@ class RecordGenerationScriptTests(unittest.TestCase):
             self.assertEqual(output["visual_review"]["recommendation"], "regenerate")
             self.assertIn("assets/generated", output["outputs"][0]["asset_path"])
 
+    def test_edit_record_preserves_source_lineage(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "config.json").write_text(
+                json.dumps(
+                    {
+                        "storage": {
+                            "databasePath": "aether.sqlite",
+                            "assetRoot": "assets",
+                            "referenceImageDir": "assets/references",
+                            "generatedImageDir": "assets/generated",
+                            "cacheDir": "cache",
+                            "runDir": "runs",
+                        },
+                        "generation": {
+                            "defaultParams": {
+                                "aspectRatio": "1:1",
+                                "quality": "standard",
+                            }
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            payload = {
+                "mode": "edit",
+                "source_generation_id": "generation_parent",
+                "source_output_asset_id": "asset_source",
+                "edit_instruction": "Fix only the sign text and preserve the rest.",
+                "edit_regions": [{"label": "sign", "issue": "garbled text"}],
+                "source_prompt": "rainy storefront",
+                "refined_prompt": "rainy storefront, corrected sign text",
+                "generation_skill": "imagegen",
+                "outputs": [str(root / "edited.png")],
+                "status": "edited",
+            }
+            (root / "edited.png").write_bytes(b"fake png")
+
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), "--json", "-"],
+                cwd=root,
+                env={**os.environ, "HOME": str(root)},
+                input=json.dumps(payload),
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            output = json.loads(result.stdout)
+
+            self.assertEqual(output["mode"], "edit")
+            self.assertEqual(output["source_generation_id"], "generation_parent")
+            self.assertEqual(output["source_output_asset_id"], "asset_source")
+            self.assertEqual(output["edit_regions"][0]["label"], "sign")
+            self.assertEqual(output["visual_review"]["style_consistency"], "not_reviewed")
+            self.assertIn("assets/generated", output["outputs"][0]["asset_path"])
+
 
 if __name__ == "__main__":
     unittest.main()

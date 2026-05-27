@@ -135,6 +135,47 @@ class StorageTests(unittest.TestCase):
             self.assertEqual(stats["by_asset"]["visual_asset_style-a"]["total"], 2)
             self.assertEqual(stats["common_deviations"][0]["deviation"], "lost texture")
 
+    def test_generation_edit_lineage_round_trip(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = AetherStore(Path(temp_dir) / "aether.sqlite")
+            store.init()
+
+            original = store.create_generation_run(
+                {
+                    "source_prompt": "portrait",
+                    "refined_prompt": "soft portrait",
+                    "generation_skill": "imagegen",
+                    "status": "generated",
+                    "outputs": [{"asset_id": "asset_original", "image_path": "/tmp/original.png"}],
+                }
+            )
+            edited = store.create_generation_run(
+                {
+                    "mode": "edit",
+                    "source_generation_id": original["id"],
+                    "source_output_asset_id": "asset_original",
+                    "edit_instruction": "Fix only the right hand and preserve the face.",
+                    "edit_regions": [{"label": "right hand", "issue": "extra fingers"}],
+                    "source_prompt": "portrait",
+                    "refined_prompt": "soft portrait, corrected right hand",
+                    "generation_skill": "imagegen",
+                    "status": "edited",
+                    "visual_review": {
+                        "style_consistency": "minor_deviation",
+                        "localized_deviations": ["right hand needed repair"],
+                        "recommendation": "use",
+                    },
+                    "outputs": [{"asset_id": "asset_edit", "image_path": "/tmp/edit.png"}],
+                }
+            )
+
+            loaded = store.get_generation_run(edited["id"])
+            self.assertEqual(loaded["mode"], "edit")
+            self.assertEqual(loaded["source_generation_id"], original["id"])
+            self.assertEqual(loaded["source_output_asset_id"], "asset_original")
+            self.assertEqual(loaded["edit_regions"][0]["label"], "right hand")
+            self.assertEqual(store.list_generation_runs(status="edited")[0]["id"], edited["id"])
+
     def test_visual_asset_lifecycle_and_search(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             store = AetherStore(Path(temp_dir) / "aether.sqlite")

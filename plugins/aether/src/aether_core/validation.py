@@ -124,8 +124,12 @@ def validate_prompt_record(payload: dict[str, Any]) -> None:
 def validate_generation_run(payload: dict[str, Any]) -> None:
     _require(payload, "refined_prompt", str)
     _require(payload, "generation_skill", str)
+    if "mode" in payload and payload["mode"] not in {"generate", "edit"}:
+        raise ValidationError("Field mode must be generate or edit")
     if "selected_assets" in payload and not isinstance(payload["selected_assets"], list):
         raise ValidationError("Field selected_assets must be a list")
+    if "edit_regions" in payload and not isinstance(payload["edit_regions"], list):
+        raise ValidationError("Field edit_regions must be a list")
     if "outputs" in payload and not isinstance(payload["outputs"], list):
         raise ValidationError("Field outputs must be a list")
     if "skill_params" in payload and not isinstance(payload["skill_params"], dict):

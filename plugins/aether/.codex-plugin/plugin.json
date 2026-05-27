@@ -1,6 +1,6 @@
 {
   "name": "aether",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Personal visual asset memory, asset library browsing, prompt refinement, and explicit image generation workflow plugin for Codex.",
   "author": {
     "name": "Aether"
@@ -27,7 +27,8 @@
       "用 $aether-orchestrator 沉淀这组参考图的可复用视觉素材",
       "用 $aether-orchestrator 列出现有全部视觉素材并查看参考图",
       "用 $aether-orchestrator 精修这段生图提示词",
-      "用 $aether-orchestrator 基于精修提示词生成图片并记录"
+      "用 $aether-orchestrator 基于精修提示词生成图片并记录",
+      "用 $aether-orchestrator 局部编辑这张已生成图片"
     ],
     "brandColor": "#4F7CAC"
   }

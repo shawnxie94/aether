@@ -137,9 +137,14 @@ class AetherStore:
 
                 create table if not exists generation_runs (
                   id text primary key,
+                  mode text not null default 'generate',
                   source_prompt text not null default '',
                   refined_prompt text not null,
                   negative_prompt text not null default '',
+                  source_generation_id text,
+                  source_output_asset_id text,
+                  edit_instruction text not null default '',
+                  edit_regions_json text not null default '[]',
                   style_id text,
                   selected_assets_json text not null default '[]',
                   generation_skill text not null,
@@ -161,6 +166,11 @@ class AetherStore:
             self._ensure_column(conn, "prompt_records", "conflicts_json", "text not null default '[]'")
             self._ensure_column(conn, "generation_runs", "visual_review_json", "text not null default '{}'")
             self._ensure_column(conn, "generation_runs", "selected_assets_json", "text not null default '[]'")
+            self._ensure_column(conn, "generation_runs", "mode", "text not null default 'generate'")
+            self._ensure_column(conn, "generation_runs", "source_generation_id", "text")
+            self._ensure_column(conn, "generation_runs", "source_output_asset_id", "text")
+            self._ensure_column(conn, "generation_runs", "edit_instruction", "text not null default ''")
+            self._ensure_column(conn, "generation_runs", "edit_regions_json", "text not null default '[]'")
             record_schema_version(conn)
 
     def create_style(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -781,7 +791,11 @@ class AetherStore:
                 liked += 1
             elif feedback_liked is False or run.get("status") == "rejected":
                 rejected += 1
-            for deviation in run.get("visual_review", {}).get("deviations", []):
+            review_payload = run.get("visual_review", {})
+            for deviation in [
+                *review_payload.get("deviations", []),
+                *review_payload.get("localized_deviations", []),
+            ]:
                 if isinstance(deviation, str) and deviation:
                     deviations[deviation] = deviations.get(deviation, 0) + 1
 
@@ -1007,9 +1021,14 @@ class AetherStore:
                 selected_assets = constraints.get("selected_assets")
         record = {
             "id": payload.get("id") or new_id("generation"),
+            "mode": payload.get("mode", "generate"),
             "source_prompt": payload.get("source_prompt", ""),
             "refined_prompt": payload["refined_prompt"],
             "negative_prompt": payload.get("negative_prompt", ""),
+            "source_generation_id": payload.get("source_generation_id"),
+            "source_output_asset_id": payload.get("source_output_asset_id"),
+            "edit_instruction": payload.get("edit_instruction", ""),
+            "edit_regions": payload.get("edit_regions", []),
             "style_id": payload.get("style_id"),
             "selected_assets": selected_assets or [],
             "generation_skill": payload["generation_skill"],
@@ -1027,16 +1046,23 @@ class AetherStore:
             conn.execute(
                 """
                 insert into generation_runs (
-                  id, source_prompt, refined_prompt, negative_prompt, style_id, selected_assets_json,
+                  id, mode, source_prompt, refined_prompt, negative_prompt,
+                  source_generation_id, source_output_asset_id, edit_instruction, edit_regions_json,
+                  style_id, selected_assets_json,
                   generation_skill, skill_params_json, skill_result_meta_json, visual_review_json,
                   outputs_json, status, feedback_json, error, created_at, updated_at
-                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     record["id"],
+                    record["mode"],
                     record["source_prompt"],
                     record["refined_prompt"],
                     record["negative_prompt"],
+                    record["source_generation_id"],
+                    record["source_output_asset_id"],
+                    record["edit_instruction"],
+                    json_dumps(record["edit_regions"]),
                     record["style_id"],
                     json_dumps(record["selected_assets"]),
                     record["generation_skill"],
@@ -1180,7 +1206,11 @@ class AetherStore:
             else:
                 feedback["unrated"] += 1
 
-            for deviation in run.get("visual_review", {}).get("deviations", []):
+            review_payload = run.get("visual_review", {})
+            for deviation in [
+                *review_payload.get("deviations", []),
+                *review_payload.get("localized_deviations", []),
+            ]:
                 if isinstance(deviation, str) and deviation:
                     deviations[deviation] = deviations.get(deviation, 0) + 1
 
@@ -1218,8 +1248,11 @@ class AetherStore:
             return
         status = record.get("status")
         review = record.get("visual_review", {})
-        output_evidence_type = "generated_success" if status in ("generated", "liked") else "generated_failure"
-        if status in ("generated", "liked", "failed", "rejected"):
+        if record.get("mode") == "edit" and status in ("edited", "liked"):
+            output_evidence_type = "edited_success"
+        else:
+            output_evidence_type = "generated_success" if status in ("generated", "liked") else "generated_failure"
+        if status in ("generated", "edited", "liked", "failed", "rejected"):
             for output in record.get("outputs", []):
                 for asset_id in selected_asset_ids:
                     self.create_visual_asset_evidence(
@@ -1322,9 +1355,14 @@ class AetherStore:
     def _generation_from_row(self, row: sqlite3.Row) -> dict[str, Any]:
         return {
             "id": row["id"],
+            "mode": row["mode"],
             "source_prompt": row["source_prompt"],
             "refined_prompt": row["refined_prompt"],
             "negative_prompt": row["negative_prompt"],
+            "source_generation_id": row["source_generation_id"],
+            "source_output_asset_id": row["source_output_asset_id"],
+            "edit_instruction": row["edit_instruction"],
+            "edit_regions": json_loads(row["edit_regions_json"], []),
             "style_id": row["style_id"],
             "selected_assets": json_loads(row["selected_assets_json"], []),
             "generation_skill": row["generation_skill"],

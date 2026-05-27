@@ -71,6 +71,7 @@ Do not delete or rewrite user data directories unless explicitly requested.
 - Pending image-analysis modules live in SQLite `visual_asset_candidates`.
 - Prompt records live in SQLite `prompt_records`.
 - Generation records live in SQLite `generation_runs`.
+- Image edits are also generation records with `mode: edit`, preserving source generation and source output lineage.
 - Reference and generated image files are asset-managed.
 - Successful generated image outputs must be archived through `aether_core.output_archiving` before recording generation runs.
 - Prompt records should preserve `generation_params`, including `aspectRatio`.
@@ -81,7 +82,7 @@ Do not delete or rewrite user data directories unless explicitly requested.
 - Use `style-library` only for listing or inspecting existing visual assets and generation history.
 - Use `visual-asset-capture` for reference images, screenshots, source-image prompts, or reusable visual asset sedimentation.
 - Use `prompt-refine` before generation when the user gives a raw or fuzzy text prompt.
-- Use `image-generate` only after the user explicitly asks to generate/create/render/output a new image.
+- Use `image-generate` after the user explicitly asks to generate/create/render/output a new image, or asks to edit an existing generated image.
 - Do not call paid or external image generation before the user has confirmed a newly refined prompt unless they explicitly opted into auto-generation.
 - Visual review is advisory. Do not automatically discard, overwrite, merge, or regenerate without user confirmation.
 

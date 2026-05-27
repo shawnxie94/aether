@@ -91,12 +91,12 @@ def archive_output(config: Any, store: Any, output: Any) -> dict[str, Any]:
 
 
 def archive_generation_outputs(config: Any, store: Any, payload: dict[str, Any]) -> dict[str, Any]:
-    if payload.get("status") != "generated":
+    if payload.get("status") not in {"generated", "edited"}:
         return payload
 
     outputs = payload.get("outputs") or []
     if not outputs:
-        raise ValueError("Generated runs must include at least one output image to archive.")
+        raise ValueError("Generated or edited runs must include at least one output image to archive.")
 
     payload["outputs"] = [archive_output(config, store, output) for output in outputs]
     return payload

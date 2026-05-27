@@ -9,6 +9,11 @@ The Aether image-generate skill records the generation workflow. The actual imag
 
 ## Recommended Record Fields
 
+- `mode`: `generate` for first-pass generation, `edit` for image edits
+- `source_generation_id`: parent generation run when editing an existing output
+- `source_output_asset_id`: archived generated asset id being edited
+- `edit_instruction`: concrete edit request for `mode: edit`
+- `edit_regions`: local regions or defect descriptions for targeted edits
 - `source_prompt`
 - `negative_prompt`
 - `selected_assets`
@@ -48,7 +53,10 @@ After successful generation, compare each output image against the selected visu
 - `score`: approximate 0-1 style consistency score
 - `matched_traits`: reusable visual traits that are present
 - `deviations`: visual traits that drifted from the selected assets or reference images
-- `recommendation`: `use`, `revise_prompt`, or `regenerate`
+- `recommendation`: `use`, `edit`, `revise_prompt`, or `regenerate`
 - `suggested_revision`: concise prompt or parameter adjustment when revision is recommended
+- `suggested_edit_instruction`: concise image-edit instruction when only local regions need correction
+- `localized_deviations`: local defects that can likely be fixed with image editing
 
 Use `major_deviation` when the output does not preserve the selected assets' core art direction, color/lighting language, composition rules, mood, scene logic, or material/rendering treatment.
+Use `recommendation: edit` when the overall image is acceptable but one or more local regions are flawed, such as hands, text, face details, object geometry, a localized style break, or small composition cleanup.

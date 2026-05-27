@@ -55,6 +55,17 @@ class ValidationTests(unittest.TestCase):
                 }
             )
 
+    def test_generation_edit_regions_must_be_list(self):
+        with self.assertRaises(ValidationError):
+            validate_generation_run(
+                {
+                    "refined_prompt": "x",
+                    "generation_skill": "imagegen",
+                    "mode": "edit",
+                    "edit_regions": {"label": "hand"},
+                }
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

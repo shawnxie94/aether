@@ -105,9 +105,13 @@ aether generation list --limit 10
 Present generation list rows with:
 
 - `id`
+- `mode`
+- `source_generation_id`
+- `source_output_asset_id`
 - `selected_assets`
 - `status`
 - `prompt_preview`
+- `edit_instruction_preview`
 - `aspect_ratio`
 - `first_output`
 - `style_consistency`

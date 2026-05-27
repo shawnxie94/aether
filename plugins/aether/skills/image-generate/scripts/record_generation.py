@@ -50,7 +50,7 @@ def selected_assets_from_payload(payload: dict) -> list:
 def apply_visual_review_default(payload: dict) -> dict:
     if isinstance(payload.get("visual_review"), dict) and payload["visual_review"]:
         return payload
-    if payload.get("status") != "generated":
+    if payload.get("status") not in {"generated", "edited"}:
         return payload
 
     reason = "Visual review was not provided before recording this generated output."
@@ -67,6 +67,8 @@ def apply_visual_review_default(payload: dict) -> dict:
         "deviations": [reason],
         "recommendation": "use",
         "suggested_revision": "",
+        "suggested_edit_instruction": "",
+        "localized_deviations": [],
     }
     return payload
 
