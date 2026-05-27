@@ -1,0 +1,52 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Aether Recipe",
+  "type": "object",
+  "required": ["name"],
+  "properties": {
+    "id": {"type": "string"},
+    "name": {"type": "string"},
+    "summary": {"type": "string"},
+    "parent_system_ids": {"type": "array", "items": {"type": "string"}},
+    "use_cases": {"type": "array", "items": {"type": "string"}},
+    "required_asset_types": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "style",
+          "color_palette",
+          "lighting",
+          "composition",
+          "camera",
+          "mood",
+          "scene",
+          "texture",
+          "character",
+          "prop_symbol",
+          "shape_line",
+          "negative_rule"
+        ]
+      }
+    },
+    "recommended_aspect_ratios": {"type": "array", "items": {"type": "string"}},
+    "source_reference_ids": {"type": "array", "items": {"type": "string"}},
+    "confidence": {"type": "number"},
+    "source": {"type": "string"},
+    "reason": {"type": "string"},
+    "assets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["asset_id"],
+        "properties": {
+          "asset_id": {"type": "string"},
+          "role": {"type": "string", "enum": ["core", "optional", "avoid", "reference_only"]},
+          "weight": {"type": "number"},
+          "reason": {"type": "string"}
+        }
+      }
+    },
+    "status": {"type": "string"}
+  }
+}

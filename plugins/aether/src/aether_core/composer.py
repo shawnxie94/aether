@@ -81,13 +81,23 @@ def _asset_score(
     query_tokens: set[str],
     explicit_asset_ids: set[str],
     selected_ids: set[str],
+    boosted_ids: dict[str, list[str]] | None = None,
+    avoided_ids: set[str] | None = None,
 ) -> tuple[float, list[str]]:
     reasons: list[str] = []
     score = 0.0
     asset_id = asset["id"]
+    boosted_ids = boosted_ids or {}
+    avoided_ids = avoided_ids or set()
     if asset_id in explicit_asset_ids:
         score += 100.0
         reasons.append("explicitly requested")
+    if asset_id in boosted_ids:
+        score += 18.0
+        reasons.extend(boosted_ids[asset_id])
+    if asset_id in avoided_ids and asset_id not in explicit_asset_ids:
+        score -= 60.0
+        reasons.append("discouraged by selected system or recipe")
 
     asset_tokens = _tokens(_asset_text(asset))
     prompt_overlap = sorted(prompt_tokens & asset_tokens)
@@ -148,16 +158,105 @@ def compose_prompt(
     source_prompt: str,
     *,
     explicit_asset_ids: list[str] | None = None,
+    system_ids: list[str] | None = None,
+    recipe_ids: list[str] | None = None,
     query: str = "",
     aspect_ratio: str | None = None,
     target_generation_skill: str | None = None,
     default_generation_params: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     explicit_asset_ids = explicit_asset_ids or []
+    system_ids = system_ids or []
+    recipe_ids = recipe_ids or []
     explicit_set = set(explicit_asset_ids)
     prompt_tokens = _tokens(source_prompt)
     query_tokens = _tokens(query)
     active_assets = store.list_visual_assets(status="active", limit=None)
+    active_by_id = {asset["id"]: asset for asset in active_assets}
+
+    selected_systems: list[dict[str, Any]] = []
+    selected_recipes: list[dict[str, Any]] = []
+    forced_asset_reasons: dict[str, list[str]] = {}
+    boosted_asset_reasons: dict[str, list[str]] = {}
+    avoided_asset_ids: set[str] = set()
+    system_visual_rules: list[str] = []
+    system_avoid_rules: list[str] = []
+
+    for system_id in system_ids:
+        system = store.get_visual_system(system_id)
+        if not system or system["status"] == "archived":
+            continue
+        selected_systems.append(
+            {
+                "system_id": system["id"],
+                "kind": system["kind"],
+                "name": system["name"],
+                "visual_rules": system.get("visual_rules", []),
+                "avoid_rules": system.get("avoid_rules", []),
+                "reason": "requested visual system",
+            }
+        )
+        system_visual_rules.extend(str(rule) for rule in system.get("visual_rules", []) if rule)
+        system_avoid_rules.extend(str(rule) for rule in system.get("avoid_rules", []) if rule)
+        for relation in system.get("assets", []):
+            asset_id = relation["asset_id"]
+            role = relation.get("role", "optional")
+            reason = f"{system['kind']} system {system['name']} relation: {role}"
+            if role == "core":
+                forced_asset_reasons.setdefault(asset_id, []).append(reason)
+            elif role == "optional":
+                boosted_asset_reasons.setdefault(asset_id, []).append(reason)
+            elif role == "avoid":
+                avoided_asset_ids.add(asset_id)
+
+    for recipe_id in recipe_ids:
+        recipe = store.get_recipe(recipe_id)
+        if not recipe or recipe["status"] == "archived":
+            continue
+        selected_recipes.append(
+            {
+                "recipe_id": recipe["id"],
+                "name": recipe["name"],
+                "recommended_aspect_ratios": recipe.get("recommended_aspect_ratios", []),
+                "reason": "requested recipe",
+            }
+        )
+        for system_id in recipe.get("parent_system_ids", []):
+            if system_id not in system_ids:
+                system = store.get_visual_system(system_id)
+                if system and system["status"] != "archived":
+                    selected_systems.append(
+                        {
+                            "system_id": system["id"],
+                            "kind": system["kind"],
+                            "name": system["name"],
+                            "visual_rules": system.get("visual_rules", []),
+                            "avoid_rules": system.get("avoid_rules", []),
+                            "reason": f"parent system of recipe {recipe['name']}",
+                        }
+                    )
+                    system_visual_rules.extend(str(rule) for rule in system.get("visual_rules", []) if rule)
+                    system_avoid_rules.extend(str(rule) for rule in system.get("avoid_rules", []) if rule)
+                    for relation in system.get("assets", []):
+                        asset_id = relation["asset_id"]
+                        role = relation.get("role", "optional")
+                        reason = f"{system['kind']} system {system['name']} relation: {role}"
+                        if role == "core":
+                            forced_asset_reasons.setdefault(asset_id, []).append(reason)
+                        elif role == "optional":
+                            boosted_asset_reasons.setdefault(asset_id, []).append(reason)
+                        elif role == "avoid":
+                            avoided_asset_ids.add(asset_id)
+        for relation in recipe.get("assets", []):
+            asset_id = relation["asset_id"]
+            role = relation.get("role", "optional")
+            reason = f"recipe {recipe['name']} relation: {role}"
+            if role == "core":
+                forced_asset_reasons.setdefault(asset_id, []).append(reason)
+            elif role == "optional":
+                boosted_asset_reasons.setdefault(asset_id, []).append(reason)
+            elif role == "avoid":
+                avoided_asset_ids.add(asset_id)
 
     selected: list[dict[str, Any]] = []
     selected_ids: set[str] = set()
@@ -170,13 +269,41 @@ def compose_prompt(
             selected_ids.add(asset["id"])
             reasons_by_id[asset["id"]] = ["explicitly requested"]
 
+    for asset_id, reasons in sorted(forced_asset_reasons.items(), key=lambda item: item[0]):
+        if asset_id in selected_ids:
+            reasons_by_id[asset_id].extend(reasons)
+            continue
+        asset = active_by_id.get(asset_id) or store.get_visual_asset(asset_id)
+        if asset and asset["status"] == "active":
+            selected.append(asset)
+            selected_ids.add(asset["id"])
+            reasons_by_id[asset["id"]] = reasons
+
     for asset_type, quota in TYPE_QUOTAS.items():
         current_count = sum(1 for asset in selected if asset["type"] == asset_type)
         if current_count >= quota:
             continue
-        candidates = [asset for asset in active_assets if asset["type"] == asset_type and asset["id"] not in selected_ids]
+        candidates = [
+            asset
+            for asset in active_assets
+            if asset["type"] == asset_type
+            and asset["id"] not in selected_ids
+            and (asset["id"] not in avoided_asset_ids or asset["id"] in explicit_set)
+        ]
         scored = [
-            (_asset_score(store, asset, prompt_tokens, query_tokens, explicit_set, selected_ids), asset)
+            (
+                _asset_score(
+                    store,
+                    asset,
+                    prompt_tokens,
+                    query_tokens,
+                    explicit_set,
+                    selected_ids,
+                    boosted_asset_reasons,
+                    avoided_asset_ids,
+                ),
+                asset,
+            )
             for asset in candidates
         ]
         scored.sort(key=lambda item: item[0][0], reverse=True)
@@ -207,12 +334,21 @@ def compose_prompt(
     generation_params = dict(default_generation_params or {})
     if aspect_ratio:
         generation_params["aspectRatio"] = aspect_ratio
-    elif "aspectRatio" not in generation_params:
-        for asset in selected:
-            ratios = asset.get("recommended_aspect_ratios", [])
+    else:
+        selected_ratio = ""
+        for recipe in selected_recipes:
+            ratios = recipe.get("recommended_aspect_ratios", [])
             if ratios:
-                generation_params["aspectRatio"] = ratios[0]
+                selected_ratio = ratios[0]
                 break
+        if not selected_ratio:
+            for asset in selected:
+                ratios = asset.get("recommended_aspect_ratios", [])
+                if ratios:
+                    selected_ratio = ratios[0]
+                    break
+        if selected_ratio:
+            generation_params["aspectRatio"] = selected_ratio
     generation_params.setdefault("aspectRatio", "1:1")
 
     composition_plan: dict[str, Any] = {
@@ -230,6 +366,14 @@ def compose_prompt(
         "shape_line": "",
         "negative_rules": [],
     }
+    if selected_systems:
+        composition_plan["visual_systems"] = selected_systems
+        composition_plan["system_rules"] = []
+        for rule in system_visual_rules:
+            if rule not in composition_plan["system_rules"]:
+                composition_plan["system_rules"].append(rule)
+    if selected_recipes:
+        composition_plan["recipes"] = selected_recipes
     for asset in selected:
         key = PLAN_KEYS.get(asset["type"], asset["type"])
         summary = asset.get("summary") or asset.get("name", "")
@@ -239,14 +383,20 @@ def compose_prompt(
             composition_plan[key] = summary
 
     refined_parts = [source_prompt]
+    for fragment in system_visual_rules:
+        if fragment not in refined_parts:
+            refined_parts.append(fragment)
     refined_parts.extend(fragment for fragment in prompt_fragments if fragment not in refined_parts)
     negative_parts = []
+    for fragment in system_avoid_rules:
+        if fragment not in negative_parts:
+            negative_parts.append(fragment)
     for fragment in negative_fragments:
         if fragment not in negative_parts:
             negative_parts.append(fragment)
 
     assumptions = [
-        "Selected visual assets were recalled from active assets using explicit ids, prompt/query overlap, compatibility, and generation quality.",
+        "Selected visual assets were recalled from active assets using explicit ids, visual systems, recipes, prompt/query overlap, compatibility, and generation quality.",
         f"Aspect ratio set to {generation_params['aspectRatio']}.",
     ]
     if conflicts:
@@ -258,6 +408,9 @@ def compose_prompt(
         "selected_assets": selected_assets,
         "constraints": {
             "selected_assets": selected_assets,
+            "selected_systems": selected_systems,
+            "selected_recipes": selected_recipes,
+            "avoided_asset_ids": sorted(avoided_asset_ids),
             "conflicts": conflicts,
         },
         "intent_analysis": {

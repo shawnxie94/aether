@@ -44,7 +44,25 @@ Present each asset with:
 - `reference_count`
 - `updated_at`
 
-3. When the user asks for concrete definition, parameters, prompt recipe, negative prompt, or reference images, load the asset payload:
+3. When the user asks for worlds, genres, series, art directions, or recommendation recipes, use:
+
+```bash
+aether visual-system list --summary
+aether visual-system list --kind worldview --summary
+aether recipe list --summary
+aether recipe list --system-id <visual_system_id> --summary
+```
+
+Load details with:
+
+```bash
+aether visual-system get <visual_system_id>
+aether recipe get <recipe_id>
+```
+
+Present visual systems with `id`, `kind`, `name`, `status`, `summary`, `tags`, source reference count, and updated time. Present recipes with `id`, `name`, `status`, parent system ids, use cases, required asset types, recommended aspect ratios, confidence, source, and updated time.
+
+4. When the user asks for concrete definition, parameters, prompt recipe, negative prompt, or reference images, load the asset payload:
 
 ```bash
 aether visual-asset get <visual_asset_id>
@@ -61,7 +79,7 @@ Present details in this order:
 - `recommended_aspect_ratios`
 - reference images
 
-4. For reference images, use `source_references[].image_path` or `source_references[].asset_path` when available. In Codex Desktop responses, show local reference images with Markdown image syntax:
+5. For reference images, use `source_references[].image_path` or `source_references[].asset_path` when available. In Codex Desktop responses, show local reference images with Markdown image syntax:
 
 ```markdown
 ![<asset-name> reference <index>](/absolute/path/to/reference.png)
@@ -76,6 +94,11 @@ When the user asks for pending extracted modules or confirmation work:
 ```bash
 aether visual-asset candidates list --status pending --summary
 aether visual-asset candidates get <candidate_id>
+aether visual-asset candidates confirm-batch <batch_id>
+aether recipe candidates list --status pending
+aether recipe candidates get <recipe_candidate_id>
+aether visual-system candidates list --status pending
+aether visual-system candidates get <visual_system_candidate_id>
 ```
 
 When the user asks why an asset is being recommended or how it has performed:
@@ -131,6 +154,7 @@ When the user asks for generation quality or review trends, use:
 ```bash
 aether generation stats
 aether generation stats --asset-id <visual_asset_id>
+aether generation suggest <generation_run_id>
 ```
 
 Summarize:

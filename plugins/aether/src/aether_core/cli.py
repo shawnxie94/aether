@@ -123,6 +123,35 @@ def visual_asset_summary(asset: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def visual_system_summary(system: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": system["id"],
+        "kind": system["kind"],
+        "name": system["name"],
+        "summary": system["summary"],
+        "tags": system.get("tags", []),
+        "status": system["status"],
+        "source_reference_count": len(system.get("source_reference_ids", [])),
+        "updated_at": system["updated_at"],
+    }
+
+
+def recipe_summary(recipe: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": recipe["id"],
+        "name": recipe["name"],
+        "summary": recipe["summary"],
+        "parent_system_ids": recipe.get("parent_system_ids", []),
+        "use_cases": recipe.get("use_cases", []),
+        "required_asset_types": recipe.get("required_asset_types", []),
+        "recommended_aspect_ratios": recipe.get("recommended_aspect_ratios", []),
+        "confidence": recipe.get("confidence"),
+        "source": recipe.get("source"),
+        "status": recipe["status"],
+        "updated_at": recipe["updated_at"],
+    }
+
+
 def cmd_visual_asset_create(args: argparse.Namespace) -> None:
     config, store = _store()
     payload = read_json_arg(args.json)
@@ -198,6 +227,11 @@ def cmd_visual_asset_candidate_decide(args: argparse.Namespace) -> None:
     dump_json(store.decide_visual_asset_candidate(args.candidate_id, args.decision, args.target_asset_id))
 
 
+def cmd_visual_asset_candidates_confirm_batch(args: argparse.Namespace) -> None:
+    _, store = _store()
+    dump_json(store.confirm_visual_asset_candidate_batch(args.batch_id))
+
+
 def cmd_visual_asset_evidence(args: argparse.Namespace) -> None:
     _, store = _store()
     dump_json(
@@ -212,6 +246,112 @@ def cmd_visual_asset_evidence(args: argparse.Namespace) -> None:
 def cmd_visual_asset_quality(args: argparse.Namespace) -> None:
     _, store = _store()
     dump_json(store.visual_asset_quality(args.asset_id))
+
+
+def cmd_visual_system_create(args: argparse.Namespace) -> None:
+    _, store = _store()
+    dump_json(store.create_visual_system(read_json_arg(args.json)))
+
+
+def cmd_visual_system_list(args: argparse.Namespace) -> None:
+    _, store = _store()
+    systems = store.list_visual_systems(
+        kind=args.kind,
+        status=args.status,
+        query=args.query,
+        limit=args.limit,
+    )
+    dump_json([visual_system_summary(system) for system in systems] if args.summary else systems)
+
+
+def cmd_visual_system_get(args: argparse.Namespace) -> None:
+    _, store = _store()
+    system = store.get_visual_system(args.system_id)
+    if not system:
+        raise SystemExit(f"Visual system not found: {args.system_id}")
+    dump_json(system)
+
+
+def cmd_visual_system_add_asset(args: argparse.Namespace) -> None:
+    _, store = _store()
+    payload = {
+        "asset_id": args.asset_id,
+        "role": args.role,
+        "weight": args.weight,
+        "reason": args.reason or "",
+    }
+    dump_json(store.set_visual_system_asset(args.system_id, payload))
+
+
+def cmd_visual_system_candidates_list(args: argparse.Namespace) -> None:
+    _, store = _store()
+    dump_json(store.list_visual_system_candidates(batch_id=args.batch_id, status=args.status, limit=args.limit))
+
+
+def cmd_visual_system_candidate_get(args: argparse.Namespace) -> None:
+    _, store = _store()
+    candidate = store.get_visual_system_candidate(args.candidate_id)
+    if not candidate:
+        raise SystemExit(f"Visual system candidate not found: {args.candidate_id}")
+    dump_json(candidate)
+
+
+def cmd_visual_system_candidate_confirm(args: argparse.Namespace) -> None:
+    _, store = _store()
+    dump_json(store.confirm_visual_system_candidate(args.candidate_id))
+
+
+def cmd_recipe_create(args: argparse.Namespace) -> None:
+    _, store = _store()
+    dump_json(store.create_recipe(read_json_arg(args.json)))
+
+
+def cmd_recipe_list(args: argparse.Namespace) -> None:
+    _, store = _store()
+    recipes = store.list_recipes(
+        system_id=args.system_id,
+        status=args.status,
+        query=args.query,
+        limit=args.limit,
+    )
+    dump_json([recipe_summary(recipe) for recipe in recipes] if args.summary else recipes)
+
+
+def cmd_recipe_get(args: argparse.Namespace) -> None:
+    _, store = _store()
+    recipe = store.get_recipe(args.recipe_id)
+    if not recipe:
+        raise SystemExit(f"Recipe not found: {args.recipe_id}")
+    dump_json(recipe)
+
+
+def cmd_recipe_add_asset(args: argparse.Namespace) -> None:
+    _, store = _store()
+    payload = {
+        "asset_id": args.asset_id,
+        "role": args.role,
+        "weight": args.weight,
+        "reason": args.reason or "",
+    }
+    dump_json(store.set_recipe_asset(args.recipe_id, payload))
+
+
+def cmd_recipe_candidates_list(args: argparse.Namespace) -> None:
+    _, store = _store()
+    dump_json(store.list_recipe_candidates(batch_id=args.batch_id, status=args.status, limit=args.limit))
+
+
+def cmd_recipe_candidate_get(args: argparse.Namespace) -> None:
+    _, store = _store()
+    candidate = store.get_recipe_candidate(args.candidate_id)
+    if not candidate:
+        raise SystemExit(f"Recipe candidate not found: {args.candidate_id}")
+    dump_json(candidate)
+
+
+def cmd_recipe_candidate_confirm(args: argparse.Namespace) -> None:
+    _, store = _store()
+    dump_json(store.confirm_recipe_candidate(args.candidate_id, parent_system_ids=args.system_id))
 
 
 def cmd_asset_ingest(args: argparse.Namespace) -> None:
@@ -254,6 +394,8 @@ def cmd_prompt_compose(args: argparse.Namespace) -> None:
         store,
         args.source_prompt,
         explicit_asset_ids=args.asset_id or [],
+        system_ids=args.system_id or [],
+        recipe_ids=args.recipe_id or [],
         query=args.query or "",
         aspect_ratio=args.aspect_ratio,
         target_generation_skill=target_generation_skill,
@@ -353,6 +495,11 @@ def cmd_generation_stats(args: argparse.Namespace) -> None:
     dump_json(store.generation_stats(asset_id=args.asset_id))
 
 
+def cmd_generation_suggest(args: argparse.Namespace) -> None:
+    _, store = _store()
+    dump_json(store.suggest_generation_reuse(args.run_id, kind=args.kind, auto=args.auto))
+
+
 def cmd_validate(args: argparse.Namespace) -> None:
     payload = read_json_arg(args.json)
     validate_payload(args.kind, payload)
@@ -443,6 +590,9 @@ def build_parser() -> argparse.ArgumentParser:
     visual_asset_candidate_decide.add_argument("decision", choices=["existing_asset", "asset_variant", "new_asset", "ignore"])
     visual_asset_candidate_decide.add_argument("--target-asset-id")
     visual_asset_candidate_decide.set_defaults(func=cmd_visual_asset_candidate_decide)
+    visual_asset_candidates_confirm_batch = visual_asset_candidates_sub.add_parser("confirm-batch")
+    visual_asset_candidates_confirm_batch.add_argument("batch_id")
+    visual_asset_candidates_confirm_batch.set_defaults(func=cmd_visual_asset_candidates_confirm_batch)
     visual_asset_evidence = visual_asset_sub.add_parser("evidence")
     visual_asset_evidence.add_argument("asset_id")
     visual_asset_evidence.add_argument("--type")
@@ -451,6 +601,79 @@ def build_parser() -> argparse.ArgumentParser:
     visual_asset_quality = visual_asset_sub.add_parser("quality")
     visual_asset_quality.add_argument("asset_id")
     visual_asset_quality.set_defaults(func=cmd_visual_asset_quality)
+
+    visual_system = sub.add_parser("visual-system")
+    visual_system_sub = visual_system.add_subparsers(required=True)
+    visual_system_create = visual_system_sub.add_parser("create")
+    visual_system_create.add_argument("--json", required=True)
+    visual_system_create.set_defaults(func=cmd_visual_system_create)
+    visual_system_list = visual_system_sub.add_parser("list")
+    visual_system_list.add_argument("--kind", choices=["worldview", "genre", "series", "art_direction"])
+    visual_system_list.add_argument("--status")
+    visual_system_list.add_argument("--query")
+    visual_system_list.add_argument("--limit", type=int, default=50)
+    visual_system_list.add_argument("--summary", action="store_true")
+    visual_system_list.set_defaults(func=cmd_visual_system_list)
+    visual_system_get = visual_system_sub.add_parser("get")
+    visual_system_get.add_argument("system_id")
+    visual_system_get.set_defaults(func=cmd_visual_system_get)
+    visual_system_add_asset = visual_system_sub.add_parser("add-asset")
+    visual_system_add_asset.add_argument("system_id")
+    visual_system_add_asset.add_argument("asset_id")
+    visual_system_add_asset.add_argument("--role", choices=["core", "optional", "avoid", "reference_only"], default="optional")
+    visual_system_add_asset.add_argument("--weight", type=float, default=0.5)
+    visual_system_add_asset.add_argument("--reason")
+    visual_system_add_asset.set_defaults(func=cmd_visual_system_add_asset)
+    visual_system_candidates = visual_system_sub.add_parser("candidates")
+    visual_system_candidates_sub = visual_system_candidates.add_subparsers(required=True)
+    visual_system_candidates_list = visual_system_candidates_sub.add_parser("list")
+    visual_system_candidates_list.add_argument("--batch-id")
+    visual_system_candidates_list.add_argument("--status")
+    visual_system_candidates_list.add_argument("--limit", type=int, default=50)
+    visual_system_candidates_list.set_defaults(func=cmd_visual_system_candidates_list)
+    visual_system_candidate_get = visual_system_candidates_sub.add_parser("get")
+    visual_system_candidate_get.add_argument("candidate_id")
+    visual_system_candidate_get.set_defaults(func=cmd_visual_system_candidate_get)
+    visual_system_candidate_confirm = visual_system_candidates_sub.add_parser("confirm")
+    visual_system_candidate_confirm.add_argument("candidate_id")
+    visual_system_candidate_confirm.set_defaults(func=cmd_visual_system_candidate_confirm)
+
+    recipe = sub.add_parser("recipe")
+    recipe_sub = recipe.add_subparsers(required=True)
+    recipe_create = recipe_sub.add_parser("create")
+    recipe_create.add_argument("--json", required=True)
+    recipe_create.set_defaults(func=cmd_recipe_create)
+    recipe_list = recipe_sub.add_parser("list")
+    recipe_list.add_argument("--system-id")
+    recipe_list.add_argument("--status")
+    recipe_list.add_argument("--query")
+    recipe_list.add_argument("--limit", type=int, default=50)
+    recipe_list.add_argument("--summary", action="store_true")
+    recipe_list.set_defaults(func=cmd_recipe_list)
+    recipe_get = recipe_sub.add_parser("get")
+    recipe_get.add_argument("recipe_id")
+    recipe_get.set_defaults(func=cmd_recipe_get)
+    recipe_add_asset = recipe_sub.add_parser("add-asset")
+    recipe_add_asset.add_argument("recipe_id")
+    recipe_add_asset.add_argument("asset_id")
+    recipe_add_asset.add_argument("--role", choices=["core", "optional", "avoid", "reference_only"], default="optional")
+    recipe_add_asset.add_argument("--weight", type=float, default=0.5)
+    recipe_add_asset.add_argument("--reason")
+    recipe_add_asset.set_defaults(func=cmd_recipe_add_asset)
+    recipe_candidates = recipe_sub.add_parser("candidates")
+    recipe_candidates_sub = recipe_candidates.add_subparsers(required=True)
+    recipe_candidates_list = recipe_candidates_sub.add_parser("list")
+    recipe_candidates_list.add_argument("--batch-id")
+    recipe_candidates_list.add_argument("--status")
+    recipe_candidates_list.add_argument("--limit", type=int, default=50)
+    recipe_candidates_list.set_defaults(func=cmd_recipe_candidates_list)
+    recipe_candidate_get = recipe_candidates_sub.add_parser("get")
+    recipe_candidate_get.add_argument("candidate_id")
+    recipe_candidate_get.set_defaults(func=cmd_recipe_candidate_get)
+    recipe_candidate_confirm = recipe_candidates_sub.add_parser("confirm")
+    recipe_candidate_confirm.add_argument("candidate_id")
+    recipe_candidate_confirm.add_argument("--system-id", action="append")
+    recipe_candidate_confirm.set_defaults(func=cmd_recipe_candidate_confirm)
 
     asset = sub.add_parser("asset")
     asset_sub = asset.add_subparsers(required=True)
@@ -479,6 +702,8 @@ def build_parser() -> argparse.ArgumentParser:
     prompt_compose = prompt_sub.add_parser("compose")
     prompt_compose.add_argument("--source-prompt", required=True)
     prompt_compose.add_argument("--asset-id", action="append")
+    prompt_compose.add_argument("--system-id", action="append")
+    prompt_compose.add_argument("--recipe-id", action="append")
     prompt_compose.add_argument("--query")
     prompt_compose.add_argument("--aspect-ratio")
     prompt_compose.add_argument("--target-generation-skill")
@@ -502,6 +727,11 @@ def build_parser() -> argparse.ArgumentParser:
     generation_stats = generation_sub.add_parser("stats")
     generation_stats.add_argument("--asset-id")
     generation_stats.set_defaults(func=cmd_generation_stats)
+    generation_suggest = generation_sub.add_parser("suggest")
+    generation_suggest.add_argument("run_id")
+    generation_suggest.add_argument("--kind", choices=["recipe", "visual-system"])
+    generation_suggest.add_argument("--auto", action="store_true")
+    generation_suggest.set_defaults(func=cmd_generation_suggest)
     generation_feedback = generation_sub.add_parser("feedback")
     generation_feedback.add_argument("run_id")
     generation_feedback.add_argument("--liked", choices=["true", "false"])
@@ -514,7 +744,10 @@ def build_parser() -> argparse.ArgumentParser:
     serve.set_defaults(func=cmd_serve)
 
     validate = sub.add_parser("validate")
-    validate.add_argument("kind", choices=["visual-asset", "visual-asset-candidate", "prompt", "generation"])
+    validate.add_argument(
+        "kind",
+        choices=["visual-asset", "visual-asset-candidate", "visual-system", "recipe", "prompt", "generation"],
+    )
     validate.add_argument("--json", required=True)
     validate.set_defaults(func=cmd_validate)
     return parser

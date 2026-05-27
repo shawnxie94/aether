@@ -1,0 +1,25 @@
+{
+  "kind": "worldview",
+  "name": "Oriental Lotus Realm",
+  "summary": "A bright oriental fantasy pond world built around lotus leaves, stone platforms, koi, small creatures, and quiet encounters.",
+  "tags": ["oriental fantasy", "lotus pond", "storybook"],
+  "visual_rules": [
+    "Keep lotus pond, stone, water, foliage, or small magical creature motifs visible.",
+    "Characters should feel integrated into the environment rather than isolated as close-up portraits."
+  ],
+  "avoid_rules": [
+    "Avoid modern city objects.",
+    "Avoid cyberpunk machinery.",
+    "Avoid horror swamp rendering."
+  ],
+  "source_reference_ids": ["asset_reference_lotus_pond"],
+  "assets": [
+    {
+      "asset_id": "visual_asset_lotus_scene",
+      "role": "core",
+      "weight": 0.9,
+      "reason": "Defines the reusable environment archetype."
+    }
+  ],
+  "status": "active"
+}

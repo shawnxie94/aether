@@ -1,0 +1,21 @@
+{
+  "name": "Lotus Wide Encounter Key Art",
+  "summary": "A wide top-down encounter composition for oriental fantasy pond key art.",
+  "parent_system_ids": ["visual_system_oriental_lotus_realm"],
+  "use_cases": ["game key art", "storybook spread", "environment encounter"],
+  "required_asset_types": ["scene", "style", "color_palette", "composition"],
+  "recommended_aspect_ratios": ["16:9", "21:9"],
+  "source_reference_ids": ["asset_reference_lotus_pond"],
+  "confidence": 0.65,
+  "source": "same_reference_image",
+  "reason": "The selected scene, style, palette, and composition were extracted from one visually coherent reference image.",
+  "assets": [
+    {
+      "asset_id": "visual_asset_lotus_scene",
+      "role": "core",
+      "weight": 0.9,
+      "reason": "Provides the scene archetype."
+    }
+  ],
+  "status": "active"
+}

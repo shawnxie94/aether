@@ -279,6 +279,312 @@ class StorageTests(unittest.TestCase):
             self.assertIn("user_feedback", evidence_types)
             self.assertGreater(store.visual_asset_quality(existing["id"])["score"], 0.7)
 
+    def test_visual_system_recipe_and_candidate_confirmation(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = AetherStore(Path(temp_dir) / "aether.sqlite")
+            store.init()
+
+            style = store.create_visual_asset(
+                {
+                    "type": "style",
+                    "name": "Oil Pastel Anime",
+                    "summary": "hand drawn oil pastel anime",
+                    "status": "active",
+                }
+            )
+            texture = store.create_visual_asset(
+                {
+                    "type": "texture",
+                    "name": "Paper Grain",
+                    "summary": "off white grainy paper",
+                    "status": "active",
+                }
+            )
+
+            system = store.create_visual_system(
+                {
+                    "kind": "genre",
+                    "name": "Oil Pastel Daily Anime",
+                    "summary": "handmade anime illustration system",
+                    "visual_rules": ["preserve tactile paper"],
+                    "assets": [
+                        {
+                            "asset_id": style["id"],
+                            "role": "core",
+                            "weight": 0.9,
+                            "reason": "core style",
+                        },
+                        {
+                            "asset_id": texture["id"],
+                            "role": "optional",
+                            "weight": 0.7,
+                        },
+                    ],
+                    "status": "active",
+                }
+            )
+            self.assertEqual(system["kind"], "genre")
+            self.assertEqual(len(store.get_visual_system(system["id"])["assets"]), 2)
+
+            recipe = store.create_recipe(
+                {
+                    "name": "Oil Pastel Character",
+                    "parent_system_ids": [system["id"]],
+                    "required_asset_types": ["style", "texture"],
+                    "recommended_aspect_ratios": ["4:3"],
+                    "assets": [
+                        {
+                            "asset_id": style["id"],
+                            "role": "core",
+                            "weight": 0.9,
+                        },
+                        {
+                            "asset_id": texture["id"],
+                            "role": "core",
+                            "weight": 0.8,
+                        },
+                    ],
+                    "status": "active",
+                }
+            )
+            self.assertEqual(store.list_recipes(system_id=system["id"])[0]["id"], recipe["id"])
+            self.assertEqual(len(store.get_recipe(recipe["id"])["assets"]), 2)
+
+            batch = store.create_visual_asset_candidate_batch(
+                {
+                    "candidate_assets": [
+                        {
+                            "id": "candidate_style",
+                            "type": "style",
+                            "name": "Loose Gouache Fantasy",
+                            "summary": "bright loose fantasy painting",
+                            "asset_status": "active",
+                        }
+                    ],
+                    "recipe_candidates": [
+                        {
+                            "name": "Fantasy Source Recipe",
+                            "required_asset_types": ["style"],
+                            "recipe_assets": [
+                                {
+                                    "candidate_asset_id": "candidate_style",
+                                    "role": "core",
+                                    "weight": 0.8,
+                                }
+                            ],
+                            "confidence": 0.65,
+                            "source": "same_reference_image",
+                        }
+                    ],
+                }
+            )
+            asset_candidate = batch["candidate_assets"][0]
+            recipe_candidate = batch["recipe_candidates"][0]
+            decided = store.decide_visual_asset_candidate(asset_candidate["id"], "new_asset")
+            confirmed = store.confirm_recipe_candidate(recipe_candidate["id"])
+            self.assertEqual(confirmed["status"], "confirmed")
+            confirmed_recipe = confirmed["recipe"]
+            self.assertEqual(confirmed_recipe["assets"][0]["asset_id"], decided["confirmed_asset_id"])
+            self.assertEqual(confirmed_recipe["assets"][0]["role"], "core")
+
+    def test_visual_system_candidate_suggestion_and_confirmation(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = AetherStore(Path(temp_dir) / "aether.sqlite")
+            store.init()
+
+            existing = store.create_visual_asset(
+                {
+                    "type": "style",
+                    "name": "Bright Lotus Anime",
+                    "summary": "bright lotus pond anime key art",
+                    "tags": ["lotus", "anime"],
+                    "status": "active",
+                }
+            )
+
+            batch = store.create_visual_asset_candidate_batch(
+                {
+                    "candidate_assets": [
+                        {
+                            "id": "candidate_scene",
+                            "type": "scene",
+                            "name": "Lotus Pond Garden",
+                            "summary": "bright lotus pond with koi and stone platforms",
+                            "tags": ["lotus", "pond"],
+                            "asset_status": "active",
+                        },
+                        {
+                            "id": "candidate_style",
+                            "type": "style",
+                            "name": "Painterly Anime Garden",
+                            "summary": "bright anime key art with painterly foliage",
+                            "tags": ["anime", "garden"],
+                            "asset_status": "active",
+                        },
+                        {
+                            "id": "candidate_palette",
+                            "type": "color_palette",
+                            "name": "Amber Lotus Green",
+                            "summary": "amber water and lotus green palette",
+                            "tags": ["amber", "lotus"],
+                            "asset_status": "active",
+                        },
+                    ]
+                }
+            )
+
+            self.assertTrue(batch["visual_system_candidates"])
+            system_candidate = batch["visual_system_candidates"][0]
+            payload = system_candidate["payload"]
+            self.assertEqual(payload["kind"], "worldview")
+            self.assertEqual(payload["metadata"]["recommendation"], "suggest_create")
+            self.assertEqual(payload["related_existing_assets"][0]["asset_id"], existing["id"])
+
+            for candidate in batch["candidate_assets"]:
+                store.decide_visual_asset_candidate(candidate["id"], "new_asset")
+            confirmed = store.confirm_visual_system_candidate(system_candidate["id"])
+            self.assertEqual(confirmed["status"], "confirmed")
+            visual_system = confirmed["visual_system"]
+            self.assertEqual(visual_system["kind"], "worldview")
+            relation_asset_ids = {relation["asset_id"] for relation in visual_system["assets"]}
+            self.assertIn(existing["id"], relation_asset_ids)
+            self.assertEqual(len(relation_asset_ids), 4)
+
+    def test_confirm_candidate_batch_creates_assets_system_and_recipe(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = AetherStore(Path(temp_dir) / "aether.sqlite")
+            store.init()
+
+            batch = store.create_visual_asset_candidate_batch(
+                {
+                    "candidate_assets": [
+                        {
+                            "id": "candidate_scene",
+                            "type": "scene",
+                            "name": "Lotus Pond Garden",
+                            "summary": "bright lotus pond with koi and stone platforms",
+                            "asset_status": "active",
+                        },
+                        {
+                            "id": "candidate_style",
+                            "type": "style",
+                            "name": "Painterly Anime Garden",
+                            "summary": "bright anime key art with painterly foliage",
+                            "asset_status": "active",
+                        },
+                        {
+                            "id": "candidate_palette",
+                            "type": "color_palette",
+                            "name": "Amber Lotus Green",
+                            "summary": "amber water and lotus green palette",
+                            "asset_status": "active",
+                        },
+                    ],
+                    "recipe_candidates": [
+                        {
+                            "name": "Lotus Wide Key Art",
+                            "required_asset_types": ["scene", "style", "color_palette"],
+                            "recommended_aspect_ratios": ["16:9"],
+                            "recipe_assets": [
+                                {"candidate_asset_id": "candidate_scene", "role": "core", "weight": 0.9},
+                                {"candidate_asset_id": "candidate_style", "role": "core", "weight": 0.9},
+                                {"candidate_asset_id": "candidate_palette", "role": "core", "weight": 0.8},
+                            ],
+                            "confidence": 0.65,
+                        }
+                    ],
+                }
+            )
+
+            confirmed = store.confirm_visual_asset_candidate_batch(batch["batch_id"])
+            self.assertEqual(len(confirmed["candidate_assets"]), 3)
+            self.assertEqual(len(confirmed["visual_system_candidates"]), 1)
+            self.assertEqual(len(confirmed["recipe_candidates"]), 1)
+
+            system_id = confirmed["visual_system_candidates"][0]["confirmed_system_id"]
+            recipe = confirmed["recipe_candidates"][0]["recipe"]
+            self.assertIn(system_id, recipe["parent_system_ids"])
+            self.assertEqual(len(recipe["assets"]), 3)
+            self.assertEqual(store.get_visual_system(system_id)["kind"], "worldview")
+
+    def test_generation_reuse_suggestions_create_recipe_and_system_candidates(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = AetherStore(Path(temp_dir) / "aether.sqlite")
+            store.init()
+
+            scene = store.create_visual_asset(
+                {"type": "scene", "name": "Lotus Pond", "summary": "lotus pond world", "status": "active"}
+            )
+            style = store.create_visual_asset(
+                {"type": "style", "name": "Painterly Anime", "summary": "bright painterly anime", "status": "active"}
+            )
+            palette = store.create_visual_asset(
+                {"type": "color_palette", "name": "Amber Green", "summary": "amber and green", "status": "active"}
+            )
+
+            run = store.create_generation_run(
+                {
+                    "source_prompt": "lotus pond key art",
+                    "refined_prompt": "lotus pond key art",
+                    "selected_assets": [
+                        {"asset_id": scene["id"], "type": "scene"},
+                        {"asset_id": style["id"], "type": "style"},
+                        {"asset_id": palette["id"], "type": "color_palette"},
+                    ],
+                    "generation_skill": "imagegen",
+                    "skill_params": {"aspectRatio": "16:9"},
+                    "status": "generated",
+                    "visual_review": {"style_consistency": "pass", "score": 0.92},
+                    "outputs": [{"image_path": "/tmp/lotus.png"}],
+                }
+            )
+
+            suggestions = run["reuse_suggestions"]
+            self.assertEqual(len(suggestions["recipe_candidates"]), 1)
+            self.assertEqual(len(suggestions["visual_system_candidates"]), 1)
+            recipe_candidate = suggestions["recipe_candidates"][0]
+            system_candidate = suggestions["visual_system_candidates"][0]
+            self.assertEqual(recipe_candidate["payload"]["source"], "generation_run")
+            self.assertEqual(system_candidate["payload"]["kind"], "worldview")
+
+            repeated = store.suggest_generation_reuse(run["id"])
+            self.assertEqual(len(repeated["recipe_candidates"]), 1)
+            self.assertEqual(len(repeated["visual_system_candidates"]), 1)
+
+            confirmed_system = store.confirm_visual_system_candidate(system_candidate["id"])
+            confirmed_recipe = store.confirm_recipe_candidate(
+                recipe_candidate["id"],
+                parent_system_ids=[confirmed_system["confirmed_system_id"]],
+            )
+            self.assertIn(confirmed_system["confirmed_system_id"], confirmed_recipe["recipe"]["parent_system_ids"])
+
+    def test_liked_feedback_triggers_generation_reuse_suggestion(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = AetherStore(Path(temp_dir) / "aether.sqlite")
+            store.init()
+
+            style = store.create_visual_asset({"type": "style", "name": "Soft Anime", "status": "active"})
+            palette = store.create_visual_asset({"type": "color_palette", "name": "Quiet Blue", "status": "active"})
+            run = store.create_generation_run(
+                {
+                    "source_prompt": "quiet portrait",
+                    "refined_prompt": "quiet portrait",
+                    "selected_assets": [
+                        {"asset_id": style["id"], "type": "style"},
+                        {"asset_id": palette["id"], "type": "color_palette"},
+                    ],
+                    "generation_skill": "imagegen",
+                    "status": "generated",
+                    "visual_review": {"style_consistency": "not_reviewed"},
+                    "outputs": [],
+                }
+            )
+            self.assertNotIn("reuse_suggestions", run)
+
+            updated = store.update_generation_feedback(run["id"], {"liked": True}, "liked")
+            self.assertIn("reuse_suggestions", updated)
+            self.assertEqual(len(updated["reuse_suggestions"]["recipe_candidates"]), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

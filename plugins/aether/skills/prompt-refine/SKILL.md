@@ -17,12 +17,16 @@ Use `references/prompt-record-template.json` as the output shape.
 ```bash
 aether config show
 aether visual-asset list --status active --summary
+aether visual-system list --status active --summary
+aether recipe list --status active --summary
 ```
 
-2. If the user specifies a reusable module, load it:
+2. If the user specifies a reusable module, visual system, or recipe, load it:
 
 ```bash
 aether visual-asset get <visual_asset_id>
+aether visual-system get <visual_system_id>
+aether recipe get <recipe_id>
 ```
 
 3. Recall visual assets by type/query when they could improve the prompt:
@@ -40,6 +44,8 @@ For the default deterministic recall and composition pass, use:
 ```bash
 aether prompt compose --source-prompt "<prompt>" --query "<keywords>"
 aether prompt compose --source-prompt "<prompt>" --asset-id <visual_asset_id> --save
+aether prompt compose --source-prompt "<prompt>" --system-id <visual_system_id>
+aether prompt compose --source-prompt "<prompt>" --recipe-id <recipe_id>
 ```
 
 Use the composed output as the first draft, then let Codex improve wording while preserving `selected_assets`, `composition_plan`, `generation_params`, and `conflicts`.
@@ -87,6 +93,8 @@ The JSON should include:
 - `intent_analysis`
 - `composition_plan`
 - selected visual assets in `constraints.selected_assets`
+- selected visual systems in `constraints.selected_systems`
+- selected recipes in `constraints.selected_recipes`
 - `refined_prompt`
 - `negative_prompt`
 - `generation_params`, including `aspectRatio`

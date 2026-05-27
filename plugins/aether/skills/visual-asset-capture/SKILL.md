@@ -83,35 +83,79 @@ Each candidate asset should include:
 - `recommended_aspect_ratios`
 - `status`: `draft`
 
-5. Validate visual asset drafts:
+5. When one source image yields multiple complementary candidate assets, also produce `recipe_candidates` as source-derived recommendation drafts. A recipe candidate should reference candidate asset ids, not final visual asset ids, until the user confirms those assets.
+
+Use `recipe_assets` entries shaped like:
+
+```json
+{
+  "candidate_asset_id": "<candidate-id>",
+  "role": "core",
+  "weight": 0.8,
+  "reason": "same source image and complementary visual role"
+}
+```
+
+Keep source-derived recipe confidence moderate, usually `0.6` to `0.7`. Same-source co-occurrence is useful evidence, but not proof that the combination is always best.
+
+6. When the parsed candidate assets plus recalled existing assets suggest a durable worldview, genre, series, or art direction, produce `visual_system_candidates`. Do not create a visual system automatically for every image.
+
+Use this only when at least one of these is true:
+
+- candidate assets cover several reusable roles, such as scene + style + palette
+- related active assets are recalled from the existing library
+- the source image also produced one or more recipe candidates
+- the user explicitly frames the image as a world, series, IP, art direction, or genre reference
+
+Visual system candidates should include:
+
+- `kind`: `worldview`, `genre`, `series`, or `art_direction`
+- `name`
+- `summary`
+- `visual_rules`
+- `avoid_rules`
+- `candidate_asset_relations`
+- `existing_asset_relations`
+- `related_existing_assets`
+- `metadata.recommendation`: `suggest_create`
+
+7. Validate visual asset drafts:
 
 ```bash
 aether validate visual-asset-candidate --json <candidate-batch.json>
 ```
 
-6. Persist the candidate batch before asking the user to decide. The storage layer will attach similarity suggestions against active assets of the same type:
+8. Persist the candidate batch before asking the user to decide. The storage layer will attach similarity suggestions against active assets of the same type, store recipe candidates, and can auto-suggest visual system candidates when no explicit `visual_system_candidates` are provided:
 
 ```bash
 aether visual-asset candidates create --json <candidate-batch.json>
 aether visual-asset candidates list --status pending --summary
 aether visual-asset candidates get <candidate-id>
+aether recipe candidates list --batch-id <batch-id>
+aether visual-system candidates list --batch-id <batch-id>
 ```
 
-7. Compare candidates against existing active visual assets by listing or searching matching type/tag/query when more context is needed:
+9. Compare candidates against existing active visual assets by listing or searching matching type/tag/query when more context is needed:
 
 ```bash
 aether visual-asset list --type <type> --status active --summary
 aether visual-asset list --query "<keyword>" --summary
 ```
 
-8. For each pending candidate, ask the user to confirm one of:
+10. For each pending candidate, ask the user to confirm one of:
 
 - create new visual asset
 - attach as variant of an existing visual asset
 - merge into an existing visual asset
 - ignore as one-off content
 
-9. Save confirmed decisions through the candidate queue:
+11. If the user confirms the whole candidate batch, use the batch confirmation command. It confirms asset candidates first, then visual system candidates, then recipe candidates, and attaches recipes to newly confirmed systems when the recipe candidate has no explicit parent system:
+
+```bash
+aether visual-asset candidates confirm-batch <batch-id>
+```
+
+12. Save individual confirmed decisions through the candidate queue when the user wants to handle assets one by one:
 
 ```bash
 aether visual-asset candidates decide <candidate-id> new_asset
@@ -120,7 +164,21 @@ aether visual-asset candidates decide <candidate-id> existing_asset --target-ass
 aether visual-asset candidates decide <candidate-id> ignore
 ```
 
-10. If the user confirms a direct branch or merge outside the candidate queue, use the explicit state commands:
+13. After all recipe assets have been confirmed or mapped to existing assets, confirm source-derived recipe candidates:
+
+```bash
+aether recipe candidates confirm <recipe-candidate-id>
+aether recipe candidates confirm <recipe-candidate-id> --system-id <visual-system-id>
+```
+
+14. After all visual system candidate assets have been confirmed or mapped to existing assets, confirm visual system candidates only if the user wants to create that higher-level system:
+
+```bash
+aether visual-system candidates get <visual-system-candidate-id>
+aether visual-system candidates confirm <visual-system-candidate-id>
+```
+
+15. If the user confirms a direct branch or merge outside the candidate queue, use the explicit state commands:
 
 ```bash
 aether visual-asset branch <parent-asset-id> --json <visual-asset.json>
@@ -128,7 +186,7 @@ aether visual-asset merge <source-asset-id> <target-asset-id>
 aether visual-asset activate <visual-asset-id>
 ```
 
-11. If a semantic similarity judgment was made outside the automatic candidate suggestions, save it:
+16. If a semantic similarity judgment was made outside the automatic candidate suggestions, save it:
 
 ```bash
 aether similarity save --json <similarity-result.json>

@@ -7,6 +7,7 @@
   ],
   "candidate_assets": [
     {
+      "id": "asset_candidate_rainy_neon_reflection",
       "type": "lighting",
       "name": "Rainy Neon Reflection",
       "summary": "Neon light reflected on wet asphalt in a rainy night scene.",
@@ -27,6 +28,57 @@
       "reuse_score": 0.86,
       "decision": "new_asset",
       "similar_candidates": []
+    }
+  ],
+  "recipe_candidates": [
+    {
+      "name": "Rainy Neon Night Lighting Recipe",
+      "summary": "A source-derived recipe for rainy neon night scenes.",
+      "use_cases": ["rainy city scene", "night key art"],
+      "required_asset_types": ["lighting"],
+      "recommended_aspect_ratios": ["16:9", "3:4"],
+      "source_reference_ids": [],
+      "recipe_assets": [
+        {
+          "candidate_asset_id": "asset_candidate_rainy_neon_reflection",
+          "role": "core",
+          "weight": 0.8,
+          "reason": "The lighting asset is the core reusable trait in this source image."
+        }
+      ],
+      "confidence": 0.65,
+      "source": "same_reference_image",
+      "reason": "Initial recommendation inferred from source image co-occurrence."
+    }
+  ],
+  "visual_system_candidates": [
+    {
+      "kind": "art_direction",
+      "name": "Rainy Neon Night Visual System",
+      "summary": "Suggested higher-level visual system from source-derived rainy neon assets and related existing assets.",
+      "tags": ["lighting", "night", "rain"],
+      "visual_rules": [
+        "Keep rainy night reflections and neon rim lighting as stable visual anchors."
+      ],
+      "avoid_rules": [
+        "Avoid dry daylight scenes when preserving this visual system."
+      ],
+      "source_reference_ids": [],
+      "candidate_asset_relations": [
+        {
+          "candidate_asset_id": "asset_candidate_rainy_neon_reflection",
+          "role": "core",
+          "weight": 0.8,
+          "reason": "The lighting candidate defines the visual system anchor."
+        }
+      ],
+      "existing_asset_relations": [],
+      "related_existing_assets": [],
+      "metadata": {
+        "recommendation": "suggest_create",
+        "reason": "Candidate assets may represent a reusable higher-level direction."
+      },
+      "status": "pending"
     }
   ]
 }

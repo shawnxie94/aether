@@ -1,0 +1,34 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Aether Visual System",
+  "type": "object",
+  "required": ["kind", "name"],
+  "properties": {
+    "id": {"type": "string"},
+    "kind": {
+      "type": "string",
+      "enum": ["worldview", "genre", "series", "art_direction"]
+    },
+    "name": {"type": "string"},
+    "summary": {"type": "string"},
+    "tags": {"type": "array", "items": {"type": "string"}},
+    "visual_rules": {"type": "array", "items": {"type": "string"}},
+    "avoid_rules": {"type": "array", "items": {"type": "string"}},
+    "source_reference_ids": {"type": "array", "items": {"type": "string"}},
+    "metadata": {"type": "object"},
+    "assets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["asset_id"],
+        "properties": {
+          "asset_id": {"type": "string"},
+          "role": {"type": "string", "enum": ["core", "optional", "avoid", "reference_only"]},
+          "weight": {"type": "number"},
+          "reason": {"type": "string"}
+        }
+      }
+    },
+    "status": {"type": "string"}
+  }
+}

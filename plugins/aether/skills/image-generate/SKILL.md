@@ -132,7 +132,10 @@ Generation recording automatically links generated outputs and visual review evi
 ```bash
 aether visual-asset evidence <visual_asset_id>
 aether visual-asset quality <visual_asset_id>
+aether generation suggest <run_id>
 ```
+
+Successful reviewed generations can emit `reuse_suggestions` in the saved generation response. These suggestions are recipe or visual system candidates, not final long-term assets. Confirm them with the recipe or visual-system candidate commands when the user wants to preserve the generated combination.
 
 ## Rules
 

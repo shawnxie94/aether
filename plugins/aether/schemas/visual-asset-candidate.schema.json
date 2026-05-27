@@ -30,6 +30,58 @@
           "similar_candidates": {"type": "array"}
         }
       }
+    },
+    "recipe_candidates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "id": {"type": "string"},
+          "name": {"type": "string"},
+          "summary": {"type": "string"},
+          "parent_system_ids": {"type": "array"},
+          "use_cases": {"type": "array"},
+          "required_asset_types": {"type": "array"},
+          "recommended_aspect_ratios": {"type": "array"},
+          "source_reference_ids": {"type": "array"},
+          "candidate_asset_ids": {"type": "array"},
+          "core_candidate_asset_ids": {"type": "array"},
+          "optional_candidate_asset_ids": {"type": "array"},
+          "avoid_candidate_asset_ids": {"type": "array"},
+          "recipe_assets": {"type": "array"},
+          "confidence": {"type": "number"},
+          "source": {"type": "string"},
+          "reason": {"type": "string"},
+          "status": {"type": "string"}
+        }
+      }
+    },
+    "visual_system_candidates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["kind", "name"],
+        "properties": {
+          "id": {"type": "string"},
+          "kind": {"type": "string", "enum": ["worldview", "genre", "series", "art_direction"]},
+          "name": {"type": "string"},
+          "summary": {"type": "string"},
+          "tags": {"type": "array"},
+          "visual_rules": {"type": "array"},
+          "avoid_rules": {"type": "array"},
+          "source_reference_ids": {"type": "array"},
+          "candidate_asset_ids": {"type": "array"},
+          "core_candidate_asset_ids": {"type": "array"},
+          "optional_candidate_asset_ids": {"type": "array"},
+          "avoid_candidate_asset_ids": {"type": "array"},
+          "candidate_asset_relations": {"type": "array"},
+          "existing_asset_relations": {"type": "array"},
+          "related_existing_assets": {"type": "array"},
+          "metadata": {"type": "object"},
+          "status": {"type": "string"}
+        }
+      }
     }
   }
 }

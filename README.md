@@ -9,6 +9,7 @@ It keeps model reasoning inside Codex and uses the local project core for determ
 - config discovery
 - local SQLite storage
 - visual asset memory
+- visual systems and recommendation recipes
 - visual asset library browsing
 - prompt refinement records
 - generation run records
@@ -43,6 +44,22 @@ aether visual-asset candidates decide asset_candidate_example new_asset
 aether visual-asset candidates decide asset_candidate_example asset_variant --target-asset-id visual_asset_parent
 aether visual-asset candidates decide asset_candidate_example existing_asset --target-asset-id visual_asset_existing
 aether visual-asset candidates decide asset_candidate_example ignore
+aether visual-asset candidates confirm-batch candidate_batch_example
+aether recipe candidates list --batch-id candidate_batch_example
+aether recipe candidates confirm recipe_candidate_example
+aether visual-system candidates list --batch-id candidate_batch_example
+aether visual-system candidates confirm system_candidate_example
+```
+
+Create and inspect higher-level visual systems and recipes:
+
+```bash
+aether visual-system create --json visual-system.json
+aether visual-system list --summary
+aether visual-system add-asset visual_system_example visual_asset_example --role core --weight 0.9
+aether recipe create --json recipe.json
+aether recipe list --system-id visual_system_example --summary
+aether recipe add-asset recipe_example visual_asset_example --role core --weight 0.9
 ```
 
 Activate, archive, branch, or merge visual assets:
@@ -73,6 +90,7 @@ Save a refined prompt:
 
 ```bash
 aether prompt compose --source-prompt "a lonely girl in a future city" --query "rain neon" --save
+aether prompt compose --source-prompt "a quiet character portrait" --system-id visual_system_example --recipe-id recipe_example
 aether prompt save --json prompt-record.json
 ```
 
@@ -95,6 +113,7 @@ aether generation list
 aether generation list --asset-id visual_asset_lighting-rainy-neon-reflection
 aether generation get generation_example
 aether generation stats
+aether generation suggest generation_example
 ```
 
 Inspect asset evidence and generated quality feedback:
