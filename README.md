@@ -97,6 +97,7 @@ PYTHONPATH=src python -m aether_core.cli generation record --json generation-run
 ```
 
 Generation records include `visual_review` so Aether can capture post-generation style consistency checks and recommend prompt revision or regeneration when the generated image drifts from the selected style.
+Successful generation records also archive generated image files into `generatedImageDir` and store archived asset metadata in `outputs`.
 
 Validate JSON before saving:
 

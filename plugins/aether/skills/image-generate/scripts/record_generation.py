@@ -12,6 +12,7 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from aether_core.config import ensure_configured_dirs, load_config
 from aether_core.generation_params import apply_generation_skill_params
+from aether_core.output_archiving import archive_generation_outputs
 from aether_core.storage import AetherStore
 from aether_core.validation import validate_generation_run
 
@@ -76,6 +77,7 @@ def main() -> None:
     validate_generation_run(payload)
     store = AetherStore(config.database_path)
     store.init()
+    payload = archive_generation_outputs(config, store, payload)
     record = store.create_generation_run(payload)
     if args.liked is not None or args.notes:
         feedback = {}

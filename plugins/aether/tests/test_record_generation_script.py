@@ -113,9 +113,10 @@ class RecordGenerationScriptTests(unittest.TestCase):
                     "generation_params": {"aspectRatio": "9:16"},
                 },
                 "skill_params": {"quality": "high"},
-                "outputs": [],
+                "outputs": [str(root / "provider-output.png")],
                 "status": "generated",
             }
+            (root / "provider-output.png").write_bytes(b"fake png")
 
             result = subprocess.run(
                 [sys.executable, str(SCRIPT), "--json", "-"],
@@ -131,6 +132,9 @@ class RecordGenerationScriptTests(unittest.TestCase):
             self.assertEqual(output["skill_params"]["aspectRatio"], "9:16")
             self.assertEqual(output["skill_params"]["quality"], "high")
             self.assertEqual(output["visual_review"]["style_consistency"], "not_reviewed")
+            self.assertTrue(output["outputs"][0]["asset_path"].endswith(".png"))
+            self.assertIn("assets/generated", output["outputs"][0]["asset_path"])
+            self.assertEqual(output["outputs"][0]["original_output"], str(root / "provider-output.png"))
 
     def test_visual_review_payload_is_preserved(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -155,7 +159,7 @@ class RecordGenerationScriptTests(unittest.TestCase):
                 "refined_prompt": "refined",
                 "style_id": "style_example",
                 "generation_skill": "imagegen",
-                "outputs": ["generated.png"],
+                "outputs": [str(root / "generated.png")],
                 "status": "generated",
                 "visual_review": {
                     "reviewed": True,
@@ -167,6 +171,7 @@ class RecordGenerationScriptTests(unittest.TestCase):
                     "suggested_revision": "strengthen oil pastel texture",
                 },
             }
+            (root / "generated.png").write_bytes(b"fake png")
 
             result = subprocess.run(
                 [sys.executable, str(SCRIPT), "--json", "-"],
@@ -182,6 +187,7 @@ class RecordGenerationScriptTests(unittest.TestCase):
             self.assertTrue(output["visual_review"]["reviewed"])
             self.assertEqual(output["visual_review"]["style_consistency"], "major_deviation")
             self.assertEqual(output["visual_review"]["recommendation"], "regenerate")
+            self.assertIn("assets/generated", output["outputs"][0]["asset_path"])
 
 
 if __name__ == "__main__":

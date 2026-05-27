@@ -30,6 +30,8 @@ PYTHONPATH=src python -m aether_core.cli config show
 
 4. Use the configured image skill to generate the image. If generation is unavailable or blocked, record a failed generation run with the error.
 
+Generated image files must be archived into `generation.generatedImageDir` before the run is recorded. Pass local file paths, image URLs, data URLs, or output objects containing `asset_path`, `image_path`, `file_path`, `path`, or `url` in `outputs`; the recording script will copy/download/decode them into generated asset storage and replace `outputs` with archived asset metadata.
+
 For transient provider failures, retry before giving up. Treat these as retryable unless the provider response clearly says the prompt is invalid or blocked:
 
 - HTTP 408, 409, 425, 429, 500, 502, 503, 504, 520, 522, 524
@@ -86,7 +88,7 @@ The JSON should include:
 - `skill_params`, including the final `aspectRatio`
 - `skill_result_meta`
 - `visual_review`
-- `outputs`
+- `outputs`: archived generated asset metadata
 - `status`: `generated` or `failed`
 - `error` when failed
 
@@ -102,6 +104,7 @@ PYTHONPATH=src python -m aether_core.cli generation feedback <run_id> --liked tr
 - Do not drop `aspectRatio` between prompt refinement and generation. If a prompt record has `generation_params.aspectRatio`, use that over the config default.
 - Always perform visual review for successful generations when an inspectable output image is available.
 - Treat visual review as advisory. Do not automatically discard, overwrite, or regenerate an image without user confirmation.
+- Do not record successful generations with unarchived output images. Archive first, then save the generation run.
 - Do not use this skill directly for a raw, fuzzy, or short text prompt; switch to `prompt-refine` first and come back with a refined prompt or saved prompt record.
 - For a prompt record created in the same conversation turn, confirm that the user approved the refined prompt before making a paid or external generation call, unless they explicitly opted into auto-generation after refinement.
 - If the user provided image(s) as references and did not explicitly ask for a new generated image, switch to `style-capture` instead.

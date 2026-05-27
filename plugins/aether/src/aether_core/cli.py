@@ -9,6 +9,7 @@ from .assets import ingest_asset
 from .config import ensure_configured_dirs, load_config
 from .generation_params import apply_generation_skill_params, apply_prompt_generation_params
 from .jsonio import dump_json, read_json_arg
+from .output_archiving import archive_generation_outputs
 from .similarity import compare_profiles, decision_for_score
 from .storage import AetherStore
 from .validation import validate_payload
@@ -280,6 +281,7 @@ def cmd_generation_record(args: argparse.Namespace) -> None:
     config, store = _store()
     payload = read_json_arg(args.json)
     payload = apply_generation_skill_params(payload, config)
+    payload = archive_generation_outputs(config, store, payload)
     dump_json(store.create_generation_run(payload))
 
 

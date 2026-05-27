@@ -32,7 +32,17 @@
     "recommendation": "use",
     "suggested_revision": ""
   },
-  "outputs": [],
+  "outputs": [
+    {
+      "asset_id": "asset_example",
+      "asset_path": "path/to/generated/archive.png",
+      "image_path": "path/to/generated/archive.png",
+      "sha256": "sha256",
+      "mime_type": "image/png",
+      "size_bytes": 12345,
+      "original_output": "provider-output.png"
+    }
+  ],
   "status": "generated",
   "feedback": {},
   "error": ""
