@@ -10,7 +10,6 @@ Use this skill for Aether visual asset sedimentation.
 Default to this skill when the user provides reference image(s) plus prompt text and does not explicitly ask to create a new output image.
 
 Load `references/style-taxonomy.md` when deciding whether an observed trait is reusable visual language or one-off content.
-Use `../../docs/visual-asset-memory-design.md` as the primary design reference for the current Visual Asset Memory workflow.
 
 ## Workflow
 

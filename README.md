@@ -22,7 +22,7 @@ aether doctor
 ```
 
 The project reads configuration from `~/.config/aether/config.json` first, then falls back to the nearest workspace `config.json`, then `.aether/config.json` in the current directory.
-See `plugins/aether/docs/install.md` for npm sharing, manual marketplace installation, and local development installation.
+See `docs/install.md` for npm sharing, manual marketplace installation, and local development installation.
 
 ## CLI Examples
 

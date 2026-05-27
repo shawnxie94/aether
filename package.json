@@ -1,6 +1,6 @@
 {
   "name": "aether-codex-plugin",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "Aether Codex plugin marketplace package for visual asset memory, prompt refinement, and image generation workflows.",
   "license": "MIT",
   "author": "Aether",
@@ -13,7 +13,6 @@
     ".agents/",
     "plugins/aether/.codex-plugin/",
     "plugins/aether/config.json",
-    "plugins/aether/docs/",
     "plugins/aether/examples/",
     "plugins/aether/pyproject.toml",
     "plugins/aether/schemas/",
