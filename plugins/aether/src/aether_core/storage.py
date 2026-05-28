@@ -27,6 +27,8 @@ from .validation import (
 
 
 class AetherStore:
+    NON_RECALLABLE_STATUSES = {"archived", "deprecated", "merged"}
+
     def __init__(self, database_path: Path):
         self.database_path = database_path
         self.database_path.parent.mkdir(parents=True, exist_ok=True)
@@ -716,20 +718,50 @@ class AetherStore:
             )
         raise ValueError(f"Unsupported canonical entity type: {entity_type}")
 
-    def _entities_for_recall(self, entity_type: str, status: str | None = "active") -> list[dict[str, Any]]:
+    def _entities_for_recall(
+        self,
+        entity_type: str,
+        status: str | None = "active",
+        *,
+        include_unavailable: bool = False,
+    ) -> list[dict[str, Any]]:
         if entity_type == "visual_asset":
-            return self.list_visual_assets(status=status, limit=None)
+            entities = self.list_visual_assets(status=status, limit=None)
+            return self._filter_recallable_entities(entity_type, entities, include_unavailable=include_unavailable)
         if entity_type == "visual_system":
-            return [
+            entities = [
                 self.get_visual_system(system["id"]) or system
                 for system in self.list_visual_systems(status=status, limit=None)
             ]
+            return self._filter_recallable_entities(entity_type, entities, include_unavailable=include_unavailable)
         if entity_type == "recipe":
-            return [
+            entities = [
                 self.get_recipe(recipe["id"]) or recipe
                 for recipe in self.list_recipes(status=status, limit=None)
             ]
+            return self._filter_recallable_entities(entity_type, entities, include_unavailable=include_unavailable)
         raise ValueError(f"Unsupported recall entity type: {entity_type}")
+
+    def _filter_recallable_entities(
+        self,
+        entity_type: str,
+        entities: list[dict[str, Any]],
+        *,
+        include_unavailable: bool = False,
+    ) -> list[dict[str, Any]]:
+        if include_unavailable:
+            return entities
+        return [entity for entity in entities if self._is_recallable_entity(entity_type, entity)]
+
+    def _is_recallable_entity(self, entity_type: str, entity: dict[str, Any]) -> bool:
+        if entity.get("status") in self.NON_RECALLABLE_STATUSES:
+            return False
+        merged_field = {
+            "visual_asset": "merged_into_asset_id",
+            "visual_system": "merged_into_system_id",
+            "recipe": "merged_into_recipe_id",
+        }[entity_type]
+        return not entity.get(merged_field)
 
     def _entity_id(self, entity_type: str, entity: dict[str, Any]) -> str:
         if entity_type not in {"visual_asset", "visual_system", "recipe"}:
@@ -885,7 +917,7 @@ class AetherStore:
                 current = 0
                 stale = 0
                 missing = 0
-                for entity in self._entities_for_recall(entity_type, status=None):
+                for entity in self._entities_for_recall(entity_type, status=None, include_unavailable=True):
                     entity_id = self._entity_id(entity_type, entity)
                     text = self.canonical_entity_text(entity_type, entity)
                     existing = self._embedding_row(
@@ -939,7 +971,7 @@ class AetherStore:
         to_embed: list[tuple[str, str, str]] = []
         skipped: list[dict[str, Any]] = []
         for current_type in entity_types:
-            for entity in self._entities_for_recall(current_type, status=None):
+            for entity in self._entities_for_recall(current_type, status=None, include_unavailable=True):
                 entity_id = self._entity_id(current_type, entity)
                 text = self.canonical_entity_text(current_type, entity)
                 text_hash = content_hash(text)

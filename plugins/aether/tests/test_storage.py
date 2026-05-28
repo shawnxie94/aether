@@ -1130,6 +1130,64 @@ class StorageTests(unittest.TestCase):
             recipe_merge = store.merge_recipe(recipe_b["id"], recipe_a["id"])
             self.assertEqual(recipe_merge["merged"]["merged_into_recipe_id"], recipe_a["id"])
 
+    def test_recall_excludes_merged_deprecated_and_archived_entities_by_default(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = AetherStore(Path(temp_dir) / "aether.sqlite")
+            store.init()
+
+            active_asset = store.create_visual_asset(
+                {"type": "style", "name": "Recallable Festival Style", "summary": "festival recall anchor", "status": "active"}
+            )
+            store.create_visual_asset(
+                {
+                    "type": "style",
+                    "name": "Merged Festival Style",
+                    "summary": "festival recall anchor",
+                    "status": "active",
+                    "merged_into_asset_id": active_asset["id"],
+                }
+            )
+            store.create_visual_asset(
+                {"type": "style", "name": "Deprecated Festival Style", "summary": "festival recall anchor", "status": "deprecated"}
+            )
+            asset_ids = {item["asset_id"] for item in store.hybrid_recall("visual_asset", "festival recall anchor", limit=10)}
+            self.assertEqual(asset_ids, {active_asset["id"]})
+
+            active_system = store.create_visual_system(
+                {
+                    "kind": "art_direction",
+                    "name": "Recallable Festival Direction",
+                    "summary": "festival recall direction",
+                    "visual_rules": [{"key": "subject_aesthetic", "value": ["festival"]}],
+                    "status": "active",
+                }
+            )
+            store.create_visual_system(
+                {
+                    "kind": "art_direction",
+                    "name": "Merged Festival Direction",
+                    "summary": "festival recall direction",
+                    "visual_rules": [{"key": "subject_aesthetic", "value": ["festival"]}],
+                    "status": "active",
+                    "merged_into_system_id": active_system["id"],
+                }
+            )
+            system_ids = {item["system_id"] for item in store.hybrid_recall("visual_system", "festival recall direction", limit=10)}
+            self.assertEqual(system_ids, {active_system["id"]})
+
+            active_recipe = store.create_recipe({"name": "Recallable Festival Recipe", "summary": "festival recall recipe", "status": "active"})
+            store.create_recipe(
+                {
+                    "name": "Merged Festival Recipe",
+                    "summary": "festival recall recipe",
+                    "status": "active",
+                    "merged_into_recipe_id": active_recipe["id"],
+                }
+            )
+            store.create_recipe({"name": "Archived Festival Recipe", "summary": "festival recall recipe", "status": "archived"})
+            recipe_ids = {item["recipe_id"] for item in store.hybrid_recall("recipe", "festival recall recipe", limit=10)}
+            self.assertEqual(recipe_ids, {active_recipe["id"]})
+
     def test_liked_feedback_triggers_generation_reuse_suggestion(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             store = AetherStore(Path(temp_dir) / "aether.sqlite")
