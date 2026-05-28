@@ -9,7 +9,7 @@ from .embeddings import content_hash, cosine_similarity, provider_from_config
 from .ids import new_id, slugify
 from .jsonio import json_dumps, json_loads
 from .migrations import record_schema_version
-from .recall import canonical_text, lexical_similarity, weighted_score
+from .recall import canonical_text, lexical_similarity, token_set, weighted_score
 from .storage_time import now_iso
 from .validation import (
     validate_generation_run,
@@ -121,7 +121,24 @@ class AetherStore:
                   asset_id text not null,
                   evidence_type text not null,
                   generation_run_id text,
+                  source_candidate_id text,
+                  source_reference_id text,
                   payload_json text not null default '{}',
+                  created_at text not null
+                );
+
+                create table if not exists visual_asset_revisions (
+                  id text primary key,
+                  asset_id text not null,
+                  action text not null,
+                  source_candidate_id text,
+                  source_generation_id text,
+                  target_entity_id text,
+                  scores_json text not null default '{}',
+                  before_json text not null default '{}',
+                  after_json text not null default '{}',
+                  diff_json text not null default '{}',
+                  reason text not null default '',
                   created_at text not null
                 );
 
@@ -136,6 +153,8 @@ class AetherStore:
                   source_reference_ids_json text not null default '[]',
                   metadata_json text not null default '{}',
                   status text not null default 'draft',
+                  parent_system_id text,
+                  merged_into_system_id text,
                   created_at text not null,
                   updated_at text not null
                 );
@@ -167,6 +186,8 @@ class AetherStore:
                   reason text not null default '',
                   metadata_json text not null default '{}',
                   status text not null default 'draft',
+                  parent_recipe_id text,
+                  merged_into_recipe_id text,
                   created_at text not null,
                   updated_at text not null
                 );
@@ -201,6 +222,58 @@ class AetherStore:
                   confirmed_system_id text,
                   created_at text not null,
                   updated_at text not null
+                );
+
+                create table if not exists recipe_evidence (
+                  id text primary key,
+                  recipe_id text not null,
+                  evidence_type text not null,
+                  source_candidate_id text,
+                  source_generation_id text,
+                  source_reference_id text,
+                  payload_json text not null default '{}',
+                  created_at text not null
+                );
+
+                create table if not exists visual_system_evidence (
+                  id text primary key,
+                  system_id text not null,
+                  evidence_type text not null,
+                  source_candidate_id text,
+                  source_generation_id text,
+                  source_reference_id text,
+                  payload_json text not null default '{}',
+                  created_at text not null
+                );
+
+                create table if not exists recipe_revisions (
+                  id text primary key,
+                  recipe_id text not null,
+                  action text not null,
+                  source_candidate_id text,
+                  source_generation_id text,
+                  target_entity_id text,
+                  scores_json text not null default '{}',
+                  before_json text not null default '{}',
+                  after_json text not null default '{}',
+                  diff_json text not null default '{}',
+                  reason text not null default '',
+                  created_at text not null
+                );
+
+                create table if not exists visual_system_revisions (
+                  id text primary key,
+                  system_id text not null,
+                  action text not null,
+                  source_candidate_id text,
+                  source_generation_id text,
+                  target_entity_id text,
+                  scores_json text not null default '{}',
+                  before_json text not null default '{}',
+                  after_json text not null default '{}',
+                  diff_json text not null default '{}',
+                  reason text not null default '',
+                  created_at text not null
                 );
 
                 create table if not exists prompt_records (
@@ -285,6 +358,12 @@ class AetherStore:
             self._ensure_column(conn, "generation_runs", "edit_regions_json", "text not null default '[]'")
             self._ensure_column(conn, "recipes", "composition_rules_json", "text not null default '[]'")
             self._ensure_column(conn, "recipes", "metadata_json", "text not null default '{}'")
+            self._ensure_column(conn, "recipes", "parent_recipe_id", "text")
+            self._ensure_column(conn, "recipes", "merged_into_recipe_id", "text")
+            self._ensure_column(conn, "visual_systems", "parent_system_id", "text")
+            self._ensure_column(conn, "visual_systems", "merged_into_system_id", "text")
+            self._ensure_column(conn, "visual_asset_evidence", "source_candidate_id", "text")
+            self._ensure_column(conn, "visual_asset_evidence", "source_reference_id", "text")
             record_schema_version(conn)
 
     def create_style(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -975,6 +1054,139 @@ class AetherStore:
         results.sort(key=lambda item: item["score"], reverse=True)
         return results[:limit]
 
+    def _candidate_novelty_score(self, query_text: str, target_text: str) -> float:
+        query_tokens = token_set(query_text)
+        if not query_tokens:
+            return 0.0
+        target_tokens = token_set(target_text)
+        new_tokens = query_tokens - target_tokens
+        return round(len(new_tokens) / len(query_tokens), 4)
+
+    def _evolution_scores(
+        self,
+        entity_type: str,
+        query_text: str,
+        top: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        if not top:
+            return {
+                "hybrid_similarity": 0.0,
+                "semantic_score": 0.0,
+                "lexical_score": 0.0,
+                "relation_score": 0.0,
+                "quality_score": 0.0,
+                "novelty_score": 1.0 if query_text else 0.0,
+                "conflict_score": 0.0,
+                "scope_match": False,
+            }
+        entity_id = top.get("entity_id") or top.get("asset_id") or top.get("system_id") or top.get("recipe_id")
+        target: dict[str, Any] | None = None
+        if entity_type == "visual_asset" and entity_id:
+            target = self.get_visual_asset(entity_id)
+        elif entity_type == "visual_system" and entity_id:
+            target = self.get_visual_system(entity_id)
+        elif entity_type == "recipe" and entity_id:
+            target = self.get_recipe(entity_id)
+        target_text = self.canonical_entity_text(entity_type, target) if target else ""
+        return {
+            "hybrid_similarity": round(float(top.get("score", top.get("similarity_score", 0.0))), 4),
+            "semantic_score": round(float(top.get("semantic_score", 0.0)), 4),
+            "lexical_score": round(float(top.get("lexical_score", 0.0)), 4),
+            "relation_score": round(float(top.get("relation_score", 0.0)), 4),
+            "quality_score": round(float(top.get("quality_score", 0.0)), 4),
+            "novelty_score": self._candidate_novelty_score(query_text, target_text),
+            "conflict_score": 0.0,
+            "scope_match": bool(target),
+        }
+
+    def _evolution_action(self, entity_type: str, scores: dict[str, Any]) -> str:
+        similarity = float(scores.get("hybrid_similarity", 0.0))
+        semantic = float(scores.get("semantic_score", 0.0))
+        lexical = float(scores.get("lexical_score", 0.0))
+        relation = float(scores.get("relation_score", 0.0))
+        novelty = float(scores.get("novelty_score", 1.0))
+        comparable_score = max(similarity, semantic, lexical, relation)
+        if entity_type == "visual_asset":
+            if semantic >= 0.95:
+                return "attach_evidence"
+            if comparable_score >= 0.88 and novelty < 0.35:
+                return "attach_evidence"
+            if comparable_score >= 0.72:
+                return "inherit_variant" if novelty >= 0.25 else "attach_evidence"
+            if comparable_score >= 0.55:
+                return "inherit_variant"
+            return "create_new"
+        if entity_type == "recipe":
+            if semantic >= 0.95:
+                return "attach_evidence"
+            if comparable_score >= 0.86 and novelty < 0.25:
+                return "attach_evidence"
+            if comparable_score >= 0.72:
+                return "inherit_variant" if novelty >= 0.25 else "attach_evidence"
+            if comparable_score >= 0.58:
+                return "inherit_variant"
+            return "create_new"
+        if entity_type == "visual_system":
+            if semantic >= 0.95:
+                return "attach_evidence"
+            if comparable_score >= 0.86 and novelty < 0.25:
+                return "attach_evidence"
+            if comparable_score >= 0.72:
+                return "inherit_variant" if novelty >= 0.25 else "attach_evidence"
+            if comparable_score >= 0.58:
+                return "inherit_variant"
+            return "create_new"
+        raise ValueError(f"Unsupported evolution entity type: {entity_type}")
+
+    def _evolution_suggestion(
+        self,
+        entity_type: str,
+        query_text: str,
+        top: dict[str, Any] | None,
+        *,
+        reason: str = "",
+    ) -> dict[str, Any]:
+        scores = self._evolution_scores(entity_type, query_text, top)
+        action = self._evolution_action(entity_type, scores)
+        target_id = None
+        if top:
+            target_id = top.get("entity_id") or top.get("asset_id") or top.get("system_id") or top.get("recipe_id")
+        return {
+            "action": action,
+            "target_id": target_id,
+            "confidence": round(max(float(scores.get("hybrid_similarity", 0.0)), float(scores.get("semantic_score", 0.0))), 4),
+            "scores": scores,
+            "reason": reason or self._evolution_reason(entity_type, action, scores),
+            "requires_user_confirmation": action in {"create_new", "inherit_variant", "merge_existing"},
+        }
+
+    def _evolution_reason(self, entity_type: str, action: str, scores: dict[str, Any]) -> str:
+        similarity = scores.get("hybrid_similarity", 0.0)
+        novelty = scores.get("novelty_score", 0.0)
+        labels = {
+            "create_new": "新增",
+            "attach_evidence": "归属",
+            "inherit_variant": "继承",
+            "merge_existing": "合并",
+            "needs_review": "待判断",
+        }
+        return f"{labels.get(action, action)} suggested for {entity_type}; similarity={similarity}, novelty={novelty}."
+
+    def _legacy_asset_decision(self, action: str) -> str:
+        return {
+            "attach_evidence": "existing_asset",
+            "inherit_variant": "asset_variant",
+            "create_new": "new_asset",
+            "merge_existing": "existing_asset",
+        }.get(action, action)
+
+    def _normalize_asset_decision(self, decision: str) -> str:
+        return {
+            "existing_asset": "attach_evidence",
+            "asset_variant": "inherit_variant",
+            "new_asset": "create_new",
+        }.get(decision, decision)
+
     def update_visual_asset_status(
         self,
         asset_id: str,
@@ -1002,10 +1214,164 @@ class AetherStore:
         assert updated is not None
         return updated
 
+    def _compact_unique(self, values: list[Any], limit: int = 12) -> list[Any]:
+        seen: set[str] = set()
+        compacted = []
+        for value in values:
+            key = json_dumps(value) if isinstance(value, (dict, list)) else str(value)
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            compacted.append(value)
+            if len(compacted) >= limit:
+                break
+        return compacted
+
+    def _abstract_text(self, values: list[str], limit: int = 420) -> str:
+        candidates = [value.strip() for value in values if isinstance(value, str) and value.strip()]
+        if not candidates:
+            return ""
+        if candidates[0] in candidates[1:]:
+            return candidates[0]
+        text = " / ".join(dict.fromkeys(candidates))
+        return text[:limit].rstrip()
+
+    def _abstract_mapping(self, primary: dict[str, Any], secondary: dict[str, Any], limit: int = 4) -> dict[str, Any]:
+        merged: dict[str, Any] = {}
+        for key in [*primary.keys(), *secondary.keys()]:
+            if key in merged:
+                continue
+            left = primary.get(key)
+            right = secondary.get(key)
+            if left == right or right in (None, "", [], {}):
+                merged[key] = left
+            elif left in (None, "", [], {}):
+                merged[key] = right
+            elif isinstance(left, list) or isinstance(right, list):
+                left_values = left if isinstance(left, list) else [left]
+                right_values = right if isinstance(right, list) else [right]
+                merged[key] = self._compact_unique([*left_values, *right_values], limit=limit)
+            else:
+                merged[key] = self._compact_unique([left, right], limit=limit)
+        return merged
+
+    def _abstract_rules(self, primary: list[dict[str, Any]], secondary: list[dict[str, Any]], limit_per_key: int = 5) -> list[dict[str, Any]]:
+        by_key: dict[str, dict[str, Any]] = {}
+        for rule in [*primary, *secondary]:
+            if not isinstance(rule, dict) or not rule.get("key"):
+                continue
+            key = rule["key"]
+            existing = by_key.setdefault(key, {"key": key, "value": [], "reason": ""})
+            existing["value"] = self._compact_unique(
+                [*existing.get("value", []), *rule.get("value", [])],
+                limit=limit_per_key,
+            )
+            reason = rule.get("reason", "")
+            if reason and reason not in existing.get("reason", ""):
+                existing["reason"] = self._abstract_text([existing.get("reason", ""), reason], limit=220)
+        return list(by_key.values())
+
+    def _merge_preview(
+        self,
+        entity_type: str,
+        source: dict[str, Any],
+        target: dict[str, Any],
+        proposed: dict[str, Any],
+    ) -> dict[str, Any]:
+        diff = {
+            key: {"before": target.get(key), "after": proposed.get(key)}
+            for key in proposed
+            if key in target and target.get(key) != proposed.get(key)
+        }
+        return {
+            "action": "merge_existing",
+            "entity_type": entity_type,
+            "canonical_id": target["id"],
+            "duplicate_id": source["id"],
+            "canonical_before": target,
+            "duplicate_before": source,
+            "proposed_after": proposed,
+            "diff": diff,
+            "migration_plan": {
+                "relations": "Move duplicate relations and evidence onto canonical entity where applicable.",
+                "duplicate_status": "merged",
+            },
+            "risk_notes": [],
+            "reason": f"Abstract {entity_type} duplicate into canonical object instead of appending all fields.",
+            "requires_user_confirmation": True,
+        }
+
     def merge_visual_asset(self, source_asset_id: str, target_asset_id: str) -> dict[str, Any]:
-        if not self.get_visual_asset(target_asset_id):
+        preview = self.visual_asset_merge_preview(source_asset_id, target_asset_id)
+        before = preview["canonical_before"]
+        after_payload = preview["proposed_after"]
+        target = self.create_visual_asset(after_payload)
+        with self.connect() as conn:
+            for row in conn.execute(
+                "select * from visual_system_assets where asset_id = ?",
+                (source_asset_id,),
+            ).fetchall():
+                self.set_visual_system_asset(
+                    row["system_id"],
+                    {
+                        "asset_id": target_asset_id,
+                        "role": row["role"],
+                        "weight": row["weight"],
+                        "reason": row["reason"],
+                    },
+                )
+            for row in conn.execute(
+                "select * from recipe_assets where asset_id = ?",
+                (source_asset_id,),
+            ).fetchall():
+                self.set_recipe_asset(
+                    row["recipe_id"],
+                    {
+                        "asset_id": target_asset_id,
+                        "role": row["role"],
+                        "weight": row["weight"],
+                        "reason": row["reason"],
+                    },
+                )
+        source = self.update_visual_asset_status(source_asset_id, "merged", merged_into_asset_id=target_asset_id)
+        self.create_revision(
+            "visual_asset",
+            target_asset_id,
+            "merge_existing",
+            before=before,
+            after=target,
+            diff=preview["diff"],
+            target_entity_id=source_asset_id,
+            reason=preview["reason"],
+        )
+        return {**source, "canonical": target, "merged": source, "preview": preview}
+
+    def visual_asset_merge_preview(self, source_asset_id: str, target_asset_id: str) -> dict[str, Any]:
+        source = self.get_visual_asset(source_asset_id)
+        target = self.get_visual_asset(target_asset_id)
+        if not source:
+            raise KeyError(f"Source visual asset not found: {source_asset_id}")
+        if not target:
             raise KeyError(f"Target visual asset not found: {target_asset_id}")
-        return self.update_visual_asset_status(source_asset_id, "merged", merged_into_asset_id=target_asset_id)
+        if source["type"] != target["type"]:
+            raise ValueError("Visual assets must have the same type to merge")
+        proposed = {
+            **target,
+            "summary": self._abstract_text([target.get("summary", ""), source.get("summary", "")]),
+            "tags": self._compact_unique([*target.get("tags", []), *source.get("tags", [])], limit=12),
+            "profile": self._abstract_mapping(target.get("profile", {}), source.get("profile", {}), limit=4),
+            "source_references": self._compact_unique([*target.get("source_references", []), *source.get("source_references", [])], limit=12),
+            "prompt_fragments": self._compact_unique([*target.get("prompt_fragments", []), *source.get("prompt_fragments", [])], limit=8),
+            "negative_fragments": self._compact_unique([*target.get("negative_fragments", []), *source.get("negative_fragments", [])], limit=8),
+            "compatible_with": self._compact_unique([*target.get("compatible_with", []), *source.get("compatible_with", [])], limit=12),
+            "avoid_with": self._compact_unique([*target.get("avoid_with", []), *source.get("avoid_with", [])], limit=12),
+            "recommended_aspect_ratios": self._compact_unique(
+                [*target.get("recommended_aspect_ratios", []), *source.get("recommended_aspect_ratios", [])],
+                limit=6,
+            ),
+            "status": target.get("status", "draft"),
+        }
+        return self._merge_preview("visual_asset", source, target, proposed)
 
     def branch_visual_asset(self, parent_asset_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         if not self.get_visual_asset(parent_asset_id):
@@ -1199,30 +1565,25 @@ class AetherStore:
         validate_visual_asset_candidate(payload)
         timestamp = now_iso()
         candidate_id = payload.get("id") or new_id("asset_candidate")
-        similar_candidates = payload.get("similar_candidates")
-        if similar_candidates is None:
-            similar_candidates = self._suggest_similar_visual_assets(payload, config=config)
+        payload.pop("similar_candidates", None)
+        similar_candidates = self._suggest_similar_visual_assets(payload, config=config)
         reuse_score = float(payload.get("reuse_score", similar_candidates[0]["similarity_score"] if similar_candidates else 0))
-        decision = payload.get("decision")
-        if decision is None:
-            top_score = 0.0
-            if similar_candidates:
-                top = similar_candidates[0]
-                top_score = max(
-                    float(top.get("similarity_score", 0.0)),
-                    float(top.get("lexical_score", 0.0)),
-                    float(top.get("semantic_score", 0.0)),
-                )
-            if similar_candidates and top_score >= 0.8:
-                decision = "existing_asset"
-            elif similar_candidates and top_score >= 0.45:
-                decision = "asset_variant"
-            else:
-                decision = "new_asset"
+        query_text = self._visual_asset_candidate_query_text(payload)
+        evolution_suggestion = self._evolution_suggestion(
+            "visual_asset",
+            query_text,
+            similar_candidates[0] if similar_candidates else None,
+        )
+        incoming_decision = payload.get("decision")
+        action = self._normalize_asset_decision(incoming_decision) if incoming_decision else evolution_suggestion["action"]
+        decision = self._legacy_asset_decision(action)
+        target_asset_id = payload.get("target_asset_id") or evolution_suggestion.get("target_id")
         payload = {
             **payload,
             "reuse_score": reuse_score,
             "decision": decision,
+            "evolution_action": action,
+            "evolution_suggestion": evolution_suggestion,
             "similar_candidates": similar_candidates,
         }
         record = {
@@ -1236,7 +1597,7 @@ class AetherStore:
             "decision": decision,
             "similar_candidates": similar_candidates,
             "status": payload.get("status", "pending"),
-            "target_asset_id": payload.get("target_asset_id"),
+            "target_asset_id": target_asset_id if action in {"attach_evidence", "inherit_variant", "merge_existing"} else payload.get("target_asset_id"),
             "confirmed_asset_id": payload.get("confirmed_asset_id"),
             "created_at": payload.get("created_at", timestamp),
             "updated_at": timestamp,
@@ -1282,13 +1643,8 @@ class AetherStore:
             )
         return record
 
-    def _suggest_similar_visual_assets(
-        self,
-        payload: dict[str, Any],
-        limit: int = 5,
-        config: dict[str, Any] | None = None,
-    ) -> list[dict[str, Any]]:
-        query_text = canonical_text(
+    def _visual_asset_candidate_query_text(self, payload: dict[str, Any]) -> str:
+        return canonical_text(
             [
                 payload.get("type"),
                 payload.get("name"),
@@ -1299,6 +1655,14 @@ class AetherStore:
                 payload.get("profile"),
             ]
         )
+
+    def _suggest_similar_visual_assets(
+        self,
+        payload: dict[str, Any],
+        limit: int = 5,
+        config: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        query_text = self._visual_asset_candidate_query_text(payload)
         suggestions = []
         for item in self.hybrid_recall("visual_asset", query_text, config=config, limit=50, min_score=0.0):
             if item.get("type") != payload["type"]:
@@ -1361,26 +1725,64 @@ class AetherStore:
         if not candidate:
             raise KeyError(f"Visual asset candidate not found: {candidate_id}")
         payload = dict(candidate["payload"])
-        payload["decision"] = decision
+        action = self._normalize_asset_decision(decision)
+        payload["decision"] = self._legacy_asset_decision(action)
+        payload["evolution_action"] = action
         validate_visual_asset_candidate(payload)
 
         confirmed_asset_id: str | None = None
         status = "confirmed"
-        if decision == "new_asset":
+        before: dict[str, Any] | None = None
+        after: dict[str, Any] | None = None
+        if action == "create_new":
             asset_payload = self._candidate_to_visual_asset_payload(candidate)
             confirmed_asset_id = self.create_visual_asset(asset_payload)["id"]
-        elif decision == "asset_variant":
+            after = self.get_visual_asset(confirmed_asset_id)
+            self.create_revision(
+                "visual_asset",
+                confirmed_asset_id,
+                "create_new",
+                after=after,
+                scores=payload.get("evolution_suggestion", {}).get("scores", {}),
+                source_candidate_id=candidate_id,
+                reason=payload.get("evolution_suggestion", {}).get("reason", ""),
+            )
+        elif action == "inherit_variant":
             if not target_asset_id:
                 raise KeyError("target_asset_id is required for asset_variant")
+            before = self.get_visual_asset(target_asset_id)
             asset_payload = self._candidate_to_visual_asset_payload(candidate)
+            asset_payload["metadata"] = {
+                **asset_payload.get("metadata", {}),
+                "variant_delta": payload.get("variant_delta", {}),
+                "variant_reason": payload.get("evolution_suggestion", {}).get("reason", ""),
+            }
             confirmed_asset_id = self.branch_visual_asset(target_asset_id, asset_payload)["id"]
-        elif decision == "existing_asset":
+            after = self.get_visual_asset(confirmed_asset_id)
+            self.create_revision(
+                "visual_asset",
+                confirmed_asset_id,
+                "inherit_variant",
+                before=before,
+                after=after,
+                scores=payload.get("evolution_suggestion", {}).get("scores", {}),
+                source_candidate_id=candidate_id,
+                target_entity_id=target_asset_id,
+                reason=payload.get("evolution_suggestion", {}).get("reason", ""),
+            )
+        elif action == "attach_evidence":
             if not target_asset_id:
                 raise KeyError("target_asset_id is required for existing_asset")
             if not self.get_visual_asset(target_asset_id):
                 raise KeyError(f"Target visual asset not found: {target_asset_id}")
             confirmed_asset_id = target_asset_id
-        elif decision == "ignore":
+        elif action == "merge_existing":
+            if not target_asset_id:
+                raise KeyError("target_asset_id is required for merge_existing")
+            if not self.get_visual_asset(target_asset_id):
+                raise KeyError(f"Target visual asset not found: {target_asset_id}")
+            confirmed_asset_id = target_asset_id
+        elif action == "ignore":
             status = "ignored"
         else:
             raise ValueError(f"Unsupported decision: {decision}")
@@ -1397,7 +1799,7 @@ class AetherStore:
                     updated_at = ?
                 where id = ?
                 """,
-                (decision, status, target_asset_id, confirmed_asset_id, timestamp, candidate_id),
+                (self._legacy_asset_decision(action), status, target_asset_id, confirmed_asset_id, timestamp, candidate_id),
             )
         updated = self.get_visual_asset_candidate(candidate_id)
         assert updated is not None
@@ -1406,13 +1808,27 @@ class AetherStore:
                 confirmed_asset_id,
                 {
                     "evidence_type": "candidate_confirmation",
+                    "source_candidate_id": candidate_id,
                     "payload": {
                         "candidate_id": candidate_id,
-                        "decision": decision,
+                        "decision": self._legacy_asset_decision(action),
+                        "evolution_action": action,
                         "candidate": candidate["payload"],
                     },
                 },
             )
+            if action in {"attach_evidence", "merge_existing"}:
+                self.create_revision(
+                    "visual_asset",
+                    confirmed_asset_id,
+                    action,
+                    before=self.get_visual_asset(confirmed_asset_id),
+                    after=self.get_visual_asset(confirmed_asset_id),
+                    scores=payload.get("evolution_suggestion", {}).get("scores", {}),
+                    source_candidate_id=candidate_id,
+                    target_entity_id=target_asset_id,
+                    reason=payload.get("evolution_suggestion", {}).get("reason", ""),
+                )
         return updated
 
     def ignore_visual_asset_candidate(self, candidate_id: str) -> dict[str, Any]:
@@ -1506,6 +1922,8 @@ class AetherStore:
             "asset_id": asset_id,
             "evidence_type": payload["evidence_type"],
             "generation_run_id": payload.get("generation_run_id"),
+            "source_candidate_id": payload.get("source_candidate_id"),
+            "source_reference_id": payload.get("source_reference_id"),
             "payload": payload.get("payload", {}),
             "created_at": payload.get("created_at", timestamp),
         }
@@ -1513,14 +1931,87 @@ class AetherStore:
             conn.execute(
                 """
                 insert into visual_asset_evidence (
-                  id, asset_id, evidence_type, generation_run_id, payload_json, created_at
-                ) values (?, ?, ?, ?, ?, ?)
+                  id, asset_id, evidence_type, generation_run_id, source_candidate_id,
+                  source_reference_id, payload_json, created_at
+                ) values (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     record["id"],
                     record["asset_id"],
                     record["evidence_type"],
                     record["generation_run_id"],
+                    record["source_candidate_id"],
+                    record["source_reference_id"],
+                    json_dumps(record["payload"]),
+                    record["created_at"],
+                ),
+            )
+        return record
+
+    def create_recipe_evidence(self, recipe_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        if not self.get_recipe(recipe_id, include_assets=False):
+            raise KeyError(f"Recipe not found: {recipe_id}")
+        timestamp = now_iso()
+        record = {
+            "id": payload.get("id") or new_id("recipe_evidence"),
+            "recipe_id": recipe_id,
+            "evidence_type": payload["evidence_type"],
+            "source_candidate_id": payload.get("source_candidate_id"),
+            "source_generation_id": payload.get("source_generation_id"),
+            "source_reference_id": payload.get("source_reference_id"),
+            "payload": payload.get("payload", {}),
+            "created_at": payload.get("created_at", timestamp),
+        }
+        with self.connect() as conn:
+            conn.execute(
+                """
+                insert into recipe_evidence (
+                  id, recipe_id, evidence_type, source_candidate_id, source_generation_id,
+                  source_reference_id, payload_json, created_at
+                ) values (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    record["id"],
+                    record["recipe_id"],
+                    record["evidence_type"],
+                    record["source_candidate_id"],
+                    record["source_generation_id"],
+                    record["source_reference_id"],
+                    json_dumps(record["payload"]),
+                    record["created_at"],
+                ),
+            )
+        return record
+
+    def create_visual_system_evidence(self, system_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        if not self.get_visual_system(system_id, include_assets=False):
+            raise KeyError(f"Visual system not found: {system_id}")
+        timestamp = now_iso()
+        record = {
+            "id": payload.get("id") or new_id("system_evidence"),
+            "system_id": system_id,
+            "evidence_type": payload["evidence_type"],
+            "source_candidate_id": payload.get("source_candidate_id"),
+            "source_generation_id": payload.get("source_generation_id"),
+            "source_reference_id": payload.get("source_reference_id"),
+            "payload": payload.get("payload", {}),
+            "created_at": payload.get("created_at", timestamp),
+        }
+        with self.connect() as conn:
+            conn.execute(
+                """
+                insert into visual_system_evidence (
+                  id, system_id, evidence_type, source_candidate_id, source_generation_id,
+                  source_reference_id, payload_json, created_at
+                ) values (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    record["id"],
+                    record["system_id"],
+                    record["evidence_type"],
+                    record["source_candidate_id"],
+                    record["source_generation_id"],
+                    record["source_reference_id"],
                     json_dumps(record["payload"]),
                     record["created_at"],
                 ),
@@ -1549,6 +2040,141 @@ class AetherStore:
             rows = conn.execute(sql, tuple(params)).fetchall()
         evidence = [self._visual_asset_evidence_from_row(row) for row in rows]
         return evidence[:limit] if limit is not None and limit >= 0 else evidence
+
+    def list_recipe_evidence(
+        self,
+        recipe_id: str | None = None,
+        evidence_type: str | None = None,
+        limit: int | None = 50,
+    ) -> list[dict[str, Any]]:
+        sql = "select * from recipe_evidence"
+        clauses: list[str] = []
+        params: list[Any] = []
+        if recipe_id:
+            clauses.append("recipe_id = ?")
+            params.append(recipe_id)
+        if evidence_type:
+            clauses.append("evidence_type = ?")
+            params.append(evidence_type)
+        if clauses:
+            sql += " where " + " and ".join(clauses)
+        sql += " order by created_at desc"
+        with self.connect() as conn:
+            rows = conn.execute(sql, tuple(params)).fetchall()
+        evidence = [self._recipe_evidence_from_row(row) for row in rows]
+        return evidence[:limit] if limit is not None and limit >= 0 else evidence
+
+    def list_visual_system_evidence(
+        self,
+        system_id: str | None = None,
+        evidence_type: str | None = None,
+        limit: int | None = 50,
+    ) -> list[dict[str, Any]]:
+        sql = "select * from visual_system_evidence"
+        clauses: list[str] = []
+        params: list[Any] = []
+        if system_id:
+            clauses.append("system_id = ?")
+            params.append(system_id)
+        if evidence_type:
+            clauses.append("evidence_type = ?")
+            params.append(evidence_type)
+        if clauses:
+            sql += " where " + " and ".join(clauses)
+        sql += " order by created_at desc"
+        with self.connect() as conn:
+            rows = conn.execute(sql, tuple(params)).fetchall()
+        evidence = [self._visual_system_evidence_from_row(row) for row in rows]
+        return evidence[:limit] if limit is not None and limit >= 0 else evidence
+
+    def create_revision(
+        self,
+        entity_type: str,
+        entity_id: str,
+        action: str,
+        *,
+        before: dict[str, Any] | None = None,
+        after: dict[str, Any] | None = None,
+        diff: dict[str, Any] | None = None,
+        scores: dict[str, Any] | None = None,
+        source_candidate_id: str | None = None,
+        source_generation_id: str | None = None,
+        target_entity_id: str | None = None,
+        reason: str = "",
+    ) -> dict[str, Any]:
+        table_by_type = {
+            "visual_asset": ("visual_asset_revisions", "asset_id", "asset_revision"),
+            "recipe": ("recipe_revisions", "recipe_id", "recipe_revision"),
+            "visual_system": ("visual_system_revisions", "system_id", "system_revision"),
+        }
+        if entity_type not in table_by_type:
+            raise ValueError(f"Unsupported revision entity type: {entity_type}")
+        table, id_column, id_prefix = table_by_type[entity_type]
+        timestamp = now_iso()
+        record = {
+            "id": new_id(id_prefix),
+            id_column: entity_id,
+            "action": action,
+            "source_candidate_id": source_candidate_id,
+            "source_generation_id": source_generation_id,
+            "target_entity_id": target_entity_id,
+            "scores": scores or {},
+            "before": before or {},
+            "after": after or {},
+            "diff": diff or {},
+            "reason": reason,
+            "created_at": timestamp,
+        }
+        with self.connect() as conn:
+            conn.execute(
+                f"""
+                insert into {table} (
+                  id, {id_column}, action, source_candidate_id, source_generation_id,
+                  target_entity_id, scores_json, before_json, after_json, diff_json,
+                  reason, created_at
+                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    record["id"],
+                    record[id_column],
+                    record["action"],
+                    record["source_candidate_id"],
+                    record["source_generation_id"],
+                    record["target_entity_id"],
+                    json_dumps(record["scores"]),
+                    json_dumps(record["before"]),
+                    json_dumps(record["after"]),
+                    json_dumps(record["diff"]),
+                    record["reason"],
+                    record["created_at"],
+                ),
+            )
+        return record
+
+    def list_revisions(
+        self,
+        entity_type: str,
+        entity_id: str | None = None,
+        limit: int | None = 50,
+    ) -> list[dict[str, Any]]:
+        table_by_type = {
+            "visual_asset": ("visual_asset_revisions", "asset_id"),
+            "recipe": ("recipe_revisions", "recipe_id"),
+            "visual_system": ("visual_system_revisions", "system_id"),
+        }
+        if entity_type not in table_by_type:
+            raise ValueError(f"Unsupported revision entity type: {entity_type}")
+        table, id_column = table_by_type[entity_type]
+        sql = f"select * from {table}"
+        params: tuple[Any, ...] = ()
+        if entity_id:
+            sql += f" where {id_column} = ?"
+            params = (entity_id,)
+        sql += " order by created_at desc"
+        with self.connect() as conn:
+            rows = conn.execute(sql, params).fetchall()
+        revisions = [self._revision_from_row(entity_type, id_column, row) for row in rows]
+        return revisions[:limit] if limit is not None and limit >= 0 else revisions
 
     def visual_asset_quality(self, asset_id: str) -> dict[str, Any]:
         runs = self.list_generation_runs(asset_id=asset_id, limit=None)
@@ -1606,6 +2232,8 @@ class AetherStore:
 
     def create_visual_system(self, payload: dict[str, Any]) -> dict[str, Any]:
         validate_visual_system(payload)
+        if payload.get("parent_system_id") and not self.get_visual_system(payload["parent_system_id"], include_assets=False):
+            raise KeyError(f"Parent visual system not found: {payload['parent_system_id']}")
         timestamp = now_iso()
         system_id = payload.get("id") or slugify(f"{payload['kind']}-{payload['name']}", "visual_system")
         record = {
@@ -1619,6 +2247,8 @@ class AetherStore:
             "source_reference_ids": payload.get("source_reference_ids", []),
             "metadata": payload.get("metadata", {}),
             "status": payload.get("status", "draft"),
+            "parent_system_id": payload.get("parent_system_id"),
+            "merged_into_system_id": payload.get("merged_into_system_id"),
             "created_at": payload.get("created_at", timestamp),
             "updated_at": timestamp,
         }
@@ -1627,8 +2257,9 @@ class AetherStore:
                 """
                 insert into visual_systems (
                   id, kind, name, summary, tags_json, visual_rules_json, avoid_rules_json,
-                  source_reference_ids_json, metadata_json, status, created_at, updated_at
-                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  source_reference_ids_json, metadata_json, status, parent_system_id,
+                  merged_into_system_id, created_at, updated_at
+                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 on conflict(id) do update set
                   kind=excluded.kind,
                   name=excluded.name,
@@ -1639,6 +2270,8 @@ class AetherStore:
                   source_reference_ids_json=excluded.source_reference_ids_json,
                   metadata_json=excluded.metadata_json,
                   status=excluded.status,
+                  parent_system_id=excluded.parent_system_id,
+                  merged_into_system_id=excluded.merged_into_system_id,
                   updated_at=excluded.updated_at
                 """,
                 (
@@ -1652,6 +2285,8 @@ class AetherStore:
                     json_dumps(record["source_reference_ids"]),
                     json_dumps(record["metadata"]),
                     record["status"],
+                    record["parent_system_id"],
+                    record["merged_into_system_id"],
                     record["created_at"],
                     record["updated_at"],
                 ),
@@ -1704,6 +2339,90 @@ class AetherStore:
                 or any(needle in item.lower() for item in system.get("tags", []) if isinstance(item, str))
             ]
         return systems[:limit] if limit is not None and limit >= 0 else systems
+
+    def update_visual_system_status(
+        self,
+        system_id: str,
+        status: str,
+        merged_into_system_id: str | None = None,
+        parent_system_id: str | None = None,
+    ) -> dict[str, Any]:
+        timestamp = now_iso()
+        with self.connect() as conn:
+            row = conn.execute("select * from visual_systems where id = ?", (system_id,)).fetchone()
+            if not row:
+                raise KeyError(f"Visual system not found: {system_id}")
+            conn.execute(
+                """
+                update visual_systems
+                set status = ?,
+                    merged_into_system_id = coalesce(?, merged_into_system_id),
+                    parent_system_id = coalesce(?, parent_system_id),
+                    updated_at = ?
+                where id = ?
+                """,
+                (status, merged_into_system_id, parent_system_id, timestamp, system_id),
+            )
+        updated = self.get_visual_system(system_id)
+        assert updated is not None
+        return updated
+
+    def visual_system_merge_preview(self, source_system_id: str, target_system_id: str) -> dict[str, Any]:
+        source = self.get_visual_system(source_system_id)
+        target = self.get_visual_system(target_system_id)
+        if not source:
+            raise KeyError(f"Source visual system not found: {source_system_id}")
+        if not target:
+            raise KeyError(f"Target visual system not found: {target_system_id}")
+        if source["kind"] != target["kind"]:
+            raise ValueError("Visual systems must have the same kind to merge")
+        proposed = {
+            **target,
+            "summary": self._abstract_text([target.get("summary", ""), source.get("summary", "")]),
+            "tags": self._compact_unique([*target.get("tags", []), *source.get("tags", [])], limit=16),
+            "visual_rules": self._abstract_rules(target.get("visual_rules", []), source.get("visual_rules", [])),
+            "avoid_rules": self._compact_unique([*target.get("avoid_rules", []), *source.get("avoid_rules", [])], limit=10),
+            "source_reference_ids": self._compact_unique(
+                [*target.get("source_reference_ids", []), *source.get("source_reference_ids", [])],
+                limit=20,
+            ),
+            "metadata": self._abstract_mapping(target.get("metadata", {}), source.get("metadata", {}), limit=4),
+            "status": target.get("status", "draft"),
+        }
+        return self._merge_preview("visual_system", source, target, proposed)
+
+    def merge_visual_system(self, source_system_id: str, target_system_id: str) -> dict[str, Any]:
+        preview = self.visual_system_merge_preview(source_system_id, target_system_id)
+        before = preview["canonical_before"]
+        system = self.create_visual_system(preview["proposed_after"])
+        for relation in self.list_visual_system_assets(system_id=source_system_id):
+            self.set_visual_system_asset(
+                target_system_id,
+                {
+                    "asset_id": relation["asset_id"],
+                    "role": relation["role"],
+                    "weight": relation["weight"],
+                    "reason": relation["reason"],
+                },
+            )
+        for recipe in self.list_recipes(system_id=source_system_id, limit=None):
+            parent_system_ids = self._compact_unique(
+                [target_system_id if item == source_system_id else item for item in recipe.get("parent_system_ids", [])],
+                limit=12,
+            )
+            self.create_recipe({**recipe, "parent_system_ids": parent_system_ids})
+        merged = self.update_visual_system_status(source_system_id, "merged", merged_into_system_id=target_system_id)
+        self.create_revision(
+            "visual_system",
+            target_system_id,
+            "merge_existing",
+            before=before,
+            after=system,
+            diff=preview["diff"],
+            target_entity_id=source_system_id,
+            reason=preview["reason"],
+        )
+        return {"canonical": system, "merged": merged, "preview": preview}
 
     def set_visual_system_asset(self, system_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         if not self.get_visual_system(system_id, include_assets=False):
@@ -1828,6 +2547,7 @@ class AetherStore:
         payload.pop("related_existing_systems", None)
         metadata = dict(payload.get("metadata", {}))
         metadata["recommendation"] = "suggest_create"
+        metadata.pop("evolution_action", None)
         metadata.pop("target_system_id", None)
         metadata.pop("dedupe_score", None)
         payload["metadata"] = metadata
@@ -1862,19 +2582,30 @@ class AetherStore:
                 float(system.get("lexical_score", 0.0)),
                 float(system.get("relation_score", 0.0)),
             )
-            recommendation = "suggest_create"
-            if dedupe_score >= 0.82:
-                recommendation = "attach_or_extend"
-            elif dedupe_score >= 0.65:
-                recommendation = "possible_duplicate"
+            scores = self._evolution_scores("visual_system", query_text, system)
+            action = self._evolution_action("visual_system", scores)
+            recommendation = {
+                "attach_evidence": "attach_evidence",
+                "inherit_variant": "inherit_variant",
+                "create_new": "suggest_create",
+                "merge_existing": "merge_existing",
+            }.get(action, action)
             related_systems.append({**system, "dedupe_score": round(dedupe_score, 4), "recommendation": recommendation})
         if related_systems:
             payload["related_existing_systems"] = related_systems
             top = related_systems[0]
-            if top["recommendation"] in {"attach_or_extend", "possible_duplicate"}:
-                metadata["recommendation"] = top["recommendation"]
+            suggestion = self._evolution_suggestion("visual_system", query_text, top)
+            metadata["evolution_action"] = suggestion["action"]
+            metadata["evolution_suggestion"] = suggestion
+            metadata["recommendation"] = top["recommendation"]
+            if suggestion.get("target_id"):
                 metadata["target_system_id"] = top["system_id"]
                 metadata["dedupe_score"] = top["dedupe_score"]
+            payload["metadata"] = metadata
+        else:
+            suggestion = self._evolution_suggestion("visual_system", query_text, None)
+            metadata["evolution_action"] = suggestion["action"]
+            metadata["evolution_suggestion"] = suggestion
             payload["metadata"] = metadata
         return payload
 
@@ -1950,6 +2681,7 @@ class AetherStore:
         self,
         candidate_id: str,
         target_system_id: str | None = None,
+        action: str | None = None,
         force_new: bool = False,
     ) -> dict[str, Any]:
         candidate = self.get_visual_system_candidate(candidate_id)
@@ -1997,17 +2729,57 @@ class AetherStore:
             )
         metadata = dict(payload.get("metadata", {}))
         if target_system_id:
-            metadata["recommendation"] = "attach_or_extend"
+            metadata["recommendation"] = "attach_evidence"
+            metadata["evolution_action"] = "attach_evidence"
             metadata["target_system_id"] = target_system_id
         if force_new:
             metadata["recommendation"] = "suggest_create"
+            metadata["evolution_action"] = "create_new"
             metadata.pop("target_system_id", None)
+        if action:
+            metadata["evolution_action"] = action
+            if action == "create_new":
+                metadata["recommendation"] = "suggest_create"
+                metadata.pop("target_system_id", None)
+            elif action in {"attach_evidence", "inherit_variant", "merge_existing"}:
+                metadata["recommendation"] = action
+                if target_system_id:
+                    metadata["target_system_id"] = target_system_id
         target_system_id = metadata.get("target_system_id")
-        if metadata.get("recommendation") == "attach_or_extend" and target_system_id:
+        evolution_action = metadata.get("evolution_action") or {
+            "attach_or_extend": "attach_evidence",
+            "possible_duplicate": "inherit_variant",
+            "suggest_create": "create_new",
+        }.get(metadata.get("recommendation"), "create_new")
+        if evolution_action in {"attach_evidence", "merge_existing"} and target_system_id:
             if not self.get_visual_system(target_system_id, include_assets=False):
                 raise KeyError(f"Target visual system not found: {target_system_id}")
             for relation in assets:
                 self.set_visual_system_asset(target_system_id, relation)
+            self.create_visual_system_evidence(
+                target_system_id,
+                {
+                    "evidence_type": "candidate_confirmation",
+                    "source_candidate_id": candidate_id,
+                    "payload": {
+                        "candidate_id": candidate_id,
+                        "evolution_action": evolution_action,
+                        "candidate": payload,
+                    },
+                },
+            )
+            current_system = self.get_visual_system(target_system_id)
+            self.create_revision(
+                "visual_system",
+                target_system_id,
+                evolution_action,
+                before=current_system,
+                after=current_system,
+                scores=metadata.get("evolution_suggestion", {}).get("scores", {}),
+                source_candidate_id=candidate_id,
+                target_entity_id=target_system_id,
+                reason=metadata.get("evolution_suggestion", {}).get("reason", ""),
+            )
             timestamp = now_iso()
             with self.connect() as conn:
                 conn.execute(
@@ -2021,8 +2793,13 @@ class AetherStore:
             updated = self.get_visual_system_candidate(candidate_id)
             assert updated is not None
             updated["visual_system"] = self.get_visual_system(target_system_id)
-            updated["dedupe_decision"] = "attached_to_existing_system"
+            updated["dedupe_decision"] = evolution_action
             return updated
+        if evolution_action == "inherit_variant" and target_system_id:
+            if not self.get_visual_system(target_system_id, include_assets=False):
+                raise KeyError(f"Parent visual system not found: {target_system_id}")
+            metadata["parent_system_id"] = target_system_id
+            payload["parent_system_id"] = target_system_id
         system_payload = {
             key: value
             for key, value in payload.items()
@@ -2040,8 +2817,31 @@ class AetherStore:
                 "batch_id",
             }
         }
+        system_payload["metadata"] = metadata
         system_payload["assets"] = assets
         system = self.create_visual_system(system_payload)
+        self.create_visual_system_evidence(
+            system["id"],
+            {
+                "evidence_type": "candidate_confirmation",
+                "source_candidate_id": candidate_id,
+                "payload": {
+                    "candidate_id": candidate_id,
+                    "evolution_action": evolution_action,
+                    "candidate": payload,
+                },
+            },
+        )
+        self.create_revision(
+            "visual_system",
+            system["id"],
+            evolution_action,
+            after=system,
+            scores=metadata.get("evolution_suggestion", {}).get("scores", {}),
+            source_candidate_id=candidate_id,
+            target_entity_id=target_system_id,
+            reason=metadata.get("evolution_suggestion", {}).get("reason", ""),
+        )
         timestamp = now_iso()
         with self.connect() as conn:
             conn.execute(
@@ -2062,6 +2862,8 @@ class AetherStore:
         for system_id in payload.get("parent_system_ids", []):
             if not self.get_visual_system(system_id, include_assets=False):
                 raise KeyError(f"Parent visual system not found: {system_id}")
+        if payload.get("parent_recipe_id") and not self.get_recipe(payload["parent_recipe_id"], include_assets=False):
+            raise KeyError(f"Parent recipe not found: {payload['parent_recipe_id']}")
         timestamp = now_iso()
         recipe_id = payload.get("id") or self._unique_slug_id("recipes", slugify(payload["name"], "recipe"))
         record = {
@@ -2079,6 +2881,8 @@ class AetherStore:
             "reason": payload.get("reason", ""),
             "metadata": payload.get("metadata", {}),
             "status": payload.get("status", "draft"),
+            "parent_recipe_id": payload.get("parent_recipe_id"),
+            "merged_into_recipe_id": payload.get("merged_into_recipe_id"),
             "created_at": payload.get("created_at", timestamp),
             "updated_at": timestamp,
         }
@@ -2089,8 +2893,8 @@ class AetherStore:
                   id, name, summary, parent_system_ids_json, use_cases_json,
                   required_asset_types_json, composition_rules_json, recommended_aspect_ratios_json,
                   source_reference_ids_json, confidence, source, reason, metadata_json, status,
-                  created_at, updated_at
-                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  parent_recipe_id, merged_into_recipe_id, created_at, updated_at
+                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 on conflict(id) do update set
                   name=excluded.name,
                   summary=excluded.summary,
@@ -2105,6 +2909,8 @@ class AetherStore:
                   reason=excluded.reason,
                   metadata_json=excluded.metadata_json,
                   status=excluded.status,
+                  parent_recipe_id=excluded.parent_recipe_id,
+                  merged_into_recipe_id=excluded.merged_into_recipe_id,
                   updated_at=excluded.updated_at
                 """,
                 (
@@ -2122,6 +2928,8 @@ class AetherStore:
                     record["reason"],
                     json_dumps(record["metadata"]),
                     record["status"],
+                    record["parent_recipe_id"],
+                    record["merged_into_recipe_id"],
                     record["created_at"],
                     record["updated_at"],
                 ),
@@ -2208,6 +3016,97 @@ class AetherStore:
                 or any(needle in item.lower() for item in recipe.get("use_cases", []) if isinstance(item, str))
             ]
         return recipes[:limit] if limit is not None and limit >= 0 else recipes
+
+    def update_recipe_status(
+        self,
+        recipe_id: str,
+        status: str,
+        merged_into_recipe_id: str | None = None,
+        parent_recipe_id: str | None = None,
+    ) -> dict[str, Any]:
+        timestamp = now_iso()
+        with self.connect() as conn:
+            row = conn.execute("select * from recipes where id = ?", (recipe_id,)).fetchone()
+            if not row:
+                raise KeyError(f"Recipe not found: {recipe_id}")
+            conn.execute(
+                """
+                update recipes
+                set status = ?,
+                    merged_into_recipe_id = coalesce(?, merged_into_recipe_id),
+                    parent_recipe_id = coalesce(?, parent_recipe_id),
+                    updated_at = ?
+                where id = ?
+                """,
+                (status, merged_into_recipe_id, parent_recipe_id, timestamp, recipe_id),
+            )
+        updated = self.get_recipe(recipe_id)
+        assert updated is not None
+        return updated
+
+    def recipe_merge_preview(self, source_recipe_id: str, target_recipe_id: str) -> dict[str, Any]:
+        source = self.get_recipe(source_recipe_id)
+        target = self.get_recipe(target_recipe_id)
+        if not source:
+            raise KeyError(f"Source recipe not found: {source_recipe_id}")
+        if not target:
+            raise KeyError(f"Target recipe not found: {target_recipe_id}")
+        proposed = {
+            **target,
+            "summary": self._abstract_text([target.get("summary", ""), source.get("summary", "")]),
+            "parent_system_ids": self._compact_unique(
+                [*target.get("parent_system_ids", []), *source.get("parent_system_ids", [])],
+                limit=8,
+            ),
+            "use_cases": self._compact_unique([*target.get("use_cases", []), *source.get("use_cases", [])], limit=12),
+            "required_asset_types": self._compact_unique(
+                [*target.get("required_asset_types", []), *source.get("required_asset_types", [])],
+                limit=10,
+            ),
+            "composition_rules": self._abstract_rules(
+                target.get("composition_rules", []),
+                source.get("composition_rules", []),
+            ),
+            "recommended_aspect_ratios": self._compact_unique(
+                [*target.get("recommended_aspect_ratios", []), *source.get("recommended_aspect_ratios", [])],
+                limit=6,
+            ),
+            "source_reference_ids": self._compact_unique(
+                [*target.get("source_reference_ids", []), *source.get("source_reference_ids", [])],
+                limit=20,
+            ),
+            "confidence": max(float(target.get("confidence", 0.5)), float(source.get("confidence", 0.5))),
+            "metadata": self._abstract_mapping(target.get("metadata", {}), source.get("metadata", {}), limit=4),
+            "status": target.get("status", "draft"),
+        }
+        return self._merge_preview("recipe", source, target, proposed)
+
+    def merge_recipe(self, source_recipe_id: str, target_recipe_id: str) -> dict[str, Any]:
+        preview = self.recipe_merge_preview(source_recipe_id, target_recipe_id)
+        before = preview["canonical_before"]
+        recipe = self.create_recipe(preview["proposed_after"])
+        for relation in self.list_recipe_assets(recipe_id=source_recipe_id):
+            self.set_recipe_asset(
+                target_recipe_id,
+                {
+                    "asset_id": relation["asset_id"],
+                    "role": relation["role"],
+                    "weight": relation["weight"],
+                    "reason": relation["reason"],
+                },
+            )
+        merged = self.update_recipe_status(source_recipe_id, "merged", merged_into_recipe_id=target_recipe_id)
+        self.create_revision(
+            "recipe",
+            target_recipe_id,
+            "merge_existing",
+            before=before,
+            after=recipe,
+            diff=preview["diff"],
+            target_entity_id=source_recipe_id,
+            reason=preview["reason"],
+        )
+        return {"canonical": recipe, "merged": merged, "preview": preview}
 
     def set_recipe_asset(self, recipe_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         if not self.get_recipe(recipe_id, include_assets=False):
@@ -2332,6 +3231,7 @@ class AetherStore:
         payload.pop("related_existing_recipes", None)
         metadata = dict(payload.get("metadata", {}))
         metadata["recommendation"] = "suggest_create"
+        metadata.pop("evolution_action", None)
         metadata.pop("target_recipe_id", None)
         metadata.pop("dedupe_score", None)
         payload["metadata"] = metadata
@@ -2369,21 +3269,30 @@ class AetherStore:
                 float(recipe.get("lexical_score", 0.0)),
                 float(recipe.get("relation_score", 0.0)),
             )
-            recommendation = "suggest_create"
-            if dedupe_score >= 0.86:
-                recommendation = "merge_or_update"
-            elif dedupe_score >= 0.72:
-                recommendation = "variant"
-            elif dedupe_score >= 0.58:
-                recommendation = "possible_related"
+            scores = self._evolution_scores("recipe", query_text, recipe)
+            action = self._evolution_action("recipe", scores)
+            recommendation = {
+                "attach_evidence": "attach_evidence",
+                "inherit_variant": "inherit_variant",
+                "create_new": "suggest_create",
+                "merge_existing": "merge_existing",
+            }.get(action, action)
             related_recipes.append({**recipe, "dedupe_score": round(dedupe_score, 4), "recommendation": recommendation})
         if related_recipes:
             payload["related_existing_recipes"] = related_recipes
             top = related_recipes[0]
-            if top["recommendation"] in {"merge_or_update", "variant", "possible_related"}:
-                metadata["recommendation"] = top["recommendation"]
+            suggestion = self._evolution_suggestion("recipe", query_text, top)
+            metadata["evolution_action"] = suggestion["action"]
+            metadata["evolution_suggestion"] = suggestion
+            metadata["recommendation"] = top["recommendation"]
+            if suggestion.get("target_id"):
                 metadata["target_recipe_id"] = top["recipe_id"]
                 metadata["dedupe_score"] = top["dedupe_score"]
+            payload["metadata"] = metadata
+        else:
+            suggestion = self._evolution_suggestion("recipe", query_text, None)
+            metadata["evolution_action"] = suggestion["action"]
+            metadata["evolution_suggestion"] = suggestion
             payload["metadata"] = metadata
         return payload
 
@@ -2461,6 +3370,7 @@ class AetherStore:
         parent_system_ids: list[str] | None = None,
         target_recipe_id: str | None = None,
         variant_of_recipe_id: str | None = None,
+        action: str | None = None,
         force_new: bool = False,
     ) -> dict[str, Any]:
         candidate = self.get_recipe_candidate(candidate_id)
@@ -2517,21 +3427,63 @@ class AetherStore:
             recipe_payload["parent_system_ids"] = parent_system_ids
         metadata = dict(recipe_payload.get("metadata", {}))
         if target_recipe_id:
-            metadata["recommendation"] = "merge_or_update"
+            metadata["recommendation"] = "attach_evidence"
+            metadata["evolution_action"] = "attach_evidence"
             metadata["target_recipe_id"] = target_recipe_id
         if variant_of_recipe_id:
-            metadata["recommendation"] = "variant"
+            metadata["recommendation"] = "inherit_variant"
+            metadata["evolution_action"] = "inherit_variant"
             metadata["target_recipe_id"] = variant_of_recipe_id
         if force_new:
             metadata["recommendation"] = "suggest_create"
+            metadata["evolution_action"] = "create_new"
             metadata.pop("target_recipe_id", None)
+        if action:
+            metadata["evolution_action"] = action
+            if action == "create_new":
+                metadata["recommendation"] = "suggest_create"
+                metadata.pop("target_recipe_id", None)
+            elif action in {"attach_evidence", "inherit_variant", "merge_existing"}:
+                metadata["recommendation"] = action
+                if target_recipe_id or variant_of_recipe_id:
+                    metadata["target_recipe_id"] = target_recipe_id or variant_of_recipe_id
         recipe_payload["metadata"] = metadata
-        if metadata.get("recommendation") == "merge_or_update" and metadata.get("target_recipe_id"):
+        evolution_action = metadata.get("evolution_action") or {
+            "merge_or_update": "attach_evidence",
+            "variant": "inherit_variant",
+            "possible_related": "inherit_variant",
+            "suggest_create": "create_new",
+        }.get(metadata.get("recommendation"), "create_new")
+        if evolution_action in {"attach_evidence", "merge_existing"} and metadata.get("target_recipe_id"):
             target_recipe_id = metadata["target_recipe_id"]
             if not self.get_recipe(target_recipe_id, include_assets=False):
                 raise KeyError(f"Target recipe not found: {target_recipe_id}")
             for relation in recipe_assets:
                 self.set_recipe_asset(target_recipe_id, relation)
+            self.create_recipe_evidence(
+                target_recipe_id,
+                {
+                    "evidence_type": "candidate_confirmation",
+                    "source_candidate_id": candidate_id,
+                    "payload": {
+                        "candidate_id": candidate_id,
+                        "evolution_action": evolution_action,
+                        "candidate": payload,
+                    },
+                },
+            )
+            current_recipe = self.get_recipe(target_recipe_id)
+            self.create_revision(
+                "recipe",
+                target_recipe_id,
+                evolution_action,
+                before=current_recipe,
+                after=current_recipe,
+                scores=metadata.get("evolution_suggestion", {}).get("scores", {}),
+                source_candidate_id=candidate_id,
+                target_entity_id=target_recipe_id,
+                reason=metadata.get("evolution_suggestion", {}).get("reason", ""),
+            )
             timestamp = now_iso()
             with self.connect() as conn:
                 conn.execute(
@@ -2545,20 +3497,43 @@ class AetherStore:
             updated = self.get_recipe_candidate(candidate_id)
             assert updated is not None
             updated["recipe"] = self.get_recipe(target_recipe_id)
-            updated["dedupe_decision"] = "merged_into_existing_recipe"
+            updated["dedupe_decision"] = evolution_action
             return updated
-        if metadata.get("recommendation") == "variant" and metadata.get("target_recipe_id"):
+        if evolution_action == "inherit_variant" and metadata.get("target_recipe_id"):
             recipe_payload["metadata"] = {
                 **metadata,
                 "variant_of_recipe_id": metadata["target_recipe_id"],
                 "dedupe_decision": "variant",
             }
+            recipe_payload["parent_recipe_id"] = metadata["target_recipe_id"]
             if not recipe_payload.get("parent_system_ids"):
                 target_recipe = self.get_recipe(metadata["target_recipe_id"])
                 if target_recipe:
                     recipe_payload["parent_system_ids"] = target_recipe.get("parent_system_ids", [])
         recipe_payload["assets"] = recipe_assets
         recipe = self.create_recipe(recipe_payload)
+        self.create_recipe_evidence(
+            recipe["id"],
+            {
+                "evidence_type": "candidate_confirmation",
+                "source_candidate_id": candidate_id,
+                "payload": {
+                    "candidate_id": candidate_id,
+                    "evolution_action": evolution_action,
+                    "candidate": payload,
+                },
+            },
+        )
+        self.create_revision(
+            "recipe",
+            recipe["id"],
+            evolution_action,
+            after=recipe,
+            scores=metadata.get("evolution_suggestion", {}).get("scores", {}),
+            source_candidate_id=candidate_id,
+            target_entity_id=metadata.get("target_recipe_id"),
+            reason=metadata.get("evolution_suggestion", {}).get("reason", ""),
+        )
         timestamp = now_iso()
         with self.connect() as conn:
             conn.execute(
@@ -3446,7 +4421,50 @@ class AetherStore:
             "asset_id": row["asset_id"],
             "evidence_type": row["evidence_type"],
             "generation_run_id": row["generation_run_id"],
+            "source_candidate_id": row["source_candidate_id"],
+            "source_reference_id": row["source_reference_id"],
             "payload": json_loads(row["payload_json"], {}),
+            "created_at": row["created_at"],
+        }
+
+    def _recipe_evidence_from_row(self, row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "id": row["id"],
+            "recipe_id": row["recipe_id"],
+            "evidence_type": row["evidence_type"],
+            "source_candidate_id": row["source_candidate_id"],
+            "source_generation_id": row["source_generation_id"],
+            "source_reference_id": row["source_reference_id"],
+            "payload": json_loads(row["payload_json"], {}),
+            "created_at": row["created_at"],
+        }
+
+    def _visual_system_evidence_from_row(self, row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "id": row["id"],
+            "system_id": row["system_id"],
+            "evidence_type": row["evidence_type"],
+            "source_candidate_id": row["source_candidate_id"],
+            "source_generation_id": row["source_generation_id"],
+            "source_reference_id": row["source_reference_id"],
+            "payload": json_loads(row["payload_json"], {}),
+            "created_at": row["created_at"],
+        }
+
+    def _revision_from_row(self, entity_type: str, id_column: str, row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "id": row["id"],
+            "entity_type": entity_type,
+            "entity_id": row[id_column],
+            "action": row["action"],
+            "source_candidate_id": row["source_candidate_id"],
+            "source_generation_id": row["source_generation_id"],
+            "target_entity_id": row["target_entity_id"],
+            "scores": json_loads(row["scores_json"], {}),
+            "before": json_loads(row["before_json"], {}),
+            "after": json_loads(row["after_json"], {}),
+            "diff": json_loads(row["diff_json"], {}),
+            "reason": row["reason"],
             "created_at": row["created_at"],
         }
 
@@ -3462,6 +4480,8 @@ class AetherStore:
             "source_reference_ids": json_loads(row["source_reference_ids_json"], []),
             "metadata": json_loads(row["metadata_json"], {}),
             "status": row["status"],
+            "parent_system_id": row["parent_system_id"],
+            "merged_into_system_id": row["merged_into_system_id"],
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
         }
@@ -3494,6 +4514,8 @@ class AetherStore:
             "reason": row["reason"],
             "metadata": json_loads(row["metadata_json"], {}),
             "status": row["status"],
+            "parent_recipe_id": row["parent_recipe_id"],
+            "merged_into_recipe_id": row["merged_into_recipe_id"],
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
         }

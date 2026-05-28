@@ -23,7 +23,11 @@ VISUAL_ASSET_TYPES = {
 }
 
 VISUAL_ASSET_CANDIDATE_DECISIONS = {
+    "attach_evidence",
+    "create_new",
     "existing_asset",
+    "inherit_variant",
+    "merge_existing",
     "asset_variant",
     "new_asset",
     "ignore",
@@ -294,6 +298,9 @@ def validate_visual_system(payload: dict[str, Any]) -> None:
         )
     if "metadata" in payload and not isinstance(payload["metadata"], dict):
         raise ValidationError("Field metadata must be a dict")
+    for field in ["parent_system_id", "merged_into_system_id"]:
+        if field in payload and payload[field] is not None and not isinstance(payload[field], str):
+            raise ValidationError(f"Field {field} must be a string")
 
 
 def validate_visual_asset_profile(profile: dict[str, Any], asset_type: str) -> None:
@@ -349,6 +356,9 @@ def validate_recipe(payload: dict[str, Any]) -> None:
         raise ValidationError("Field confidence must be a number")
     if "metadata" in payload and not isinstance(payload["metadata"], dict):
         raise ValidationError("Field metadata must be a dict")
+    for field in ["parent_recipe_id", "merged_into_recipe_id"]:
+        if field in payload and payload[field] is not None and not isinstance(payload[field], str):
+            raise ValidationError(f"Field {field} must be a string")
     for asset_type in payload.get("required_asset_types", []):
         if asset_type not in VISUAL_ASSET_TYPES:
             raise ValidationError(f"Field required_asset_types contains unsupported type: {asset_type}")

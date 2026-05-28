@@ -95,15 +95,21 @@ When the user asks for pending extracted modules or confirmation work:
 aether visual-asset candidates list --status pending --summary
 aether visual-asset candidates get <candidate_id>
 aether visual-asset candidates confirm-batch <batch_id>
+aether visual-asset candidates decide <candidate_id> attach_evidence --target-asset-id <asset_id>
+aether visual-asset candidates decide <candidate_id> inherit_variant --target-asset-id <asset_id>
 aether visual-asset candidates decide <candidate_id> ignore --cleanup
 aether visual-asset candidates cleanup --status ignored
-aether recipe candidates list --status pending
+aether recipe candidates list --status pending --summary
 aether recipe candidates get <recipe_candidate_id>
+aether recipe candidates confirm <recipe_candidate_id> --action attach_evidence --target-recipe-id <recipe_id>
+aether recipe candidates confirm <recipe_candidate_id> --action inherit_variant --variant-of <recipe_id>
 aether recipe candidates ignore <recipe_candidate_id>
 aether recipe candidates ignore <recipe_candidate_id> --cleanup
 aether recipe candidates cleanup --status ignored
-aether visual-system candidates list --status pending
+aether visual-system candidates list --status pending --summary
 aether visual-system candidates get <visual_system_candidate_id>
+aether visual-system candidates confirm <visual_system_candidate_id> --action attach_evidence --target-system-id <visual_system_id>
+aether visual-system candidates confirm <visual_system_candidate_id> --action inherit_variant --target-system-id <visual_system_id>
 aether visual-system candidates ignore <visual_system_candidate_id>
 aether visual-system candidates ignore <visual_system_candidate_id> --cleanup
 aether visual-system candidates cleanup --status ignored
@@ -113,6 +119,11 @@ When the user asks why an asset is being recommended or how it has performed:
 
 ```bash
 aether visual-asset evidence <visual_asset_id>
+aether visual-asset revisions <visual_asset_id>
+aether recipe evidence <recipe_id>
+aether recipe revisions <recipe_id>
+aether visual-system evidence <visual_system_id>
+aether visual-system revisions <visual_system_id>
 aether visual-asset quality <visual_asset_id>
 ```
 

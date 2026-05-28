@@ -767,7 +767,8 @@ class StorageTests(unittest.TestCase):
                 }
             )
 
-            self.assertEqual(candidate["payload"]["metadata"]["recommendation"], "attach_or_extend")
+            self.assertEqual(candidate["payload"]["metadata"]["recommendation"], "attach_evidence")
+            self.assertEqual(candidate["payload"]["metadata"]["evolution_action"], "attach_evidence")
             confirmed_asset = store.decide_visual_asset_candidate(candidate_asset["id"], "new_asset")
             confirmed = store.confirm_visual_system_candidate(candidate["id"])
             self.assertEqual(confirmed["confirmed_system_id"], system["id"])
@@ -817,7 +818,8 @@ class StorageTests(unittest.TestCase):
                 }
             )
 
-            self.assertEqual(candidate["payload"]["metadata"]["recommendation"], "merge_or_update")
+            self.assertEqual(candidate["payload"]["metadata"]["recommendation"], "attach_evidence")
+            self.assertEqual(candidate["payload"]["metadata"]["evolution_action"], "attach_evidence")
             confirmed = store.confirm_recipe_candidate(candidate["id"])
             self.assertEqual(confirmed["confirmed_recipe_id"], recipe["id"])
             relation_asset_ids = {
@@ -939,7 +941,8 @@ class StorageTests(unittest.TestCase):
                 },
                 config=config,
             )
-            self.assertEqual(system_candidate["payload"]["metadata"]["recommendation"], "attach_or_extend")
+            self.assertEqual(system_candidate["payload"]["metadata"]["recommendation"], "attach_evidence")
+            self.assertEqual(system_candidate["payload"]["metadata"]["evolution_action"], "attach_evidence")
             self.assertEqual(system_candidate["payload"]["metadata"]["target_system_id"], system["id"])
             self.assertNotEqual(system_candidate["payload"]["related_existing_systems"][0]["system_id"], "stale_system")
             self.assertEqual(system_candidate["payload"]["related_existing_systems"][0]["semantic_score"], 1.0)
@@ -959,10 +962,173 @@ class StorageTests(unittest.TestCase):
                 },
                 config=config,
             )
-            self.assertEqual(recipe_candidate["payload"]["metadata"]["recommendation"], "merge_or_update")
+            self.assertEqual(recipe_candidate["payload"]["metadata"]["recommendation"], "attach_evidence")
+            self.assertEqual(recipe_candidate["payload"]["metadata"]["evolution_action"], "attach_evidence")
             self.assertEqual(recipe_candidate["payload"]["metadata"]["target_recipe_id"], recipe["id"])
             self.assertNotEqual(recipe_candidate["payload"]["related_existing_recipes"][0]["recipe_id"], "stale_recipe")
             self.assertEqual(recipe_candidate["payload"]["related_existing_recipes"][0]["semantic_score"], 1.0)
+
+    def test_evolvable_actions_record_evidence_revisions_and_lineage(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = AetherStore(Path(temp_dir) / "aether.sqlite")
+            store.init()
+
+            style = store.create_visual_asset({"type": "style", "name": "Painterly Anime", "status": "active"})
+            variant_candidate = store.create_visual_asset_candidate(
+                {
+                    "type": "style",
+                    "name": "Painterly Anime Festival Variant",
+                    "summary": "painterly anime with festival accents",
+                    "status": "pending",
+                }
+            )
+            variant = store.decide_visual_asset_candidate(
+                variant_candidate["id"],
+                "inherit_variant",
+                target_asset_id=style["id"],
+            )
+            variant_asset = store.get_visual_asset(variant["confirmed_asset_id"])
+            self.assertEqual(variant_asset["parent_asset_id"], style["id"])
+            self.assertEqual(store.list_revisions("visual_asset", variant_asset["id"])[0]["action"], "inherit_variant")
+
+            system = store.create_visual_system(
+                {
+                    "kind": "art_direction",
+                    "name": "Painterly Direction",
+                    "summary": "painterly anime art direction",
+                    "visual_rules": [{"key": "medium", "value": ["painterly anime"]}],
+                    "status": "active",
+                }
+            )
+            candidate = store.create_visual_system_candidate(
+                {
+                    "kind": "art_direction",
+                    "name": "Painterly Direction Evidence",
+                    "summary": "painterly anime art direction",
+                    "visual_rules": [{"key": "medium", "value": ["painterly anime"]}],
+                    "status": "pending",
+                }
+            )
+            confirmed = store.confirm_visual_system_candidate(
+                candidate["id"],
+                target_system_id=system["id"],
+                action="attach_evidence",
+            )
+            self.assertEqual(confirmed["confirmed_system_id"], system["id"])
+            self.assertEqual(store.list_visual_system_evidence(system["id"])[0]["source_candidate_id"], candidate["id"])
+            self.assertEqual(store.list_revisions("visual_system", system["id"])[0]["action"], "attach_evidence")
+
+            child_candidate = store.create_visual_system_candidate(
+                {
+                    "kind": "art_direction",
+                    "name": "Festival Painterly Direction",
+                    "summary": "painterly anime festival branch",
+                    "visual_rules": [{"key": "subject_aesthetic", "value": ["festival branch"]}],
+                    "status": "pending",
+                }
+            )
+            child_confirmed = store.confirm_visual_system_candidate(
+                child_candidate["id"],
+                target_system_id=system["id"],
+                action="inherit_variant",
+            )
+            child = store.get_visual_system(child_confirmed["confirmed_system_id"])
+            self.assertEqual(child["parent_system_id"], system["id"])
+
+            recipe = store.create_recipe(
+                {
+                    "name": "Painterly Key Art",
+                    "summary": "painterly key art",
+                    "composition_rules": [{"key": "asset_roles", "value": ["style defines rendering"]}],
+                    "status": "active",
+                }
+            )
+            recipe_candidate = store.create_recipe_candidate(
+                {
+                    "name": "Festival Painterly Key Art",
+                    "summary": "painterly festival key art",
+                    "composition_rules": [{"key": "asset_roles", "value": ["style defines rendering"]}],
+                    "status": "pending",
+                }
+            )
+            recipe_confirmed = store.confirm_recipe_candidate(
+                recipe_candidate["id"],
+                target_recipe_id=recipe["id"],
+                action="inherit_variant",
+            )
+            child_recipe = store.get_recipe(recipe_confirmed["confirmed_recipe_id"])
+            self.assertEqual(child_recipe["parent_recipe_id"], recipe["id"])
+
+    def test_merge_preview_abstracts_and_marks_duplicates(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = AetherStore(Path(temp_dir) / "aether.sqlite")
+            store.init()
+
+            target = store.create_visual_asset(
+                {
+                    "type": "mood",
+                    "name": "Warm Festival Mood",
+                    "summary": "warm abundant festival atmosphere",
+                    "tags": ["warm", "festival"],
+                    "profile": {"emotional_tone": "joyful"},
+                    "prompt_fragments": ["warm festival abundance"],
+                    "status": "active",
+                }
+            )
+            source = store.create_visual_asset(
+                {
+                    "type": "mood",
+                    "name": "Abundant Lantern Mood",
+                    "summary": "warm lantern celebration atmosphere",
+                    "tags": ["warm", "lantern"],
+                    "profile": {"atmosphere": "celebration"},
+                    "prompt_fragments": ["warm festival abundance", "lantern celebration"],
+                    "status": "active",
+                }
+            )
+            preview = store.visual_asset_merge_preview(source["id"], target["id"])
+            self.assertEqual(preview["action"], "merge_existing")
+            self.assertLessEqual(len(preview["proposed_after"]["prompt_fragments"]), 8)
+            merged = store.merge_visual_asset(source["id"], target["id"])
+            self.assertEqual(merged["status"], "merged")
+            self.assertEqual(merged["merged_into_asset_id"], target["id"])
+            self.assertEqual(store.list_revisions("visual_asset", target["id"])[0]["action"], "merge_existing")
+
+            system_a = store.create_visual_system(
+                {
+                    "kind": "art_direction",
+                    "name": "Festival Direction A",
+                    "visual_rules": [{"key": "medium", "value": ["painterly anime"]}],
+                    "status": "active",
+                }
+            )
+            system_b = store.create_visual_system(
+                {
+                    "kind": "art_direction",
+                    "name": "Festival Direction B",
+                    "visual_rules": [{"key": "medium", "value": ["painterly anime"]}],
+                    "status": "active",
+                }
+            )
+            system_merge = store.merge_visual_system(system_b["id"], system_a["id"])
+            self.assertEqual(system_merge["merged"]["merged_into_system_id"], system_a["id"])
+
+            recipe_a = store.create_recipe(
+                {
+                    "name": "Festival Recipe A",
+                    "composition_rules": [{"key": "asset_roles", "value": ["style defines rendering"]}],
+                    "status": "active",
+                }
+            )
+            recipe_b = store.create_recipe(
+                {
+                    "name": "Festival Recipe B",
+                    "composition_rules": [{"key": "asset_roles", "value": ["style defines rendering"]}],
+                    "status": "active",
+                }
+            )
+            recipe_merge = store.merge_recipe(recipe_b["id"], recipe_a["id"])
+            self.assertEqual(recipe_merge["merged"]["merged_into_recipe_id"], recipe_a["id"])
 
     def test_liked_feedback_triggers_generation_reuse_suggestion(self):
         with tempfile.TemporaryDirectory() as temp_dir:

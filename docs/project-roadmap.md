@@ -6,6 +6,8 @@
 
 12 类 visual asset 已作为原子素材结构落地；visual system、recipe、整批确认和生图后复用建议也已进入实现。本文只保留后续未完成方向。
 
+assets、recipes、visual systems 的可演进治理方案见 [Aether 可演进视觉记忆方案](./evolvable-visual-memory-plan.md)。
+
 ## 2. 迭代原则
 
 - 优先增强现有数据资产的可检索、可比较、可演化能力。

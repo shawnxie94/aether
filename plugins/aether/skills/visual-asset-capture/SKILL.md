@@ -213,9 +213,9 @@ Use `visual_rules` for positive stable constraints only. Put negative boundaries
 aether validate visual-asset-candidate --json <candidate-batch.json>
 ```
 
-When an existing visual system is a strong match, prefer `metadata.recommendation: "attach_or_extend"` and `metadata.target_system_id` over creating a parallel top-level system.
+Do not prefill recall or dedupe decisions such as `related_existing_*`, `metadata.target_system_id`, or `metadata.target_recipe_id`. Storage recomputes hybrid/embedding recall and writes the final `evolution_action` suggestion when the candidate is saved.
 
-8. Persist the candidate batch before asking the user to decide. The storage layer will attach hybrid similarity suggestions against active assets of the same type, store recipe candidates, add related recipe/system recall metadata, and can auto-suggest visual system candidates when no explicit `visual_system_candidates` are provided:
+8. Persist the candidate batch before asking the user to decide. The storage layer will attach hybrid similarity suggestions against active assets of the same type, store recipe candidates, add related recipe/system recall metadata, and can auto-suggest visual system candidates when no explicit `visual_system_candidates` are provided. Candidate summaries expose `evolution_action` values: `create_new`, `attach_evidence`, `inherit_variant`, or `merge_existing`.
 
 ```bash
 aether visual-asset candidates create --json <candidate-batch.json>
@@ -243,8 +243,9 @@ aether visual-asset list --query "<keyword>" --summary
 10. For each pending candidate, ask the user to confirm one of:
 
 - create new visual asset
-- attach as variant of an existing visual asset
-- merge into an existing visual asset
+- attach as evidence to an existing visual asset
+- inherit as a variant of an existing visual asset
+- merge existing visual assets after preview
 - ignore as one-off content
 
 11. If the user confirms the whole candidate batch, use the batch confirmation command. It confirms asset candidates first, then visual system candidates, then recipe candidates, and attaches recipes to newly confirmed systems when the recipe candidate has no explicit parent system:
@@ -256,9 +257,9 @@ aether visual-asset candidates confirm-batch <batch-id>
 12. Save individual confirmed decisions through the candidate queue when the user wants to handle assets one by one:
 
 ```bash
-aether visual-asset candidates decide <candidate-id> new_asset
-aether visual-asset candidates decide <candidate-id> asset_variant --target-asset-id <parent-asset-id>
-aether visual-asset candidates decide <candidate-id> existing_asset --target-asset-id <existing-asset-id>
+aether visual-asset candidates decide <candidate-id> create_new
+aether visual-asset candidates decide <candidate-id> inherit_variant --target-asset-id <parent-asset-id>
+aether visual-asset candidates decide <candidate-id> attach_evidence --target-asset-id <existing-asset-id>
 aether visual-asset candidates decide <candidate-id> ignore
 aether visual-asset candidates decide <candidate-id> ignore --cleanup
 aether visual-asset candidates cleanup --status ignored
@@ -272,8 +273,8 @@ aether recipe candidates ignore <recipe-candidate-id> --cleanup
 aether recipe candidates cleanup --status ignored
 aether recipe candidates confirm <recipe-candidate-id>
 aether recipe candidates confirm <recipe-candidate-id> --system-id <visual-system-id>
-aether recipe candidates confirm <recipe-candidate-id> --target-recipe-id <recipe-id>
-aether recipe candidates confirm <recipe-candidate-id> --variant-of <recipe-id>
+aether recipe candidates confirm <recipe-candidate-id> --action attach_evidence --target-recipe-id <recipe-id>
+aether recipe candidates confirm <recipe-candidate-id> --action inherit_variant --variant-of <recipe-id>
 aether recipe candidates confirm <recipe-candidate-id> --force-new
 ```
 
@@ -283,9 +284,11 @@ aether recipe candidates confirm <recipe-candidate-id> --force-new
 aether visual-system candidates get <visual-system-candidate-id>
 aether visual-system candidates ignore <visual-system-candidate-id>
 aether visual-system candidates ignore <visual-system-candidate-id> --cleanup
+aether visual-system candidates list --status pending --summary
 aether visual-system candidates cleanup --status ignored
 aether visual-system candidates confirm <visual-system-candidate-id>
-aether visual-system candidates confirm <visual-system-candidate-id> --target-system-id <visual-system-id>
+aether visual-system candidates confirm <visual-system-candidate-id> --action attach_evidence --target-system-id <visual-system-id>
+aether visual-system candidates confirm <visual-system-candidate-id> --action inherit_variant --target-system-id <visual-system-id>
 aether visual-system candidates confirm <visual-system-candidate-id> --force-new
 ```
 
@@ -295,7 +298,12 @@ Use `ignore` for candidates the user has rejected. Use `ignore --cleanup` when t
 
 ```bash
 aether visual-asset branch <parent-asset-id> --json <visual-asset.json>
+aether visual-asset merge-preview <source-asset-id> <target-asset-id>
 aether visual-asset merge <source-asset-id> <target-asset-id>
+aether recipe merge-preview <source-recipe-id> <target-recipe-id>
+aether recipe merge <source-recipe-id> <target-recipe-id>
+aether visual-system merge-preview <source-system-id> <target-system-id>
+aether visual-system merge <source-system-id> <target-system-id>
 aether visual-asset activate <visual-asset-id>
 ```
 

@@ -140,6 +140,7 @@ def cmd_recall(args: argparse.Namespace) -> None:
 
 
 def visual_asset_candidate_summary(candidate: dict[str, Any]) -> dict[str, Any]:
+    payload = candidate.get("payload", {})
     return {
         "id": candidate["id"],
         "batch_id": candidate["batch_id"],
@@ -147,6 +148,8 @@ def visual_asset_candidate_summary(candidate: dict[str, Any]) -> dict[str, Any]:
         "name": candidate["name"],
         "reuse_score": candidate["reuse_score"],
         "decision": candidate["decision"],
+        "evolution_action": payload.get("evolution_action"),
+        "target_id": payload.get("evolution_suggestion", {}).get("target_id") or candidate.get("target_asset_id"),
         "similar_candidate_count": len(candidate.get("similar_candidates", [])),
         "status": candidate["status"],
         "target_asset_id": candidate.get("target_asset_id"),
@@ -163,6 +166,8 @@ def visual_asset_summary(asset: dict[str, Any]) -> dict[str, Any]:
         "summary": asset["summary"],
         "tags": asset["tags"],
         "status": asset["status"],
+        "parent_asset_id": asset.get("parent_asset_id"),
+        "merged_into_asset_id": asset.get("merged_into_asset_id"),
         "prompt_fragment_count": len(asset.get("prompt_fragments", [])),
         "negative_fragment_count": len(asset.get("negative_fragments", [])),
         "reference_count": len(asset.get("source_references", [])),
@@ -178,6 +183,8 @@ def visual_system_summary(system: dict[str, Any]) -> dict[str, Any]:
         "summary": system["summary"],
         "tags": system.get("tags", []),
         "status": system["status"],
+        "parent_system_id": system.get("parent_system_id"),
+        "merged_into_system_id": system.get("merged_into_system_id"),
         "source_reference_count": len(system.get("source_reference_ids", [])),
         "updated_at": system["updated_at"],
     }
@@ -196,7 +203,25 @@ def recipe_summary(recipe: dict[str, Any]) -> dict[str, Any]:
         "confidence": recipe.get("confidence"),
         "source": recipe.get("source"),
         "status": recipe["status"],
+        "parent_recipe_id": recipe.get("parent_recipe_id"),
+        "merged_into_recipe_id": recipe.get("merged_into_recipe_id"),
         "updated_at": recipe["updated_at"],
+    }
+
+
+def candidate_payload_summary(candidate: dict[str, Any]) -> dict[str, Any]:
+    payload = candidate.get("payload", {})
+    metadata = payload.get("metadata", {})
+    return {
+        "id": candidate["id"],
+        "batch_id": candidate["batch_id"],
+        "name": payload.get("name"),
+        "status": candidate["status"],
+        "recommendation": metadata.get("recommendation"),
+        "evolution_action": metadata.get("evolution_action"),
+        "target_id": metadata.get("target_system_id") or metadata.get("target_recipe_id"),
+        "dedupe_score": metadata.get("dedupe_score"),
+        "updated_at": candidate["updated_at"],
     }
 
 
@@ -244,6 +269,11 @@ def cmd_visual_asset_status(args: argparse.Namespace) -> None:
 def cmd_visual_asset_merge(args: argparse.Namespace) -> None:
     _, store = _store()
     dump_json(store.merge_visual_asset(args.source_asset_id, args.target_asset_id))
+
+
+def cmd_visual_asset_merge_preview(args: argparse.Namespace) -> None:
+    _, store = _store()
+    dump_json(store.visual_asset_merge_preview(args.source_asset_id, args.target_asset_id))
 
 
 def cmd_visual_asset_candidates_create(args: argparse.Namespace) -> None:
@@ -316,6 +346,11 @@ def cmd_visual_asset_evidence(args: argparse.Namespace) -> None:
     )
 
 
+def cmd_visual_asset_revisions(args: argparse.Namespace) -> None:
+    _, store = _store()
+    dump_json(store.list_revisions("visual_asset", entity_id=args.asset_id, limit=args.limit))
+
+
 def cmd_visual_asset_quality(args: argparse.Namespace) -> None:
     _, store = _store()
     dump_json(store.visual_asset_quality(args.asset_id))
@@ -356,9 +391,30 @@ def cmd_visual_system_add_asset(args: argparse.Namespace) -> None:
     dump_json(store.set_visual_system_asset(args.system_id, payload))
 
 
+def cmd_visual_system_merge_preview(args: argparse.Namespace) -> None:
+    _, store = _store()
+    dump_json(store.visual_system_merge_preview(args.source_system_id, args.target_system_id))
+
+
+def cmd_visual_system_merge(args: argparse.Namespace) -> None:
+    _, store = _store()
+    dump_json(store.merge_visual_system(args.source_system_id, args.target_system_id))
+
+
+def cmd_visual_system_evidence(args: argparse.Namespace) -> None:
+    _, store = _store()
+    dump_json(store.list_visual_system_evidence(system_id=args.system_id, evidence_type=args.type, limit=args.limit))
+
+
+def cmd_visual_system_revisions(args: argparse.Namespace) -> None:
+    _, store = _store()
+    dump_json(store.list_revisions("visual_system", entity_id=args.system_id, limit=args.limit))
+
+
 def cmd_visual_system_candidates_list(args: argparse.Namespace) -> None:
     _, store = _store()
-    dump_json(store.list_visual_system_candidates(batch_id=args.batch_id, status=args.status, limit=args.limit))
+    candidates = store.list_visual_system_candidates(batch_id=args.batch_id, status=args.status, limit=args.limit)
+    dump_json([candidate_payload_summary(candidate) for candidate in candidates] if args.summary else candidates)
 
 
 def cmd_visual_system_candidate_get(args: argparse.Namespace) -> None:
@@ -375,6 +431,7 @@ def cmd_visual_system_candidate_confirm(args: argparse.Namespace) -> None:
         store.confirm_visual_system_candidate(
             args.candidate_id,
             target_system_id=args.target_system_id,
+            action=args.action,
             force_new=args.force_new,
         )
     )
@@ -434,9 +491,30 @@ def cmd_recipe_add_asset(args: argparse.Namespace) -> None:
     dump_json(store.set_recipe_asset(args.recipe_id, payload))
 
 
+def cmd_recipe_merge_preview(args: argparse.Namespace) -> None:
+    _, store = _store()
+    dump_json(store.recipe_merge_preview(args.source_recipe_id, args.target_recipe_id))
+
+
+def cmd_recipe_merge(args: argparse.Namespace) -> None:
+    _, store = _store()
+    dump_json(store.merge_recipe(args.source_recipe_id, args.target_recipe_id))
+
+
+def cmd_recipe_evidence(args: argparse.Namespace) -> None:
+    _, store = _store()
+    dump_json(store.list_recipe_evidence(recipe_id=args.recipe_id, evidence_type=args.type, limit=args.limit))
+
+
+def cmd_recipe_revisions(args: argparse.Namespace) -> None:
+    _, store = _store()
+    dump_json(store.list_revisions("recipe", entity_id=args.recipe_id, limit=args.limit))
+
+
 def cmd_recipe_candidates_list(args: argparse.Namespace) -> None:
     _, store = _store()
-    dump_json(store.list_recipe_candidates(batch_id=args.batch_id, status=args.status, limit=args.limit))
+    candidates = store.list_recipe_candidates(batch_id=args.batch_id, status=args.status, limit=args.limit)
+    dump_json([candidate_payload_summary(candidate) for candidate in candidates] if args.summary else candidates)
 
 
 def cmd_recipe_candidate_get(args: argparse.Namespace) -> None:
@@ -455,6 +533,7 @@ def cmd_recipe_candidate_confirm(args: argparse.Namespace) -> None:
             parent_system_ids=args.system_id,
             target_recipe_id=args.target_recipe_id,
             variant_of_recipe_id=args.variant_of,
+            action=args.action,
             force_new=args.force_new,
         )
     )
@@ -716,6 +795,10 @@ def build_parser() -> argparse.ArgumentParser:
     visual_asset_merge.add_argument("source_asset_id")
     visual_asset_merge.add_argument("target_asset_id")
     visual_asset_merge.set_defaults(func=cmd_visual_asset_merge)
+    visual_asset_merge_preview = visual_asset_sub.add_parser("merge-preview")
+    visual_asset_merge_preview.add_argument("source_asset_id")
+    visual_asset_merge_preview.add_argument("target_asset_id")
+    visual_asset_merge_preview.set_defaults(func=cmd_visual_asset_merge_preview)
     visual_asset_candidates = visual_asset_sub.add_parser("candidates")
     visual_asset_candidates_sub = visual_asset_candidates.add_subparsers(required=True)
     visual_asset_candidates_create = visual_asset_candidates_sub.add_parser("create")
@@ -733,7 +816,19 @@ def build_parser() -> argparse.ArgumentParser:
     visual_asset_candidate_get.set_defaults(func=cmd_visual_asset_candidate_get)
     visual_asset_candidate_decide = visual_asset_candidates_sub.add_parser("decide")
     visual_asset_candidate_decide.add_argument("candidate_id")
-    visual_asset_candidate_decide.add_argument("decision", choices=["existing_asset", "asset_variant", "new_asset", "ignore"])
+    visual_asset_candidate_decide.add_argument(
+        "decision",
+        choices=[
+            "attach_evidence",
+            "create_new",
+            "inherit_variant",
+            "merge_existing",
+            "existing_asset",
+            "asset_variant",
+            "new_asset",
+            "ignore",
+        ],
+    )
     visual_asset_candidate_decide.add_argument("--target-asset-id")
     visual_asset_candidate_decide.add_argument("--cleanup", action="store_true")
     visual_asset_candidate_decide.set_defaults(func=cmd_visual_asset_candidate_decide)
@@ -756,6 +851,10 @@ def build_parser() -> argparse.ArgumentParser:
     visual_asset_evidence.add_argument("--type")
     visual_asset_evidence.add_argument("--limit", type=int, default=50)
     visual_asset_evidence.set_defaults(func=cmd_visual_asset_evidence)
+    visual_asset_revisions = visual_asset_sub.add_parser("revisions")
+    visual_asset_revisions.add_argument("asset_id")
+    visual_asset_revisions.add_argument("--limit", type=int, default=50)
+    visual_asset_revisions.set_defaults(func=cmd_visual_asset_revisions)
     visual_asset_quality = visual_asset_sub.add_parser("quality")
     visual_asset_quality.add_argument("asset_id")
     visual_asset_quality.set_defaults(func=cmd_visual_asset_quality)
@@ -782,12 +881,30 @@ def build_parser() -> argparse.ArgumentParser:
     visual_system_add_asset.add_argument("--weight", type=float, default=0.5)
     visual_system_add_asset.add_argument("--reason")
     visual_system_add_asset.set_defaults(func=cmd_visual_system_add_asset)
+    visual_system_merge_preview = visual_system_sub.add_parser("merge-preview")
+    visual_system_merge_preview.add_argument("source_system_id")
+    visual_system_merge_preview.add_argument("target_system_id")
+    visual_system_merge_preview.set_defaults(func=cmd_visual_system_merge_preview)
+    visual_system_merge = visual_system_sub.add_parser("merge")
+    visual_system_merge.add_argument("source_system_id")
+    visual_system_merge.add_argument("target_system_id")
+    visual_system_merge.set_defaults(func=cmd_visual_system_merge)
+    visual_system_evidence = visual_system_sub.add_parser("evidence")
+    visual_system_evidence.add_argument("system_id")
+    visual_system_evidence.add_argument("--type")
+    visual_system_evidence.add_argument("--limit", type=int, default=50)
+    visual_system_evidence.set_defaults(func=cmd_visual_system_evidence)
+    visual_system_revisions = visual_system_sub.add_parser("revisions")
+    visual_system_revisions.add_argument("system_id")
+    visual_system_revisions.add_argument("--limit", type=int, default=50)
+    visual_system_revisions.set_defaults(func=cmd_visual_system_revisions)
     visual_system_candidates = visual_system_sub.add_parser("candidates")
     visual_system_candidates_sub = visual_system_candidates.add_subparsers(required=True)
     visual_system_candidates_list = visual_system_candidates_sub.add_parser("list")
     visual_system_candidates_list.add_argument("--batch-id")
     visual_system_candidates_list.add_argument("--status")
     visual_system_candidates_list.add_argument("--limit", type=int, default=50)
+    visual_system_candidates_list.add_argument("--summary", action="store_true")
     visual_system_candidates_list.set_defaults(func=cmd_visual_system_candidates_list)
     visual_system_candidate_get = visual_system_candidates_sub.add_parser("get")
     visual_system_candidate_get.add_argument("candidate_id")
@@ -795,6 +912,10 @@ def build_parser() -> argparse.ArgumentParser:
     visual_system_candidate_confirm = visual_system_candidates_sub.add_parser("confirm")
     visual_system_candidate_confirm.add_argument("candidate_id")
     visual_system_candidate_confirm.add_argument("--target-system-id")
+    visual_system_candidate_confirm.add_argument(
+        "--action",
+        choices=["attach_evidence", "create_new", "inherit_variant", "merge_existing"],
+    )
     visual_system_candidate_confirm.add_argument("--force-new", action="store_true")
     visual_system_candidate_confirm.set_defaults(func=cmd_visual_system_candidate_confirm)
     visual_system_candidate_ignore = visual_system_candidates_sub.add_parser("ignore")
@@ -831,12 +952,30 @@ def build_parser() -> argparse.ArgumentParser:
     recipe_add_asset.add_argument("--weight", type=float, default=0.5)
     recipe_add_asset.add_argument("--reason")
     recipe_add_asset.set_defaults(func=cmd_recipe_add_asset)
+    recipe_merge_preview = recipe_sub.add_parser("merge-preview")
+    recipe_merge_preview.add_argument("source_recipe_id")
+    recipe_merge_preview.add_argument("target_recipe_id")
+    recipe_merge_preview.set_defaults(func=cmd_recipe_merge_preview)
+    recipe_merge = recipe_sub.add_parser("merge")
+    recipe_merge.add_argument("source_recipe_id")
+    recipe_merge.add_argument("target_recipe_id")
+    recipe_merge.set_defaults(func=cmd_recipe_merge)
+    recipe_evidence = recipe_sub.add_parser("evidence")
+    recipe_evidence.add_argument("recipe_id")
+    recipe_evidence.add_argument("--type")
+    recipe_evidence.add_argument("--limit", type=int, default=50)
+    recipe_evidence.set_defaults(func=cmd_recipe_evidence)
+    recipe_revisions = recipe_sub.add_parser("revisions")
+    recipe_revisions.add_argument("recipe_id")
+    recipe_revisions.add_argument("--limit", type=int, default=50)
+    recipe_revisions.set_defaults(func=cmd_recipe_revisions)
     recipe_candidates = recipe_sub.add_parser("candidates")
     recipe_candidates_sub = recipe_candidates.add_subparsers(required=True)
     recipe_candidates_list = recipe_candidates_sub.add_parser("list")
     recipe_candidates_list.add_argument("--batch-id")
     recipe_candidates_list.add_argument("--status")
     recipe_candidates_list.add_argument("--limit", type=int, default=50)
+    recipe_candidates_list.add_argument("--summary", action="store_true")
     recipe_candidates_list.set_defaults(func=cmd_recipe_candidates_list)
     recipe_candidate_get = recipe_candidates_sub.add_parser("get")
     recipe_candidate_get.add_argument("candidate_id")
@@ -846,6 +985,10 @@ def build_parser() -> argparse.ArgumentParser:
     recipe_candidate_confirm.add_argument("--system-id", action="append")
     recipe_candidate_confirm.add_argument("--target-recipe-id")
     recipe_candidate_confirm.add_argument("--variant-of")
+    recipe_candidate_confirm.add_argument(
+        "--action",
+        choices=["attach_evidence", "create_new", "inherit_variant", "merge_existing"],
+    )
     recipe_candidate_confirm.add_argument("--force-new", action="store_true")
     recipe_candidate_confirm.set_defaults(func=cmd_recipe_candidate_confirm)
     recipe_candidate_ignore = recipe_candidates_sub.add_parser("ignore")
