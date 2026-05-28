@@ -41,6 +41,8 @@
   "embedding": {
     "provider": "disabled",
     "model": "",
+    "baseUrl": "",
+    "apiKey": "",
     "dimensions": 0,
     "batchSize": 32,
     "cache": {
@@ -50,9 +52,17 @@
     "providers": {
       "openai": {
         "baseUrl": "https://api.openai.com/v1",
+        "apiKey": "",
         "apiKeyEnv": "OPENAI_API_KEY",
         "model": "text-embedding-3-small",
         "dimensions": 1536
+      },
+      "siliconflow": {
+        "baseUrl": "https://api.siliconflow.cn/v1",
+        "apiKey": "",
+        "apiKeyEnv": "SILICONFLOW_API_KEY",
+        "model": "BAAI/bge-m3",
+        "dimensions": 0
       },
       "local": {
         "command": "",

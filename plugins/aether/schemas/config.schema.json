@@ -30,8 +30,10 @@
     "embedding": {
       "type": "object",
       "properties": {
-        "provider": {"type": "string", "enum": ["disabled", "openai", "local"]},
+        "provider": {"type": "string", "enum": ["disabled", "openai", "siliconflow", "local"]},
         "model": {"type": "string"},
+        "baseUrl": {"type": "string"},
+        "apiKey": {"type": "string"},
         "dimensions": {"type": "integer", "minimum": 0},
         "batchSize": {"type": "integer", "minimum": 1},
         "cache": {
@@ -48,6 +50,17 @@
               "type": "object",
               "properties": {
                 "baseUrl": {"type": "string"},
+                "apiKey": {"type": "string"},
+                "apiKeyEnv": {"type": "string"},
+                "model": {"type": "string"},
+                "dimensions": {"type": "integer", "minimum": 0}
+              }
+            },
+            "siliconflow": {
+              "type": "object",
+              "properties": {
+                "baseUrl": {"type": "string"},
+                "apiKey": {"type": "string"},
                 "apiKeyEnv": {"type": "string"},
                 "model": {"type": "string"},
                 "dimensions": {"type": "integer", "minimum": 0}
