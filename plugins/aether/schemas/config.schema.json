@@ -47,6 +47,7 @@
             "openai": {
               "type": "object",
               "properties": {
+                "baseUrl": {"type": "string"},
                 "apiKeyEnv": {"type": "string"},
                 "model": {"type": "string"},
                 "dimensions": {"type": "integer", "minimum": 0}

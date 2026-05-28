@@ -49,6 +49,7 @@
     },
     "providers": {
       "openai": {
+        "baseUrl": "https://api.openai.com/v1",
         "apiKeyEnv": "OPENAI_API_KEY",
         "model": "text-embedding-3-small",
         "dimensions": 1536

@@ -34,6 +34,7 @@ class DisabledEmbeddingProvider:
 class OpenAIEmbeddingProvider:
     api_key: str
     model: str
+    base_url: str = "https://api.openai.com/v1"
     dimensions: int = 0
     provider_name: str = "openai"
 
@@ -42,7 +43,7 @@ class OpenAIEmbeddingProvider:
         if self.dimensions:
             payload["dimensions"] = self.dimensions
         request = urllib.request.Request(
-            "https://api.openai.com/v1/embeddings",
+            f"{self.base_url.rstrip('/')}/embeddings",
             data=json.dumps(payload).encode("utf-8"),
             headers={
                 "Authorization": f"Bearer {self.api_key}",
@@ -114,12 +115,13 @@ def provider_from_config(config: dict[str, Any] | None) -> EmbeddingProvider:
     if provider_name == "openai":
         provider_config = providers.get("openai", {})
         model = embedding.get("model") or provider_config.get("model") or "text-embedding-3-small"
+        base_url = embedding.get("baseUrl") or provider_config.get("baseUrl") or "https://api.openai.com/v1"
         dimensions = int(embedding.get("dimensions") or provider_config.get("dimensions") or 0)
         api_key_env = provider_config.get("apiKeyEnv", "OPENAI_API_KEY")
         api_key = os.environ.get(api_key_env, "")
         if not api_key:
             raise RuntimeError(f"Embedding provider openai requires ${api_key_env}")
-        return OpenAIEmbeddingProvider(api_key=api_key, model=model, dimensions=dimensions)
+        return OpenAIEmbeddingProvider(api_key=api_key, model=model, base_url=base_url, dimensions=dimensions)
 
     if provider_name == "local":
         provider_config = providers.get("local", {})
