@@ -159,11 +159,11 @@ Visual system candidates should include:
 - `avoid_rules`
 - `candidate_asset_relations`
 - `existing_asset_relations`
-- `related_existing_assets`
-- `related_existing_systems` when an active visual system may already cover the candidate
 - `metadata.recommendation`: `suggest_create`
 
 Use the same strict relation `role` enum for `candidate_asset_relations` and `existing_asset_relations`: `core`, `optional`, `reference_only`, or `avoid`.
+
+Do not include `related_existing_*` fields in candidate payloads. Existing library recall is owned by Aether storage and will be recomputed with hybrid/embedding recall when the candidate is saved.
 
 Store stable visual-system constraints directly in `visual_rules` as key/value rule objects:
 

@@ -929,12 +929,19 @@ class StorageTests(unittest.TestCase):
                     "name": "Lunar Gate Direction",
                     "summary": "moonlit threshold scene direction",
                     "visual_rules": [{"key": "subject_aesthetic", "value": ["lunar gate"]}],
+                    "related_existing_systems": [{"system_id": "stale_system", "similarity_score": 0.99}],
+                    "metadata": {
+                        "recommendation": "suggest_create",
+                        "target_system_id": "stale_system",
+                        "dedupe_score": 0.99,
+                    },
                     "status": "pending",
                 },
                 config=config,
             )
             self.assertEqual(system_candidate["payload"]["metadata"]["recommendation"], "attach_or_extend")
             self.assertEqual(system_candidate["payload"]["metadata"]["target_system_id"], system["id"])
+            self.assertNotEqual(system_candidate["payload"]["related_existing_systems"][0]["system_id"], "stale_system")
             self.assertEqual(system_candidate["payload"]["related_existing_systems"][0]["semantic_score"], 1.0)
 
             recipe_candidate = store.create_recipe_candidate(
@@ -942,12 +949,19 @@ class StorageTests(unittest.TestCase):
                     "name": "Moon Gate Composition",
                     "summary": "lunar threshold composition",
                     "composition_rules": [{"key": "subject_scene_binding", "value": ["moon gate dominates the scene"]}],
+                    "related_existing_recipes": [{"recipe_id": "stale_recipe", "semantic_score": 0.99}],
+                    "metadata": {
+                        "recommendation": "suggest_create",
+                        "target_recipe_id": "stale_recipe",
+                        "dedupe_score": 0.99,
+                    },
                     "status": "pending",
                 },
                 config=config,
             )
             self.assertEqual(recipe_candidate["payload"]["metadata"]["recommendation"], "merge_or_update")
             self.assertEqual(recipe_candidate["payload"]["metadata"]["target_recipe_id"], recipe["id"])
+            self.assertNotEqual(recipe_candidate["payload"]["related_existing_recipes"][0]["recipe_id"], "stale_recipe")
             self.assertEqual(recipe_candidate["payload"]["related_existing_recipes"][0]["semantic_score"], 1.0)
 
     def test_liked_feedback_triggers_generation_reuse_suggestion(self):

@@ -1825,8 +1825,12 @@ class AetherStore:
         payload: dict[str, Any],
         config: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        if payload.get("related_existing_systems"):
-            return payload
+        payload.pop("related_existing_systems", None)
+        metadata = dict(payload.get("metadata", {}))
+        metadata["recommendation"] = "suggest_create"
+        metadata.pop("target_system_id", None)
+        metadata.pop("dedupe_score", None)
+        payload["metadata"] = metadata
         query_text = canonical_text(
             [
                 payload.get("kind"),
@@ -1835,7 +1839,6 @@ class AetherStore:
                 payload.get("tags"),
                 payload.get("visual_rules"),
                 payload.get("avoid_rules"),
-                payload.get("related_existing_assets"),
             ]
         )
         related_asset_ids = [
@@ -1868,7 +1871,6 @@ class AetherStore:
         if related_systems:
             payload["related_existing_systems"] = related_systems
             top = related_systems[0]
-            metadata = dict(payload.get("metadata", {}))
             if top["recommendation"] in {"attach_or_extend", "possible_duplicate"}:
                 metadata["recommendation"] = top["recommendation"]
                 metadata["target_system_id"] = top["system_id"]
@@ -2327,8 +2329,12 @@ class AetherStore:
         payload: dict[str, Any],
         config: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        if payload.get("related_existing_recipes"):
-            return payload
+        payload.pop("related_existing_recipes", None)
+        metadata = dict(payload.get("metadata", {}))
+        metadata["recommendation"] = "suggest_create"
+        metadata.pop("target_recipe_id", None)
+        metadata.pop("dedupe_score", None)
+        payload["metadata"] = metadata
         query_text = canonical_text(
             [
                 payload.get("name"),
@@ -2374,7 +2380,6 @@ class AetherStore:
         if related_recipes:
             payload["related_existing_recipes"] = related_recipes
             top = related_recipes[0]
-            metadata = dict(payload.get("metadata", {}))
             if top["recommendation"] in {"merge_or_update", "variant", "possible_related"}:
                 metadata["recommendation"] = top["recommendation"]
                 metadata["target_recipe_id"] = top["recipe_id"]
