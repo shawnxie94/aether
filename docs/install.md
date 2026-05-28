@@ -89,10 +89,12 @@ plugins/aether/scripts/install-local.sh
 这个脚本会：
 
 - 将 `plugins/aether` 同步到 `~/.codex/plugins/cache/aether/aether/<version>`
-- 生成用户配置 `~/.aether/codex-plugin/config.json`
+- 生成或迁移用户配置 `~/.aether/codex-plugin/config.json`
 - 建立配置软链 `~/.config/aether/config.json`
 - 安装命令软链 `~/.local/bin/aether`
 - 初始化 `~/.aether/data`
+
+如果用户配置已经存在，安装脚本会保留现有配置值，只从包内默认配置补齐缺失字段，并在写入前生成 `config.json.bak`。因此重装不会重置本地的 embedding provider、API key 环境变量名、生成参数或自定义存储路径。
 
 这个方式会直接写入本机 Codex cache，适合当前机器快速联调；它不是推荐的插件分享入口。安装后重启 Codex，让插件技能重新加载。
 

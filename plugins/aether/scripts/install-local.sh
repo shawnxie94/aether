@@ -37,9 +37,9 @@ aether_home = Path(sys.argv[4]).expanduser()
 ignore = shutil.ignore_patterns("__pycache__", "*.pyc", ".DS_Store", ".aether", "dist")
 shutil.copytree(plugin_root, cache_dir, dirs_exist_ok=True, ignore=ignore)
 
-config = json.loads((plugin_root / "config.json").read_text(encoding="utf-8"))
+default_config = json.loads((plugin_root / "config.json").read_text(encoding="utf-8"))
 data_root = aether_home / "data"
-config["storage"] = {
+default_config["storage"] = {
     "databasePath": str(data_root / "aether.sqlite"),
     "assetRoot": str(data_root / "assets"),
     "referenceImageDir": str(data_root / "assets/references"),
@@ -47,13 +47,35 @@ config["storage"] = {
     "runDir": str(data_root / "runs"),
     "cacheDir": str(data_root / "cache"),
 }
+
+
+def merge_defaults(default, existing):
+    if isinstance(default, dict) and isinstance(existing, dict):
+        merged = dict(existing)
+        for key, default_value in default.items():
+            if key in merged:
+                merged[key] = merge_defaults(default_value, merged[key])
+            else:
+                merged[key] = default_value
+        return merged
+    return existing
+
+
+if config_target.exists():
+    backup_path = config_target.with_suffix(config_target.suffix + ".bak")
+    shutil.copy2(config_target, backup_path)
+    existing_config = json.loads(config_target.read_text(encoding="utf-8"))
+    config = merge_defaults(default_config, existing_config)
+else:
+    config = default_config
+
 config_target.write_text(json.dumps(config, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 PY
 
 ln -sfn "$config_target" "$config_link_dir/config.json"
 ln -sfn "$cache_dir/scripts/aether" "$bin_dir/aether"
 
-"$bin_dir/aether" init >/dev/null
+AETHER_CONFIG_PATH="$config_target" "$bin_dir/aether" init >/dev/null
 
 cat <<EOF
 Aether installed locally.
