@@ -126,11 +126,11 @@ def provider_from_config(config: dict[str, Any] | None) -> EmbeddingProvider:
             },
         }[provider_name]
         provider_config = providers.get(provider_name, {})
-        model = embedding.get("model") or provider_config.get("model") or defaults["model"]
-        base_url = embedding.get("baseUrl") or provider_config.get("baseUrl") or defaults["baseUrl"]
-        dimensions = int(embedding.get("dimensions") or provider_config.get("dimensions") or 0)
+        model = provider_config.get("model") or defaults["model"]
+        base_url = provider_config.get("baseUrl") or defaults["baseUrl"]
+        dimensions = int(provider_config.get("dimensions") or 0)
         api_key_env = provider_config.get("apiKeyEnv", defaults["apiKeyEnv"])
-        api_key = embedding.get("apiKey") or provider_config.get("apiKey") or os.environ.get(api_key_env, "")
+        api_key = provider_config.get("apiKey") or os.environ.get(api_key_env, "")
         if not api_key:
             raise RuntimeError(f"Embedding provider {provider_name} requires apiKey or ${api_key_env}")
         return OpenAIEmbeddingProvider(

@@ -31,10 +31,6 @@
       "type": "object",
       "properties": {
         "provider": {"type": "string", "enum": ["disabled", "openai", "siliconflow", "local"]},
-        "model": {"type": "string"},
-        "baseUrl": {"type": "string"},
-        "apiKey": {"type": "string"},
-        "dimensions": {"type": "integer", "minimum": 0},
         "batchSize": {"type": "integer", "minimum": 1},
         "cache": {
           "type": "object",

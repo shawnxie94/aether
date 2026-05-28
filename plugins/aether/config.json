@@ -40,10 +40,6 @@
   },
   "embedding": {
     "provider": "disabled",
-    "model": "",
-    "baseUrl": "",
-    "apiKey": "",
-    "dimensions": 0,
     "batchSize": 32,
     "cache": {
       "mode": "sqlite",

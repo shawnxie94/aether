@@ -27,14 +27,13 @@ class EmbeddingProviderTests(unittest.TestCase):
         self.assertEqual(provider.model, "compatible-embedding")
         self.assertEqual(provider.dimensions, 768)
 
-    def test_openai_provider_top_level_model_base_url_and_api_key_override_provider_defaults(self):
+    def test_openai_provider_ignores_top_level_model_base_url_and_dimensions(self):
         provider = provider_from_config(
             {
                 "embedding": {
                     "provider": "openai",
-                    "model": "override-model",
-                    "baseUrl": "https://override.test/v1",
-                    "apiKey": "override-key",
+                    "model": "ignored-model",
+                    "baseUrl": "https://ignored.test/v1",
                     "dimensions": 1024,
                     "providers": {
                         "openai": {
@@ -48,9 +47,9 @@ class EmbeddingProviderTests(unittest.TestCase):
             }
         )
 
-        self.assertEqual(provider.base_url, "https://override.test/v1")
-        self.assertEqual(provider.model, "override-model")
-        self.assertEqual(provider.dimensions, 1024)
+        self.assertEqual(provider.base_url, "https://example.test/v1")
+        self.assertEqual(provider.model, "provider-model")
+        self.assertEqual(provider.dimensions, 768)
 
     def test_openai_provider_still_supports_api_key_env(self):
         os.environ["AETHER_TEST_EMBEDDING_KEY"] = "test-key"
