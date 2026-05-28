@@ -25,11 +25,8 @@ VISUAL_ASSET_TYPES = {
 VISUAL_ASSET_CANDIDATE_DECISIONS = {
     "attach_evidence",
     "create_new",
-    "existing_asset",
     "inherit_variant",
     "merge_existing",
-    "asset_variant",
-    "new_asset",
     "ignore",
 }
 
@@ -197,16 +194,6 @@ def _require(payload: dict[str, Any], field: str, expected_type: type | tuple[ty
         raise ValidationError(f"Missing required field: {field}")
     if not isinstance(payload[field], expected_type):
         raise ValidationError(f"Field {field} must be {expected_type}")
-
-
-def validate_style(payload: dict[str, Any]) -> None:
-    _require(payload, "name", str)
-    if "style_profile" in payload and not isinstance(payload["style_profile"], dict):
-        raise ValidationError("Field style_profile must be a dict")
-    if "tags" in payload and not isinstance(payload["tags"], list):
-        raise ValidationError("Field tags must be a list")
-    if "source_references" in payload and not isinstance(payload["source_references"], list):
-        raise ValidationError("Field source_references must be a list")
 
 
 def validate_visual_asset(payload: dict[str, Any]) -> None:

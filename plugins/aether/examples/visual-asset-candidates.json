@@ -24,10 +24,7 @@
         "flat lighting",
         "dry pavement"
       ],
-      "source_reference_ids": [],
-      "reuse_score": 0.86,
-      "decision": "new_asset",
-      "similar_candidates": []
+      "source_reference_ids": []
     }
   ],
   "recipe_candidates": [

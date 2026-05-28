@@ -13,10 +13,10 @@ Choose one primary route for single-stage tasks. Use a multi-step route when the
 
 | User input | Route |
 | --- | --- |
-| "列出风格", "风格列表", "已有风格", "查看风格库", "show/list/browse styles", "素材列表", "素材库", "视觉记忆", "visual memory", "世界观", "流派", "系列", "推荐组合" | `visual-memory` |
+| "列出风格类视觉资产", "风格素材", "已有视觉资产", "查看素材库", "show/list/browse visual assets", "素材列表", "视觉记忆", "visual memory", "世界观", "流派", "系列", "推荐组合" | `visual-memory` |
 | Request for a visual asset, visual system, recipe, candidate, generation history, evidence, quality stats, concrete definition, prompt fragments, negative fragments, or reference images | `visual-memory` |
 | Reference image(s), screenshot(s), image file(s), optionally with source prompt(s) | `visual-asset-capture` |
-| "沉淀", "记住", "保存风格", "分析风格", "判断是否已有", "保存素材", "分析素材" | `visual-asset-capture` |
+| "沉淀", "记住", "保存风格类视觉资产", "分析可复用视觉特征", "判断是否已有", "保存素材", "分析素材" | `visual-asset-capture` |
 | Text-only fuzzy image prompt asking for better wording, expansion, or model-ready prompt | `prompt-refine` |
 | Text-only raw/fuzzy image prompt plus explicit request to create, generate, render, or output a new image | `prompt-refine`, ask user to confirm the refined prompt, then `image-generate` |
 | Request to generate from an already refined prompt, prompt record, or final model-ready prompt | `image-generate` |

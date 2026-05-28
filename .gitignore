@@ -1,4 +1,5 @@
 .aether/
+.aether_tmp/
 __pycache__/
 *.py[cod]
 .pytest_cache/
@@ -6,4 +7,3 @@ __pycache__/
 dist/
 build/
 *.egg-info/
-

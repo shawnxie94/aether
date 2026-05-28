@@ -95,11 +95,30 @@ For `major_deviation`, do not silently accept the image as style-consistent. Sho
 python skills/image-generate/scripts/record_generation.py --json <generation-run.json>
 ```
 
-For retries, record every attempt and include retry metadata:
+For a single retry attempt, record retry metadata:
 
 ```bash
 python skills/image-generate/scripts/record_generation.py --json <generation-run.json> --attempt 1 --max-attempts 3 --retryable true
 python skills/image-generate/scripts/record_generation.py --json <generation-run.json> --attempt 2 --max-attempts 3 --retry-of <previous-generation-run-id>
+```
+
+For multiple attempts already available as a manifest, prefer the bundled manifest script so retry lineage is chained automatically:
+
+```bash
+python skills/image-generate/scripts/record_generation_attempts.py --manifest <attempts-manifest.json>
+```
+
+Manifest shape:
+
+```json
+{
+  "request_id": "logical_request_id",
+  "max_attempts": 3,
+  "attempts": [
+    {"status": "failed", "retryable": true, "...": "..."},
+    {"status": "generated", "retryable": false, "...": "..."}
+  ]
+}
 ```
 
 The JSON should include:

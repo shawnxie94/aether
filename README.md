@@ -40,9 +40,9 @@ Persist image-analysis candidate assets and confirm them:
 ```bash
 aether visual-asset candidates create --json visual-asset-candidates.json
 aether visual-asset candidates list --status pending --summary
-aether visual-asset candidates decide asset_candidate_example new_asset
-aether visual-asset candidates decide asset_candidate_example asset_variant --target-asset-id visual_asset_parent
-aether visual-asset candidates decide asset_candidate_example existing_asset --target-asset-id visual_asset_existing
+aether visual-asset candidates decide asset_candidate_example create_new
+aether visual-asset candidates decide asset_candidate_example inherit_variant --target-asset-id visual_asset_parent
+aether visual-asset candidates decide asset_candidate_example attach_evidence --target-asset-id visual_asset_existing
 aether visual-asset candidates decide asset_candidate_example ignore
 aether visual-asset candidates decide asset_candidate_example ignore --cleanup
 aether visual-asset candidates cleanup --status ignored

@@ -15,7 +15,7 @@ Use this skill to browse Aether's persisted visual memory without creating, refi
 aether config show
 ```
 
-2. When the user asks for the available visual assets, styles, asset list, memory list, or reusable modules, output visual assets as a compact catalog:
+2. When the user asks for the available visual assets, style-like visual assets, asset list, memory list, or reusable modules, output visual assets as a compact catalog:
 
 ```bash
 aether visual-asset list --summary
@@ -171,6 +171,8 @@ aether generation get <generation_run_id>
 When the user asks for generation quality or review trends, use:
 
 ```bash
+python skills/visual-memory/scripts/memory_report.py --recent-generations 10
+python skills/visual-memory/scripts/memory_report.py --pending --quality
 aether generation stats
 aether generation stats --asset-id <visual_asset_id>
 aether generation suggest <generation_run_id>
@@ -190,6 +192,7 @@ Summarize:
 When the user asks about local asset size, duplicates, generated image inventory, or cleanup candidates, use the read-only asset commands:
 
 ```bash
+python skills/visual-memory/scripts/memory_report.py --all
 aether asset list --kind generated
 aether asset stats
 aether asset duplicates --kind generated

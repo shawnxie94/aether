@@ -262,7 +262,7 @@ class StorageTests(unittest.TestCase):
 
             decided = store.decide_visual_asset_candidate(
                 candidate["id"],
-                "asset_variant",
+                "inherit_variant",
                 target_asset_id=existing["id"],
             )
             self.assertEqual(decided["status"], "confirmed")
@@ -415,7 +415,7 @@ class StorageTests(unittest.TestCase):
             )
             asset_candidate = batch["candidate_assets"][0]
             recipe_candidate = batch["recipe_candidates"][0]
-            decided = store.decide_visual_asset_candidate(asset_candidate["id"], "new_asset")
+            decided = store.decide_visual_asset_candidate(asset_candidate["id"], "create_new")
             confirmed = store.confirm_recipe_candidate(recipe_candidate["id"])
             self.assertEqual(confirmed["status"], "confirmed")
             confirmed_recipe = confirmed["recipe"]
@@ -552,7 +552,7 @@ class StorageTests(unittest.TestCase):
             self.assertEqual(payload["related_existing_assets"][0]["asset_id"], existing["id"])
 
             for candidate in batch["candidate_assets"]:
-                store.decide_visual_asset_candidate(candidate["id"], "new_asset")
+                store.decide_visual_asset_candidate(candidate["id"], "create_new")
             confirmed = store.confirm_visual_system_candidate(system_candidate["id"])
             self.assertEqual(confirmed["status"], "confirmed")
             visual_system = confirmed["visual_system"]
@@ -769,7 +769,7 @@ class StorageTests(unittest.TestCase):
 
             self.assertEqual(candidate["payload"]["metadata"]["recommendation"], "attach_evidence")
             self.assertEqual(candidate["payload"]["metadata"]["evolution_action"], "attach_evidence")
-            confirmed_asset = store.decide_visual_asset_candidate(candidate_asset["id"], "new_asset")
+            confirmed_asset = store.decide_visual_asset_candidate(candidate_asset["id"], "create_new")
             confirmed = store.confirm_visual_system_candidate(candidate["id"])
             self.assertEqual(confirmed["confirmed_system_id"], system["id"])
             relation_asset_ids = {
@@ -923,7 +923,7 @@ class StorageTests(unittest.TestCase):
 
             self.assertEqual(candidate["similar_candidates"][0]["asset_id"], asset["id"])
             self.assertEqual(candidate["similar_candidates"][0]["semantic_score"], 1.0)
-            self.assertEqual(candidate["decision"], "existing_asset")
+            self.assertEqual(candidate["decision"], "attach_evidence")
 
             system_candidate = store.create_visual_system_candidate(
                 {
@@ -990,7 +990,7 @@ class StorageTests(unittest.TestCase):
                     "name": "Painterly Anime Festival Variant",
                     "summary": "bright anime key art with painterly foliage and festival lanterns",
                     "tags": ["anime", "garden", "festival"],
-                    "decision": "new_asset",
+                    "decision": "create_new",
                     "reuse_score": 0,
                     "target_asset_id": "stale_asset",
                     "status": "pending",
@@ -999,21 +999,21 @@ class StorageTests(unittest.TestCase):
 
             self.assertEqual(candidate["payload"]["evolution_action"], "inherit_variant")
             self.assertEqual(candidate["payload"]["evolution_suggestion"]["action"], "inherit_variant")
-            self.assertEqual(candidate["decision"], "asset_variant")
+            self.assertEqual(candidate["decision"], "inherit_variant")
             self.assertEqual(candidate["target_asset_id"], existing["id"])
             self.assertEqual(candidate["payload"]["target_asset_id"], existing["id"])
             self.assertGreater(candidate["reuse_score"], 0)
 
             with store.connect() as conn:
                 conn.execute(
-                    "update visual_asset_candidates set decision = 'new_asset', target_asset_id = null where id = ?",
+                    "update visual_asset_candidates set decision = 'create_new', target_asset_id = null where id = ?",
                     (candidate["id"],),
                 )
 
             confirmed = store.confirm_visual_asset_candidate_batch("batch_storage_owned")
             confirmed_candidate = confirmed["candidate_assets"][0]
             variant_asset = store.get_visual_asset(confirmed_candidate["confirmed_asset_id"])
-            self.assertEqual(confirmed_candidate["decision"], "asset_variant")
+            self.assertEqual(confirmed_candidate["decision"], "inherit_variant")
             self.assertEqual(confirmed_candidate["target_asset_id"], existing["id"])
             self.assertEqual(variant_asset["parent_asset_id"], existing["id"])
 

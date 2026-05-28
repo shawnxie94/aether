@@ -1,7 +1,7 @@
 interface:
   display_name: "Aether Prompt Refine"
-  short_description: "Refine text prompts with saved styles"
+  short_description: "Refine text prompts with Aether visual memory"
   brand_color: "#4F7CAC"
-  default_prompt: "Use $prompt-refine to refine this text-only image prompt with an Aether style."
+  default_prompt: "Use $prompt-refine to refine this text-only image prompt with Aether visual assets, visual systems, and recipes."
 policy:
   allow_implicit_invocation: false

@@ -86,12 +86,6 @@ def _display_path(config: Any, image_path: str) -> str:
     return str(config.resolve_path(path))
 
 
-def cmd_similarity_save(args: argparse.Namespace) -> None:
-    _, store = _store()
-    payload = read_json_arg(args.json)
-    dump_json(store.save_similarity_result(payload))
-
-
 def cmd_embedding_status(_: argparse.Namespace) -> None:
     config, store = _store()
     dump_json(store.embedding_status(config.data))
@@ -739,12 +733,6 @@ def build_parser() -> argparse.ArgumentParser:
     config_sub = config.add_subparsers(required=True)
     config_show = config_sub.add_parser("show")
     config_show.set_defaults(func=cmd_config_show)
-
-    similarity = sub.add_parser("similarity")
-    similarity_sub = similarity.add_subparsers(required=True)
-    similarity_save = similarity_sub.add_parser("save")
-    similarity_save.add_argument("--json", required=True)
-    similarity_save.set_defaults(func=cmd_similarity_save)
 
     embedding = sub.add_parser("embedding")
     embedding_sub = embedding.add_subparsers(required=True)

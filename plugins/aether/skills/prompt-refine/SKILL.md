@@ -39,7 +39,16 @@ aether visual-asset get <visual_asset_id>
 
 Prefer assets explicitly requested by the user, then assets matching the subject, scene, mood, target visual style, and historical generation quality.
 
-For the default deterministic recall and composition pass, use:
+For the default deterministic recall and composition pass, prefer the bundled compose script. It wraps `aether prompt compose`, merges optional overrides, validates the record, and can save with the same confirmation message used by `save_prompt_record.py`:
+
+```bash
+python skills/prompt-refine/scripts/compose_prompt_record.py --source-prompt "<prompt>" --query "<keywords>"
+python skills/prompt-refine/scripts/compose_prompt_record.py --source-prompt "<prompt>" --asset-id <visual_asset_id> --save --emit-confirmation
+python skills/prompt-refine/scripts/compose_prompt_record.py --source-prompt "<prompt>" --system-id <visual_system_id>
+python skills/prompt-refine/scripts/compose_prompt_record.py --source-prompt "<prompt>" --recipe-id <recipe_id>
+```
+
+Use direct CLI composition only for debugging:
 
 ```bash
 aether prompt compose --source-prompt "<prompt>" --query "<keywords>"
@@ -78,7 +87,7 @@ When selecting visual assets, keep the composition controlled:
 
 Check conflicts before writing the final prompt. If two assets conflict, preserve the user's explicit request first, then the selected style asset's invariants, then drop optional enhancement assets.
 
-6. Validate and save a prompt record. Prefer the bundled script:
+6. Validate and save a manually revised prompt record. Prefer the bundled save script when you already have a complete prompt-record JSON:
 
 ```bash
 python skills/prompt-refine/scripts/save_prompt_record.py --json <prompt-record.json> --emit-confirmation

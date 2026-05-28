@@ -145,10 +145,7 @@
           "negative_fragments": {"type": "array"},
           "compatible_with": {"type": "array"},
           "avoid_with": {"type": "array"},
-          "recommended_aspect_ratios": {"type": "array"},
-          "reuse_score": {"type": "number"},
-          "decision": {"type": "string"},
-          "similar_candidates": {"type": "array"}
+          "recommended_aspect_ratios": {"type": "array"}
         }
       }
     },

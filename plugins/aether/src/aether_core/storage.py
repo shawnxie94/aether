@@ -17,7 +17,6 @@ from .validation import (
     validate_recipe,
     validate_recipe_asset,
     validate_recipe_candidate,
-    validate_style,
     validate_visual_system,
     validate_visual_system_candidate,
     validate_asset_relation,
@@ -42,22 +41,6 @@ class AetherStore:
         with self.connect() as conn:
             conn.executescript(
                 """
-                create table if not exists styles (
-                  id text primary key,
-                  name text not null,
-                  summary text not null default '',
-                  tags_json text not null default '[]',
-                  source_references_json text not null default '[]',
-                  style_profile_json text not null default '{}',
-                  prompt_template text not null default '',
-                  negative_prompt text not null default '',
-                  status text not null default 'draft',
-                  parent_style_id text,
-                  merged_into_style_id text,
-                  created_at text not null,
-                  updated_at text not null
-                );
-
                 create table if not exists assets (
                   id text primary key,
                   kind text not null,
@@ -66,18 +49,6 @@ class AetherStore:
                   sha256 text not null,
                   mime_type text not null default 'application/octet-stream',
                   size_bytes integer not null default 0,
-                  created_at text not null
-                );
-
-                create table if not exists similarity_results (
-                  id text primary key,
-                  source_style_id text,
-                  candidate_style_id text not null,
-                  similarity_score real not null,
-                  decision text not null,
-                  matched_dimensions_json text not null default '[]',
-                  different_dimensions_json text not null default '[]',
-                  reason text not null default '',
                   created_at text not null
                 );
 
@@ -109,7 +80,7 @@ class AetherStore:
                   payload_json text not null default '{}',
                   source_reference_ids_json text not null default '[]',
                   reuse_score real not null default 0,
-                  decision text not null default 'new_asset',
+                  decision text not null default 'create_new',
                   similar_candidates_json text not null default '[]',
                   status text not null default 'pending',
                   target_asset_id text,
@@ -367,145 +338,6 @@ class AetherStore:
             self._ensure_column(conn, "visual_asset_evidence", "source_candidate_id", "text")
             self._ensure_column(conn, "visual_asset_evidence", "source_reference_id", "text")
             record_schema_version(conn)
-
-    def create_style(self, payload: dict[str, Any]) -> dict[str, Any]:
-        validate_style(payload)
-        timestamp = now_iso()
-        style_id = payload.get("id") or slugify(payload.get("name", ""), "style")
-        record = {
-            "id": style_id,
-            "name": payload.get("name") or style_id,
-            "summary": payload.get("summary", ""),
-            "tags": payload.get("tags", []),
-            "source_references": payload.get("source_references", payload.get("source_images", [])),
-            "style_profile": payload.get("style_profile", {}),
-            "prompt_template": payload.get("prompt_template", ""),
-            "negative_prompt": payload.get("negative_prompt", ""),
-            "status": payload.get("status", "draft"),
-            "parent_style_id": payload.get("parent_style_id"),
-            "merged_into_style_id": payload.get("merged_into_style_id"),
-            "created_at": payload.get("created_at", timestamp),
-            "updated_at": timestamp,
-        }
-        with self.connect() as conn:
-            conn.execute(
-                """
-                insert into styles (
-                  id, name, summary, tags_json, source_references_json,
-                  style_profile_json, prompt_template, negative_prompt, status,
-                  parent_style_id, merged_into_style_id, created_at, updated_at
-                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                on conflict(id) do update set
-                  name=excluded.name,
-                  summary=excluded.summary,
-                  tags_json=excluded.tags_json,
-                  source_references_json=excluded.source_references_json,
-                  style_profile_json=excluded.style_profile_json,
-                  prompt_template=excluded.prompt_template,
-                  negative_prompt=excluded.negative_prompt,
-                  status=excluded.status,
-                  parent_style_id=excluded.parent_style_id,
-                  merged_into_style_id=excluded.merged_into_style_id,
-                  updated_at=excluded.updated_at
-                """,
-                (
-                    record["id"],
-                    record["name"],
-                    record["summary"],
-                    json_dumps(record["tags"]),
-                    json_dumps(record["source_references"]),
-                    json_dumps(record["style_profile"]),
-                    record["prompt_template"],
-                    record["negative_prompt"],
-                    record["status"],
-                    record["parent_style_id"],
-                    record["merged_into_style_id"],
-                    record["created_at"],
-                    record["updated_at"],
-                ),
-            )
-        return record
-
-    def update_style_status(
-        self,
-        style_id: str,
-        status: str,
-        merged_into_style_id: str | None = None,
-        parent_style_id: str | None = None,
-    ) -> dict[str, Any]:
-        timestamp = now_iso()
-        with self.connect() as conn:
-            row = conn.execute("select * from styles where id = ?", (style_id,)).fetchone()
-            if not row:
-                raise KeyError(f"Style not found: {style_id}")
-            conn.execute(
-                """
-                update styles
-                set status = ?,
-                    merged_into_style_id = coalesce(?, merged_into_style_id),
-                    parent_style_id = coalesce(?, parent_style_id),
-                    updated_at = ?
-                where id = ?
-                """,
-                (status, merged_into_style_id, parent_style_id, timestamp, style_id),
-            )
-        updated = self.get_style(style_id)
-        assert updated is not None
-        return updated
-
-    def get_style(self, style_id: str) -> dict[str, Any] | None:
-        with self.connect() as conn:
-            row = conn.execute("select * from styles where id = ?", (style_id,)).fetchone()
-        return self._style_from_row(row) if row else None
-
-    def list_styles(self, status: str | None = None) -> list[dict[str, Any]]:
-        query = "select * from styles"
-        params: tuple[Any, ...] = ()
-        if status:
-            query += " where status = ?"
-            params = (status,)
-        query += " order by updated_at desc"
-        with self.connect() as conn:
-            rows = conn.execute(query, params).fetchall()
-        return [self._style_from_row(row) for row in rows]
-
-    def save_similarity_result(self, payload: dict[str, Any]) -> dict[str, Any]:
-        source_asset_id = payload.get("source_asset_id") or payload.get("source_style_id")
-        candidate_asset_id = payload.get("candidate_asset_id") or payload.get("candidate_style_id")
-        if not candidate_asset_id:
-            raise KeyError("candidate_asset_id is required")
-        record = {
-            "id": payload.get("id") or new_id("sim"),
-            "source_asset_id": source_asset_id,
-            "candidate_asset_id": candidate_asset_id,
-            "similarity_score": float(payload["similarity_score"]),
-            "decision": payload["decision"],
-            "matched_dimensions": payload.get("matched_dimensions", []),
-            "different_dimensions": payload.get("different_dimensions", []),
-            "reason": payload.get("reason", ""),
-            "created_at": payload.get("created_at", now_iso()),
-        }
-        with self.connect() as conn:
-            conn.execute(
-                """
-                insert into similarity_results (
-                  id, source_style_id, candidate_style_id, similarity_score, decision,
-                  matched_dimensions_json, different_dimensions_json, reason, created_at
-                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    record["id"],
-                    record["source_asset_id"],
-                    record["candidate_asset_id"],
-                    record["similarity_score"],
-                    record["decision"],
-                    json_dumps(record["matched_dimensions"]),
-                    json_dumps(record["different_dimensions"]),
-                    record["reason"],
-                    record["created_at"],
-                ),
-            )
-        return record
 
     def create_visual_asset(self, payload: dict[str, Any]) -> dict[str, Any]:
         validate_visual_asset(payload)
@@ -1204,21 +1036,6 @@ class AetherStore:
         }
         return f"{labels.get(action, action)} suggested for {entity_type}; similarity={similarity}, novelty={novelty}."
 
-    def _legacy_asset_decision(self, action: str) -> str:
-        return {
-            "attach_evidence": "existing_asset",
-            "inherit_variant": "asset_variant",
-            "create_new": "new_asset",
-            "merge_existing": "existing_asset",
-        }.get(action, action)
-
-    def _normalize_asset_decision(self, decision: str) -> str:
-        return {
-            "existing_asset": "attach_evidence",
-            "asset_variant": "inherit_variant",
-            "new_asset": "create_new",
-        }.get(decision, decision)
-
     def update_visual_asset_status(
         self,
         asset_id: str,
@@ -1607,7 +1424,6 @@ class AetherStore:
             similar_candidates[0] if similar_candidates else None,
         )
         action = evolution_suggestion["action"]
-        decision = self._legacy_asset_decision(action)
         target_asset_id = (
             evolution_suggestion.get("target_id")
             if action in {"attach_evidence", "inherit_variant", "merge_existing"}
@@ -1616,7 +1432,7 @@ class AetherStore:
         payload = {
             **payload,
             "reuse_score": reuse_score,
-            "decision": decision,
+            "decision": action,
             "evolution_action": action,
             "evolution_suggestion": evolution_suggestion,
             "similar_candidates": similar_candidates,
@@ -1630,7 +1446,7 @@ class AetherStore:
             "payload": payload,
             "source_reference_ids": payload.get("source_reference_ids", []),
             "reuse_score": reuse_score,
-            "decision": decision,
+            "decision": action,
             "similar_candidates": similar_candidates,
             "status": payload.get("status", "pending"),
             "target_asset_id": target_asset_id,
@@ -1761,8 +1577,8 @@ class AetherStore:
         if not candidate:
             raise KeyError(f"Visual asset candidate not found: {candidate_id}")
         payload = dict(candidate["payload"])
-        action = self._normalize_asset_decision(decision)
-        payload["decision"] = self._legacy_asset_decision(action)
+        action = decision
+        payload["decision"] = action
         payload["evolution_action"] = action
         validate_visual_asset_candidate(payload)
 
@@ -1785,7 +1601,7 @@ class AetherStore:
             )
         elif action == "inherit_variant":
             if not target_asset_id:
-                raise KeyError("target_asset_id is required for asset_variant")
+                raise KeyError("target_asset_id is required for inherit_variant")
             before = self.get_visual_asset(target_asset_id)
             asset_payload = self._candidate_to_visual_asset_payload(candidate)
             asset_payload["metadata"] = {
@@ -1808,7 +1624,7 @@ class AetherStore:
             )
         elif action == "attach_evidence":
             if not target_asset_id:
-                raise KeyError("target_asset_id is required for existing_asset")
+                raise KeyError("target_asset_id is required for attach_evidence")
             if not self.get_visual_asset(target_asset_id):
                 raise KeyError(f"Target visual asset not found: {target_asset_id}")
             confirmed_asset_id = target_asset_id
@@ -1835,7 +1651,7 @@ class AetherStore:
                     updated_at = ?
                 where id = ?
                 """,
-                (self._legacy_asset_decision(action), status, target_asset_id, confirmed_asset_id, timestamp, candidate_id),
+                (action, status, target_asset_id, confirmed_asset_id, timestamp, candidate_id),
             )
         updated = self.get_visual_asset_candidate(candidate_id)
         assert updated is not None
@@ -1847,7 +1663,7 @@ class AetherStore:
                     "source_candidate_id": candidate_id,
                     "payload": {
                         "candidate_id": candidate_id,
-                        "decision": self._legacy_asset_decision(action),
+                        "decision": action,
                         "evolution_action": action,
                         "candidate": candidate["payload"],
                     },
@@ -1906,7 +1722,8 @@ class AetherStore:
             action = (
                 payload.get("evolution_action")
                 or suggestion.get("action")
-                or self._normalize_asset_decision(candidate.get("decision") or "new_asset")
+                or candidate.get("decision")
+                or "create_new"
             )
             target_asset_id = candidate.get("target_asset_id") or suggestion.get("target_id")
             if action in {"attach_evidence", "inherit_variant", "merge_existing"} and not target_asset_id:
@@ -3683,17 +3500,6 @@ class AetherStore:
         referenced_ids: set[str] = set()
         referenced_paths: set[str] = set()
 
-        for style in self.list_styles():
-            for reference in style.get("source_references", []):
-                if isinstance(reference, dict):
-                    asset_id = reference.get("asset_id")
-                    if isinstance(asset_id, str) and asset_id:
-                        referenced_ids.add(asset_id)
-                    for key in ("asset_path", "image_path"):
-                        value = reference.get(key)
-                        if isinstance(value, str) and value:
-                            referenced_paths.add(value)
-
         for visual_asset in self.list_visual_assets(limit=None):
             for reference in visual_asset.get("source_references", []):
                 if isinstance(reference, dict):
@@ -3739,7 +3545,7 @@ class AetherStore:
         record = {
             "id": payload.get("id") or new_id("prompt"),
             "source_prompt": payload["source_prompt"],
-            "style_id": payload.get("style_id"),
+            "style_id": None,
             "target_generation_skill": payload.get("target_generation_skill"),
             "selected_assets": selected_assets or [],
             "constraints": constraints,
@@ -3814,7 +3620,7 @@ class AetherStore:
             "source_output_asset_id": payload.get("source_output_asset_id"),
             "edit_instruction": payload.get("edit_instruction", ""),
             "edit_regions": payload.get("edit_regions", []),
-            "style_id": payload.get("style_id"),
+            "style_id": None,
             "selected_assets": selected_assets or [],
             "generation_skill": payload["generation_skill"],
             "skill_params": payload.get("skill_params", {}),
@@ -3908,7 +3714,6 @@ class AetherStore:
 
     def list_generation_runs(
         self,
-        style_id: str | None = None,
         asset_id: str | None = None,
         status: str | None = None,
         review: str | None = None,
@@ -3917,9 +3722,6 @@ class AetherStore:
         query = "select * from generation_runs"
         clauses: list[str] = []
         params: list[Any] = []
-        if style_id:
-            clauses.append("style_id = ?")
-            params.append(style_id)
         if status:
             clauses.append("status = ?")
             params.append(status)
@@ -3935,11 +3737,10 @@ class AetherStore:
             runs = [run for run in runs if run.get("visual_review", {}).get("style_consistency") == review]
         return runs[:limit] if limit is not None and limit >= 0 else runs
 
-    def generation_stats(self, style_id: str | None = None, asset_id: str | None = None) -> dict[str, Any]:
-        runs = self.list_generation_runs(style_id=style_id, asset_id=asset_id, limit=None)
+    def generation_stats(self, asset_id: str | None = None) -> dict[str, Any]:
+        runs = self.list_generation_runs(asset_id=asset_id, limit=None)
         by_status: dict[str, int] = {}
         by_review: dict[str, int] = {}
-        by_style: dict[str, dict[str, Any]] = {}
         by_asset: dict[str, dict[str, Any]] = {}
         feedback: dict[str, int] = {"liked": 0, "rejected": 0, "unrated": 0}
         deviations: dict[str, int] = {}
@@ -3950,19 +3751,6 @@ class AetherStore:
 
             review = run.get("visual_review", {}).get("style_consistency") or "not_reviewed"
             by_review[review] = by_review.get(review, 0) + 1
-
-            style_key = run.get("style_id") or "(none)"
-            style_stats = by_style.setdefault(
-                style_key,
-                {
-                    "total": 0,
-                    "liked": 0,
-                    "rejected": 0,
-                    "review": {},
-                },
-            )
-            style_stats["total"] += 1
-            style_stats["review"][review] = style_stats["review"].get(review, 0) + 1
 
             for selected in run.get("selected_assets", []):
                 selected_id = self._selected_asset_id(selected)
@@ -3983,14 +3771,12 @@ class AetherStore:
             liked = run.get("feedback", {}).get("liked")
             if liked is True or run.get("status") == "liked":
                 feedback["liked"] += 1
-                style_stats["liked"] += 1
                 for selected in run.get("selected_assets", []):
                     selected_id = self._selected_asset_id(selected)
                     if selected_id and selected_id in by_asset:
                         by_asset[selected_id]["liked"] += 1
             elif liked is False or run.get("status") == "rejected":
                 feedback["rejected"] += 1
-                style_stats["rejected"] += 1
                 for selected in run.get("selected_assets", []):
                     selected_id = self._selected_asset_id(selected)
                     if selected_id and selected_id in by_asset:
@@ -4011,7 +3797,6 @@ class AetherStore:
             "by_status": by_status,
             "by_review": by_review,
             "feedback": feedback,
-            "by_style": by_style,
             "by_asset": by_asset,
             "common_deviations": [
                 {"deviation": key, "count": count}
@@ -4388,23 +4173,6 @@ class AetherStore:
                         "payload": review,
                     },
                 )
-
-    def _style_from_row(self, row: sqlite3.Row) -> dict[str, Any]:
-        return {
-            "id": row["id"],
-            "name": row["name"],
-            "summary": row["summary"],
-            "tags": json_loads(row["tags_json"], []),
-            "source_references": json_loads(row["source_references_json"], []),
-            "style_profile": json_loads(row["style_profile_json"], {}),
-            "prompt_template": row["prompt_template"],
-            "negative_prompt": row["negative_prompt"],
-            "status": row["status"],
-            "parent_style_id": row["parent_style_id"],
-            "merged_into_style_id": row["merged_into_style_id"],
-            "created_at": row["created_at"],
-            "updated_at": row["updated_at"],
-        }
 
     def _asset_from_row(self, row: sqlite3.Row) -> dict[str, Any]:
         return {

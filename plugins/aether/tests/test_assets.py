@@ -88,8 +88,9 @@ class AssetTests(unittest.TestCase):
                     "size_bytes": 30,
                 }
             )
-            store.create_style(
+            store.create_visual_asset(
                 {
+                    "type": "style",
                     "name": "Referenced Style",
                     "source_references": [
                         {
