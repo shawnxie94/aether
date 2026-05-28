@@ -48,7 +48,7 @@ aether prompt compose --source-prompt "<prompt>" --system-id <visual_system_id>
 aether prompt compose --source-prompt "<prompt>" --recipe-id <recipe_id>
 ```
 
-The composed output now includes an `intent_sketch`, `recall_candidates`, and `recall_strategy`. Treat `intent_sketch` as the first-stage structured interpretation of the user's prompt, then use recalled visual systems, recipes, and assets as controlled context for the final wording. Use the composed output as the first draft, then let Codex improve wording while preserving `intent_sketch`, `selected_assets`, `constraints.selected_systems`, `constraints.selected_recipes`, `composition_plan`, `generation_params`, and `conflicts`.
+The composed output now includes an `intent_sketch`, `recall_candidates`, and `recall_strategy`. Treat `intent_sketch` as the first-stage structured interpretation of the user's prompt, then use recalled visual systems, recipes, and folded visual assets as controlled context for the final wording. `recall_candidates.visual_assets` is the default family-deduped list; `recall_candidates.visual_assets_raw` keeps the uncollapsed debug list. Use the composed output as the first draft, then let Codex improve wording while preserving `intent_sketch`, `selected_assets`, `constraints.selected_systems`, `constraints.selected_recipes`, `composition_plan`, `generation_params`, and `conflicts`.
 
 4. Use Codex current model to analyze the source prompt:
 

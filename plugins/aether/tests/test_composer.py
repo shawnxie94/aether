@@ -231,6 +231,91 @@ class ComposerTests(unittest.TestCase):
             recalled_asset_ids = {item["asset_id"] for item in record["recall_candidates"]["visual_assets"]}
             self.assertIn(scene["id"], recalled_asset_ids)
 
+    def test_compose_prompt_collapses_recalled_asset_family(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = AetherStore(Path(temp_dir) / "aether.sqlite")
+            store.init()
+
+            parent = store.create_visual_asset(
+                {
+                    "type": "style",
+                    "name": "Bright Fantasy Paint",
+                    "summary": "bright fantasy painterly style",
+                    "prompt_fragments": ["bright fantasy painterly style"],
+                    "status": "active",
+                }
+            )
+            child = store.create_visual_asset(
+                {
+                    "type": "style",
+                    "name": "Bright Fantasy Paint Leaf Variant",
+                    "summary": "bright fantasy painterly leaf sea style",
+                    "prompt_fragments": ["bright fantasy painterly leaf sea style", "leaf sea"],
+                    "parent_asset_id": parent["id"],
+                    "status": "active",
+                }
+            )
+
+            record = compose_prompt(
+                store,
+                "bright fantasy painterly leaf sea",
+                default_generation_params={"aspectRatio": "1:1"},
+            )
+
+            raw_ids = {item["asset_id"] for item in record["recall_candidates"]["visual_assets_raw"]}
+            collapsed_ids = {item["asset_id"] for item in record["recall_candidates"]["visual_assets"]}
+            self.assertIn(parent["id"], raw_ids)
+            self.assertIn(child["id"], raw_ids)
+            self.assertEqual(len(collapsed_ids & {parent["id"], child["id"]}), 1)
+            self.assertIn(child["id"], collapsed_ids)
+
+    def test_compose_prompt_prefers_specific_recipe_over_generic_recipe(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = AetherStore(Path(temp_dir) / "aether.sqlite")
+            store.init()
+
+            style = store.create_visual_asset(
+                {
+                    "type": "style",
+                    "name": "Bright Fantasy Paint",
+                    "summary": "bright fantasy painterly style",
+                    "prompt_fragments": ["bright fantasy painterly style"],
+                    "status": "active",
+                }
+            )
+            generic = store.create_recipe(
+                {
+                    "name": "Bright Fantasy General Key Art",
+                    "summary": "general bright fantasy key art fallback",
+                    "composition_rules": [{"key": "asset_roles", "value": ["general fantasy composition"]}],
+                    "assets": [{"asset_id": style["id"], "role": "core"}],
+                    "status": "active",
+                }
+            )
+            specific = store.create_recipe(
+                {
+                    "name": "Bright Fantasy Leaf Sea Key Art",
+                    "summary": "bright fantasy leaf sea key art with a small traveler",
+                    "composition_rules": [
+                        {"key": "asset_roles", "value": ["style and leaf sea scene define key art"]},
+                        {"key": "subject_scene_binding", "value": ["small traveler crosses a leaf sea"]},
+                    ],
+                    "assets": [{"asset_id": style["id"], "role": "core"}],
+                    "status": "active",
+                }
+            )
+
+            record = compose_prompt(
+                store,
+                "bright fantasy leaf sea key art",
+                default_generation_params={"aspectRatio": "1:1"},
+            )
+
+            recalled_ids = [item["recipe_id"] for item in record["recall_candidates"]["recipes"]]
+            self.assertIn(generic["id"], recalled_ids)
+            self.assertIn(specific["id"], recalled_ids)
+            self.assertEqual(record["constraints"]["selected_recipes"][0]["recipe_id"], specific["id"])
+
 
 if __name__ == "__main__":
     unittest.main()

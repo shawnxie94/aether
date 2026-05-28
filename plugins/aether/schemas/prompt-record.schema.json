@@ -16,7 +16,8 @@
       "properties": {
         "visual_systems": {"type": "array"},
         "recipes": {"type": "array"},
-        "visual_assets": {"type": "array"}
+        "visual_assets": {"type": "array"},
+        "visual_assets_raw": {"type": "array"}
       }
     },
     "recall_strategy": {

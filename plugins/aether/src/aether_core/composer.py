@@ -115,6 +115,79 @@ def _intent_sketch(source_prompt: str, query: str = "") -> dict[str, Any]:
     }
 
 
+def _asset_family_key(asset: dict[str, Any]) -> str:
+    return asset.get("parent_asset_id") or asset["id"]
+
+
+def _collapse_recalled_assets_by_family(
+    store: AetherStore,
+    recalled_assets: list[dict[str, Any]],
+    *,
+    explicit_asset_ids: set[str],
+) -> list[dict[str, Any]]:
+    best_by_family: dict[str, dict[str, Any]] = {}
+    for item in recalled_assets:
+        asset = store.get_visual_asset(item["asset_id"])
+        if not asset:
+            continue
+        family_key = _asset_family_key(asset)
+        rank = (
+            1 if asset["id"] in explicit_asset_ids else 0,
+            float(item.get("score", 0.0)),
+            float(item.get("semantic_score", 0.0)),
+            float(item.get("lexical_score", 0.0)),
+            len(asset.get("prompt_fragments", [])),
+        )
+        candidate = {**item, "family_key": family_key, "_rank": rank}
+        current = best_by_family.get(family_key)
+        if current is None or rank > current["_rank"]:
+            best_by_family[family_key] = candidate
+    collapsed = list(best_by_family.values())
+    collapsed.sort(key=lambda item: item["_rank"], reverse=True)
+    return [{key: value for key, value in item.items() if key != "_rank"} for item in collapsed]
+
+
+def _recipe_specificity_score(recipe: dict[str, Any], recall: dict[str, Any] | None = None) -> tuple[float, int, int, str]:
+    name = recipe.get("name", "")
+    summary = recipe.get("summary", "")
+    text = f"{name} {summary}".lower()
+    generic_terms = ("通用", "general", "generic", "fallback", "base")
+    specificity = 0.0
+    if any(term in text for term in generic_terms):
+        specificity -= 0.03
+    specificity += min(0.01, len(recipe.get("assets", [])) * 0.002)
+    specificity += min(0.01, len(recipe.get("composition_rules", [])) * 0.003)
+    specificity += min(0.006, len(recipe.get("required_asset_types", [])) * 0.001)
+    if recall:
+        specificity += float(recall.get("lexical_score", 0.0)) * 0.02
+    return (
+        round(specificity, 4),
+        len(recipe.get("assets", [])),
+        len(recipe.get("composition_rules", [])),
+        recipe["id"],
+    )
+
+
+def _choose_recalled_recipe(store: AetherStore, recalled_recipes: list[dict[str, Any]]) -> str:
+    candidates: list[tuple[tuple[float, float, int, int, str], dict[str, Any]]] = []
+    for item in recalled_recipes:
+        recipe = store.get_recipe(item["recipe_id"])
+        if not recipe or recipe["status"] == "archived":
+            continue
+        specificity = _recipe_specificity_score(recipe, item)
+        rank = (
+            float(item.get("score", 0.0)) + specificity[0],
+            specificity[1],
+            specificity[2],
+            specificity[3],
+        )
+        candidates.append((rank, item))
+    if not candidates:
+        return ""
+    candidates.sort(key=lambda candidate: candidate[0], reverse=True)
+    return candidates[0][1]["recipe_id"]
+
+
 def _quality_score(store: AetherStore, asset_id: str) -> float:
     return float(store.visual_asset_quality(asset_id)["score"])
 
@@ -233,12 +306,18 @@ def compose_prompt(
             for item in store.hybrid_recall("recipe", recall_query, config=config, limit=3)
             if item["score"] >= 0.02
         ]
-        recipe_ids = [item["recipe_id"] for item in recalled_recipes[:1]]
+        selected_recipe_id = _choose_recalled_recipe(store, recalled_recipes)
+        recipe_ids = [selected_recipe_id] if selected_recipe_id else []
     recalled_assets = [
         item
         for item in store.hybrid_recall("visual_asset", recall_query, config=config, limit=12)
         if item["score"] >= 0.02
     ]
+    collapsed_recalled_assets = _collapse_recalled_assets_by_family(
+        store,
+        recalled_assets,
+        explicit_asset_ids=explicit_set,
+    )
     recalled_system_reasons = {item["system_id"]: item for item in recalled_systems}
     recalled_recipe_reasons = {item["recipe_id"]: item for item in recalled_recipes}
     prompt_tokens = _tokens(source_prompt)
@@ -256,7 +335,7 @@ def compose_prompt(
     recipe_composition_rules: list[str] = []
     recipe_negative_rules: list[str] = []
 
-    for item in recalled_assets:
+    for item in collapsed_recalled_assets:
         boosted_asset_reasons.setdefault(item["asset_id"], []).append(
             f"recalled asset score {item['score']:.2f}"
         )
@@ -354,6 +433,7 @@ def compose_prompt(
 
     selected: list[dict[str, Any]] = []
     selected_ids: set[str] = set()
+    selected_family_keys: set[str] = set()
     reasons_by_id: dict[str, list[str]] = {}
 
     for asset_id in explicit_asset_ids:
@@ -361,6 +441,7 @@ def compose_prompt(
         if asset and asset["status"] != "archived":
             selected.append(asset)
             selected_ids.add(asset["id"])
+            selected_family_keys.add(_asset_family_key(asset))
             reasons_by_id[asset["id"]] = ["explicitly requested"]
 
     for asset_id, reasons in sorted(forced_asset_reasons.items(), key=lambda item: item[0]):
@@ -369,8 +450,18 @@ def compose_prompt(
             continue
         asset = active_by_id.get(asset_id) or store.get_visual_asset(asset_id)
         if asset and asset["status"] == "active":
+            family_key = _asset_family_key(asset)
+            if family_key in selected_family_keys and asset_id not in explicit_set:
+                for selected_asset in selected:
+                    if _asset_family_key(selected_asset) == family_key:
+                        reasons_by_id[selected_asset["id"]].extend(
+                            [f"folded sibling {asset['name']}: {reason}" for reason in reasons]
+                        )
+                        break
+                continue
             selected.append(asset)
             selected_ids.add(asset["id"])
+            selected_family_keys.add(family_key)
             reasons_by_id[asset["id"]] = reasons
 
     for asset_type, quota in TYPE_QUOTAS.items():
@@ -404,8 +495,12 @@ def compose_prompt(
         for (score, reasons), asset in scored[: max(0, quota - current_count)]:
             if score <= 4.0 and asset_type not in ("negative_rule",):
                 continue
+            family_key = _asset_family_key(asset)
+            if family_key in selected_family_keys and asset["id"] not in explicit_set:
+                continue
             selected.append(asset)
             selected_ids.add(asset["id"])
+            selected_family_keys.add(family_key)
             reasons_by_id[asset["id"]] = reasons
 
     conflicts = _detect_conflicts(selected)
@@ -521,7 +616,8 @@ def compose_prompt(
         "recall_candidates": {
             "visual_systems": recalled_systems,
             "recipes": recalled_recipes,
-            "visual_assets": recalled_assets,
+            "visual_assets": collapsed_recalled_assets,
+            "visual_assets_raw": recalled_assets,
         },
         "recall_strategy": {
             "mode": "hybrid" if config and config.get("embedding", {}).get("provider") not in (None, "", "disabled") else "lexical_relation",
