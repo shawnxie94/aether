@@ -1599,17 +1599,20 @@ class AetherStore:
         candidate_id = payload.get("id") or new_id("asset_candidate")
         payload.pop("similar_candidates", None)
         similar_candidates = self._suggest_similar_visual_assets(payload, config=config)
-        reuse_score = float(payload.get("reuse_score", similar_candidates[0]["similarity_score"] if similar_candidates else 0))
+        reuse_score = float(similar_candidates[0]["similarity_score"] if similar_candidates else 0)
         query_text = self._visual_asset_candidate_query_text(payload)
         evolution_suggestion = self._evolution_suggestion(
             "visual_asset",
             query_text,
             similar_candidates[0] if similar_candidates else None,
         )
-        incoming_decision = payload.get("decision")
-        action = self._normalize_asset_decision(incoming_decision) if incoming_decision else evolution_suggestion["action"]
+        action = evolution_suggestion["action"]
         decision = self._legacy_asset_decision(action)
-        target_asset_id = payload.get("target_asset_id") or evolution_suggestion.get("target_id")
+        target_asset_id = (
+            evolution_suggestion.get("target_id")
+            if action in {"attach_evidence", "inherit_variant", "merge_existing"}
+            else None
+        )
         payload = {
             **payload,
             "reuse_score": reuse_score,
@@ -1617,6 +1620,7 @@ class AetherStore:
             "evolution_action": action,
             "evolution_suggestion": evolution_suggestion,
             "similar_candidates": similar_candidates,
+            "target_asset_id": target_asset_id,
         }
         record = {
             "id": candidate_id,
@@ -1629,7 +1633,7 @@ class AetherStore:
             "decision": decision,
             "similar_candidates": similar_candidates,
             "status": payload.get("status", "pending"),
-            "target_asset_id": target_asset_id if action in {"attach_evidence", "inherit_variant", "merge_existing"} else payload.get("target_asset_id"),
+            "target_asset_id": target_asset_id,
             "confirmed_asset_id": payload.get("confirmed_asset_id"),
             "created_at": payload.get("created_at", timestamp),
             "updated_at": timestamp,
@@ -1897,13 +1901,19 @@ class AetherStore:
             if candidate["status"] != "pending":
                 asset_results.append(candidate)
                 continue
-            decision = candidate.get("decision") or "new_asset"
-            target_asset_id = candidate.get("target_asset_id")
-            if decision in {"existing_asset", "asset_variant"} and not target_asset_id:
+            payload = candidate.get("payload", {})
+            suggestion = payload.get("evolution_suggestion", {})
+            action = (
+                payload.get("evolution_action")
+                or suggestion.get("action")
+                or self._normalize_asset_decision(candidate.get("decision") or "new_asset")
+            )
+            target_asset_id = candidate.get("target_asset_id") or suggestion.get("target_id")
+            if action in {"attach_evidence", "inherit_variant", "merge_existing"} and not target_asset_id:
                 similar = candidate.get("similar_candidates", [])
                 if similar:
                     target_asset_id = similar[0].get("asset_id")
-            asset_results.append(self.decide_visual_asset_candidate(candidate["id"], decision, target_asset_id))
+            asset_results.append(self.decide_visual_asset_candidate(candidate["id"], action, target_asset_id))
 
         system_results = []
         for candidate in self.list_visual_system_candidates(batch_id=batch_id, status="pending", limit=None):

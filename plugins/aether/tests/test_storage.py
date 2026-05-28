@@ -968,6 +968,55 @@ class StorageTests(unittest.TestCase):
             self.assertNotEqual(recipe_candidate["payload"]["related_existing_recipes"][0]["recipe_id"], "stale_recipe")
             self.assertEqual(recipe_candidate["payload"]["related_existing_recipes"][0]["semantic_score"], 1.0)
 
+    def test_asset_candidate_recall_decision_is_storage_owned(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = AetherStore(Path(temp_dir) / "aether.sqlite")
+            store.init()
+
+            existing = store.create_visual_asset(
+                {
+                    "type": "style",
+                    "name": "Painterly Anime Garden",
+                    "summary": "bright anime key art with painterly foliage",
+                    "tags": ["anime", "garden"],
+                    "status": "active",
+                }
+            )
+            candidate = store.create_visual_asset_candidate(
+                {
+                    "id": "candidate_style",
+                    "batch_id": "batch_storage_owned",
+                    "type": "style",
+                    "name": "Painterly Anime Festival Variant",
+                    "summary": "bright anime key art with painterly foliage and festival lanterns",
+                    "tags": ["anime", "garden", "festival"],
+                    "decision": "new_asset",
+                    "reuse_score": 0,
+                    "target_asset_id": "stale_asset",
+                    "status": "pending",
+                }
+            )
+
+            self.assertEqual(candidate["payload"]["evolution_action"], "inherit_variant")
+            self.assertEqual(candidate["payload"]["evolution_suggestion"]["action"], "inherit_variant")
+            self.assertEqual(candidate["decision"], "asset_variant")
+            self.assertEqual(candidate["target_asset_id"], existing["id"])
+            self.assertEqual(candidate["payload"]["target_asset_id"], existing["id"])
+            self.assertGreater(candidate["reuse_score"], 0)
+
+            with store.connect() as conn:
+                conn.execute(
+                    "update visual_asset_candidates set decision = 'new_asset', target_asset_id = null where id = ?",
+                    (candidate["id"],),
+                )
+
+            confirmed = store.confirm_visual_asset_candidate_batch("batch_storage_owned")
+            confirmed_candidate = confirmed["candidate_assets"][0]
+            variant_asset = store.get_visual_asset(confirmed_candidate["confirmed_asset_id"])
+            self.assertEqual(confirmed_candidate["decision"], "asset_variant")
+            self.assertEqual(confirmed_candidate["target_asset_id"], existing["id"])
+            self.assertEqual(variant_asset["parent_asset_id"], existing["id"])
+
     def test_evolvable_actions_record_evidence_revisions_and_lineage(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             store = AetherStore(Path(temp_dir) / "aether.sqlite")

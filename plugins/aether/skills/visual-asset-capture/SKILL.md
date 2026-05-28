@@ -163,7 +163,7 @@ Visual system candidates should include:
 
 Use the same strict relation `role` enum for `candidate_asset_relations` and `existing_asset_relations`: `core`, `optional`, `reference_only`, or `avoid`.
 
-Do not include `related_existing_*` fields in candidate payloads. Existing library recall is owned by Aether storage and will be recomputed with hybrid/embedding recall when the candidate is saved.
+Do not include `related_existing_*`, `decision`, `reuse_score`, or `target_asset_id` fields in candidate payloads. Existing library recall and dedupe decisions are owned by Aether storage and will be recomputed with hybrid/embedding recall when the candidate is saved.
 
 Store stable visual-system constraints directly in `visual_rules` as key/value rule objects:
 
@@ -213,7 +213,7 @@ Use `visual_rules` for positive stable constraints only. Put negative boundaries
 aether validate visual-asset-candidate --json <candidate-batch.json>
 ```
 
-Do not prefill recall or dedupe decisions such as `related_existing_*`, `metadata.target_system_id`, or `metadata.target_recipe_id`. Storage recomputes hybrid/embedding recall and writes the final `evolution_action` suggestion when the candidate is saved.
+Do not prefill recall or dedupe decisions such as `related_existing_*`, asset `decision`/`reuse_score`/`target_asset_id`, `metadata.target_system_id`, or `metadata.target_recipe_id`. Storage recomputes hybrid/embedding recall and writes the final `evolution_action` suggestion when the candidate is saved.
 
 8. Persist the candidate batch before asking the user to decide. The storage layer will attach hybrid similarity suggestions against active assets of the same type, store recipe candidates, add related recipe/system recall metadata, and can auto-suggest visual system candidates when no explicit `visual_system_candidates` are provided. Candidate summaries expose `evolution_action` values: `create_new`, `attach_evidence`, `inherit_variant`, or `merge_existing`.
 
