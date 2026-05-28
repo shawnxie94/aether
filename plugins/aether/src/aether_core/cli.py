@@ -141,18 +141,21 @@ def cmd_recall(args: argparse.Namespace) -> None:
 
 def visual_asset_candidate_summary(candidate: dict[str, Any]) -> dict[str, Any]:
     payload = candidate.get("payload", {})
+    suggestion = payload.get("evolution_suggestion", {})
+    action = payload.get("evolution_action") or suggestion.get("action")
+    target_id = suggestion.get("target_id")
+    if not target_id and action in {"attach_evidence", "inherit_variant", "merge_existing"}:
+        target_id = candidate.get("target_asset_id")
     return {
         "id": candidate["id"],
         "batch_id": candidate["batch_id"],
         "type": candidate["type"],
         "name": candidate["name"],
-        "reuse_score": candidate["reuse_score"],
-        "decision": candidate["decision"],
-        "evolution_action": payload.get("evolution_action"),
-        "target_id": payload.get("evolution_suggestion", {}).get("target_id") or candidate.get("target_asset_id"),
+        "dedupe_score": candidate["reuse_score"],
+        "evolution_action": action,
+        "target_id": target_id,
         "similar_candidate_count": len(candidate.get("similar_candidates", [])),
         "status": candidate["status"],
-        "target_asset_id": candidate.get("target_asset_id"),
         "confirmed_asset_id": candidate.get("confirmed_asset_id"),
         "updated_at": candidate["updated_at"],
     }
@@ -302,10 +305,10 @@ def cmd_visual_asset_candidate_get(args: argparse.Namespace) -> None:
 
 def cmd_visual_asset_candidate_decide(args: argparse.Namespace) -> None:
     _, store = _store()
-    candidate = store.decide_visual_asset_candidate(args.candidate_id, args.decision, args.target_asset_id)
+    candidate = store.decide_visual_asset_candidate(args.candidate_id, args.action, args.target_asset_id)
     if getattr(args, "cleanup", False):
-        if args.decision != "ignore":
-            raise SystemExit("--cleanup is only supported when decision is ignore")
+        if args.action != "ignore":
+            raise SystemExit("--cleanup is only supported when action is ignore")
         dump_json({"ignored": candidate, "deleted": store.delete_visual_asset_candidate(args.candidate_id)})
         return
     dump_json(candidate)
@@ -817,15 +820,12 @@ def build_parser() -> argparse.ArgumentParser:
     visual_asset_candidate_decide = visual_asset_candidates_sub.add_parser("decide")
     visual_asset_candidate_decide.add_argument("candidate_id")
     visual_asset_candidate_decide.add_argument(
-        "decision",
+        "action",
         choices=[
             "attach_evidence",
             "create_new",
             "inherit_variant",
             "merge_existing",
-            "existing_asset",
-            "asset_variant",
-            "new_asset",
             "ignore",
         ],
     )
