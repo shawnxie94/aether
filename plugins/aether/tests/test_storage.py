@@ -557,6 +557,7 @@ class StorageTests(unittest.TestCase):
             self.assertEqual(confirmed["status"], "confirmed")
             visual_system = confirmed["visual_system"]
             self.assertEqual(visual_system["kind"], "worldview")
+            self.assertEqual(visual_system["status"], "active")
             relation_asset_ids = {relation["asset_id"] for relation in visual_system["assets"]}
             self.assertIn(existing["id"], relation_asset_ids)
             self.assertEqual(len(relation_asset_ids), 4)
@@ -617,6 +618,7 @@ class StorageTests(unittest.TestCase):
             self.assertIn(system_id, recipe["parent_system_ids"])
             self.assertEqual(len(recipe["assets"]), 3)
             self.assertEqual(store.get_visual_system(system_id)["kind"], "worldview")
+            self.assertEqual(store.get_visual_system(system_id)["status"], "active")
 
     def test_generation_reuse_suggestions_create_recipe_and_system_candidates(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1070,7 +1072,7 @@ class StorageTests(unittest.TestCase):
             child_candidate = store.create_visual_system_candidate(
                 {
                     "kind": "art_direction",
-                    "name": "Festival Painterly Direction",
+                    "name": "Painterly Direction",
                     "summary": "painterly anime festival branch",
                     "visual_rules": [{"key": "subject_aesthetic", "value": ["festival branch"]}],
                     "status": "pending",
@@ -1082,7 +1084,11 @@ class StorageTests(unittest.TestCase):
                 action="inherit_variant",
             )
             child = store.get_visual_system(child_confirmed["confirmed_system_id"])
+            parent = store.get_visual_system(system["id"])
+            self.assertNotEqual(child["id"], system["id"])
             self.assertEqual(child["parent_system_id"], system["id"])
+            self.assertEqual(child["status"], "active")
+            self.assertEqual(parent["summary"], "painterly anime art direction")
 
             recipe = store.create_recipe(
                 {
@@ -1107,6 +1113,78 @@ class StorageTests(unittest.TestCase):
             )
             child_recipe = store.get_recipe(recipe_confirmed["confirmed_recipe_id"])
             self.assertEqual(child_recipe["parent_recipe_id"], recipe["id"])
+
+    def test_create_new_and_variants_use_unique_ids_without_overwriting_existing_records(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = AetherStore(Path(temp_dir) / "aether.sqlite")
+            store.init()
+
+            parent_asset = store.create_visual_asset(
+                {"type": "style", "name": "Painterly Direction", "summary": "parent asset", "status": "active"}
+            )
+            child_asset = store.branch_visual_asset(
+                parent_asset["id"],
+                {"type": "style", "name": "Painterly Direction", "summary": "child asset"},
+            )
+            self.assertNotEqual(child_asset["id"], parent_asset["id"])
+            self.assertEqual(store.get_visual_asset(parent_asset["id"])["summary"], "parent asset")
+            self.assertEqual(store.get_visual_asset(child_asset["id"])["parent_asset_id"], parent_asset["id"])
+
+            parent_system = store.create_visual_system(
+                {
+                    "kind": "art_direction",
+                    "name": "Painterly Direction",
+                    "summary": "parent system",
+                    "visual_rules": [{"key": "medium", "value": ["painterly anime"]}],
+                    "status": "active",
+                }
+            )
+            child_candidate = store.create_visual_system_candidate(
+                {
+                    "kind": "art_direction",
+                    "name": "Painterly Direction",
+                    "summary": "child system",
+                    "visual_rules": [{"key": "subject_aesthetic", "value": ["festival fortune"]}],
+                    "metadata": {
+                        "recommendation": "inherit_variant",
+                        "evolution_action": "inherit_variant",
+                        "target_system_id": parent_system["id"],
+                    },
+                    "status": "pending",
+                }
+            )
+            child_system_confirmed = store.confirm_visual_system_candidate(
+                child_candidate["id"],
+                target_system_id=parent_system["id"],
+                action="inherit_variant",
+            )
+            child_system = store.get_visual_system(child_system_confirmed["confirmed_system_id"])
+            self.assertNotEqual(child_system["id"], parent_system["id"])
+            self.assertEqual(child_system["parent_system_id"], parent_system["id"])
+            self.assertEqual(store.get_visual_system(parent_system["id"])["summary"], "parent system")
+
+            parent_recipe = store.create_recipe({"name": "Painterly Direction", "summary": "parent recipe", "status": "active"})
+            child_recipe_candidate = store.create_recipe_candidate(
+                {
+                    "name": "Painterly Direction",
+                    "summary": "child recipe",
+                    "metadata": {
+                        "recommendation": "inherit_variant",
+                        "evolution_action": "inherit_variant",
+                        "target_recipe_id": parent_recipe["id"],
+                    },
+                    "status": "pending",
+                }
+            )
+            child_recipe_confirmed = store.confirm_recipe_candidate(
+                child_recipe_candidate["id"],
+                target_recipe_id=parent_recipe["id"],
+                action="inherit_variant",
+            )
+            child_recipe = store.get_recipe(child_recipe_confirmed["confirmed_recipe_id"])
+            self.assertNotEqual(child_recipe["id"], parent_recipe["id"])
+            self.assertEqual(child_recipe["parent_recipe_id"], parent_recipe["id"])
+            self.assertEqual(store.get_recipe(parent_recipe["id"])["summary"], "parent recipe")
 
     def test_merge_preview_abstracts_and_marks_duplicates(self):
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -2,6 +2,8 @@ import unittest
 
 from aether_core.validation import (
     ValidationError,
+    validate_recipe_candidate,
+    validate_visual_system_candidate,
     validate_generation_run,
     validate_prompt_record,
     validate_visual_asset,
@@ -25,6 +27,65 @@ class ValidationTests(unittest.TestCase):
     def test_visual_asset_candidate_batch_validates_items(self):
         with self.assertRaises(ValidationError):
             validate_visual_asset_candidate({"candidate_assets": [{"type": "unknown", "name": "x"}]})
+
+    def test_database_semantic_fields_must_be_english(self):
+        with self.assertRaisesRegex(ValidationError, "must use English"):
+            validate_visual_asset(
+                {
+                    "type": "style",
+                    "name": "东方幻想厚涂风",
+                }
+            )
+        with self.assertRaisesRegex(ValidationError, "must use English"):
+            validate_visual_asset_candidate(
+                {
+                    "type": "color_palette",
+                    "name": "Warm Fantasy Palette",
+                    "prompt_fragments": ["金色树冠"],
+                }
+            )
+        with self.assertRaisesRegex(ValidationError, "must use English"):
+            validate_recipe_candidate(
+                {
+                    "name": "Forest Key Art",
+                    "composition_rules": [
+                        {
+                            "key": "asset_roles",
+                            "value": ["使用绿色灵光"],
+                        }
+                    ],
+                }
+            )
+        with self.assertRaisesRegex(ValidationError, "must use English"):
+            validate_visual_system_candidate(
+                {
+                    "kind": "art_direction",
+                    "name": "Bioluminescent Canopy Direction",
+                    "visual_rules": [
+                        {
+                            "key": "subject_aesthetic",
+                            "value": ["巨型有机天穹"],
+                        }
+                    ],
+                }
+            )
+
+    def test_source_reference_text_may_preserve_original_language(self):
+        validate_visual_asset_candidate(
+            {
+                "type": "style",
+                "name": "Painterly Fantasy Canopy",
+                "summary": "Loose painterly fantasy canopy style.",
+                "source_references": [
+                    {
+                        "asset_id": "asset_reference",
+                        "image_path": "/tmp/reference.png",
+                        "user_note": "用户上传的参考图",
+                        "source_prompt": "东方幻想森林",
+                    }
+                ],
+            }
+        )
 
     def test_prompt_generation_params_must_be_object(self):
         with self.assertRaises(ValidationError):

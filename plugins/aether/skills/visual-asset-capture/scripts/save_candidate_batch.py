@@ -28,6 +28,16 @@ def asset_summary(candidate: dict) -> dict:
     target_id = suggestion.get("target_id")
     if not target_id and action in {"attach_evidence", "inherit_variant", "merge_existing"}:
         target_id = candidate.get("target_asset_id")
+    target_name = None
+    if target_id:
+        target_name = next(
+            (
+                item.get("name")
+                for item in candidate.get("similar_candidates", [])
+                if item.get("asset_id") == target_id
+            ),
+            None,
+        )
     return {
         "id": candidate["id"],
         "batch_id": candidate["batch_id"],
@@ -36,6 +46,7 @@ def asset_summary(candidate: dict) -> dict:
         "status": candidate["status"],
         "evolution_action": action,
         "target_id": target_id,
+        "target_name": target_name,
         "dedupe_score": candidate["reuse_score"],
         "similar_candidate_count": len(candidate.get("similar_candidates", [])),
     }
@@ -44,6 +55,22 @@ def asset_summary(candidate: dict) -> dict:
 def payload_candidate_summary(candidate: dict) -> dict:
     payload = candidate.get("payload", {})
     metadata = payload.get("metadata", {})
+    target_id = metadata.get("target_system_id") or metadata.get("target_recipe_id")
+    target_name = None
+    for field, id_key in (
+        ("related_existing_systems", "system_id"),
+        ("related_existing_recipes", "recipe_id"),
+    ):
+        target_name = next(
+            (
+                item.get("name")
+                for item in payload.get(field, [])
+                if item.get(id_key) == target_id
+            ),
+            None,
+        )
+        if target_name:
+            break
     return {
         "id": candidate["id"],
         "batch_id": candidate["batch_id"],
@@ -51,7 +78,8 @@ def payload_candidate_summary(candidate: dict) -> dict:
         "status": candidate["status"],
         "recommendation": metadata.get("recommendation"),
         "evolution_action": metadata.get("evolution_action"),
-        "target_id": metadata.get("target_system_id") or metadata.get("target_recipe_id"),
+        "target_id": target_id,
+        "target_name": target_name,
         "dedupe_score": metadata.get("dedupe_score"),
         "updated_at": candidate["updated_at"],
     }

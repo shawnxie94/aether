@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
 
@@ -188,6 +189,29 @@ RELATION_ROLES = {
     "reference_only",
 }
 
+CJK_RE = re.compile(r"[\u3400-\u9fff]")
+
+
+def _validate_english_database_text(value: Any, field_path: str) -> None:
+    if isinstance(value, str):
+        if CJK_RE.search(value):
+            raise ValidationError(
+                f"Field {field_path} must use English for database-facing semantic text; "
+                "preserve non-English source text only in source/reference evidence fields"
+            )
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            _validate_english_database_text(item, f"{field_path}[{index}]")
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            _validate_english_database_text(item, f"{field_path}.{key}")
+
+
+def _validate_english_database_fields(payload: dict[str, Any], fields: list[str]) -> None:
+    for field in fields:
+        if field in payload:
+            _validate_english_database_text(payload[field], field)
+
 
 def _require(payload: dict[str, Any], field: str, expected_type: type | tuple[type, ...]) -> None:
     if field not in payload:
@@ -199,6 +223,19 @@ def _require(payload: dict[str, Any], field: str, expected_type: type | tuple[ty
 def validate_visual_asset(payload: dict[str, Any]) -> None:
     _require(payload, "type", str)
     _require(payload, "name", str)
+    _validate_english_database_fields(
+        payload,
+        [
+            "name",
+            "summary",
+            "tags",
+            "profile",
+            "prompt_fragments",
+            "negative_fragments",
+            "compatible_with",
+            "avoid_with",
+        ],
+    )
     if payload["type"] not in VISUAL_ASSET_TYPES:
         raise ValidationError(f"Field type must be one of: {', '.join(sorted(VISUAL_ASSET_TYPES))}")
     if "tags" in payload and not isinstance(payload["tags"], list):
@@ -243,6 +280,19 @@ def validate_visual_asset_candidate(payload: dict[str, Any]) -> None:
         return
     _require(payload, "type", str)
     _require(payload, "name", str)
+    _validate_english_database_fields(
+        payload,
+        [
+            "name",
+            "summary",
+            "tags",
+            "profile",
+            "prompt_fragments",
+            "negative_fragments",
+            "compatible_with",
+            "avoid_with",
+        ],
+    )
     if payload["type"] not in VISUAL_ASSET_TYPES:
         raise ValidationError(f"Field type must be one of: {', '.join(sorted(VISUAL_ASSET_TYPES))}")
     if "reuse_score" in payload and not isinstance(payload["reuse_score"], (int, float)):
@@ -272,6 +322,10 @@ def validate_visual_asset_candidate(payload: dict[str, Any]) -> None:
 def validate_visual_system(payload: dict[str, Any]) -> None:
     _require(payload, "kind", str)
     _require(payload, "name", str)
+    _validate_english_database_fields(
+        payload,
+        ["name", "summary", "tags", "visual_rules", "avoid_rules", "metadata"],
+    )
     if payload["kind"] not in VISUAL_SYSTEM_KINDS:
         raise ValidationError(f"Field kind must be one of: {', '.join(sorted(VISUAL_SYSTEM_KINDS))}")
     for field in ["tags", "visual_rules", "avoid_rules", "source_reference_ids"]:
@@ -321,6 +375,7 @@ def validate_key_value_rule(rule: Any, allowed_keys: set[str], field_name: str) 
 
 def validate_asset_relation(payload: dict[str, Any]) -> None:
     _require(payload, "asset_id", str)
+    _validate_english_database_fields(payload, ["reason"])
     if "role" in payload and payload["role"] not in RELATION_ROLES:
         raise ValidationError(f"Field role must be one of: {', '.join(sorted(RELATION_ROLES))}")
     if "weight" in payload and not isinstance(payload["weight"], (int, float)):
@@ -329,6 +384,10 @@ def validate_asset_relation(payload: dict[str, Any]) -> None:
 
 def validate_recipe(payload: dict[str, Any]) -> None:
     _require(payload, "name", str)
+    _validate_english_database_fields(
+        payload,
+        ["name", "summary", "use_cases", "composition_rules", "metadata"],
+    )
     for field in [
         "parent_system_ids",
         "use_cases",

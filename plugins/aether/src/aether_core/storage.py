@@ -342,7 +342,10 @@ class AetherStore:
     def create_visual_asset(self, payload: dict[str, Any]) -> dict[str, Any]:
         validate_visual_asset(payload)
         timestamp = now_iso()
-        asset_id = payload.get("id") or slugify(f"{payload['type']}-{payload['name']}", "visual_asset")
+        asset_id = payload.get("id") or self._unique_slug_id(
+            "visual_assets",
+            slugify(f"{payload['type']}-{payload['name']}", "visual_asset"),
+        )
         record = {
             "id": asset_id,
             "type": payload["type"],
@@ -1028,11 +1031,11 @@ class AetherStore:
         similarity = scores.get("hybrid_similarity", 0.0)
         novelty = scores.get("novelty_score", 0.0)
         labels = {
-            "create_new": "新增",
-            "attach_evidence": "归属",
-            "inherit_variant": "继承",
-            "merge_existing": "合并",
-            "needs_review": "待判断",
+            "create_new": "Create new",
+            "attach_evidence": "Attach evidence",
+            "inherit_variant": "Inherit variant",
+            "merge_existing": "Merge existing",
+            "needs_review": "Needs review",
         }
         return f"{labels.get(action, action)} suggested for {entity_type}; similarity={similarity}, novelty={novelty}."
 
@@ -2094,7 +2097,10 @@ class AetherStore:
         if payload.get("parent_system_id") and not self.get_visual_system(payload["parent_system_id"], include_assets=False):
             raise KeyError(f"Parent visual system not found: {payload['parent_system_id']}")
         timestamp = now_iso()
-        system_id = payload.get("id") or slugify(f"{payload['kind']}-{payload['name']}", "visual_system")
+        system_id = payload.get("id") or self._unique_slug_id(
+            "visual_systems",
+            slugify(f"{payload['kind']}-{payload['name']}", "visual_system"),
+        )
         record = {
             "id": system_id,
             "kind": payload["kind"],
@@ -2676,6 +2682,7 @@ class AetherStore:
                 "batch_id",
             }
         }
+        system_payload["status"] = "active"
         system_payload["metadata"] = metadata
         system_payload["assets"] = assets
         system = self.create_visual_system(system_payload)
@@ -2800,7 +2807,7 @@ class AetherStore:
         return created
 
     def _unique_slug_id(self, table: str, base_id: str) -> str:
-        if table not in {"recipes"}:
+        if table not in {"recipes", "visual_assets", "visual_systems"}:
             raise ValueError(f"Unsupported table for unique slug id: {table}")
         candidate = base_id
         suffix = 2

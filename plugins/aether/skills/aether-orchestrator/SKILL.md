@@ -39,6 +39,14 @@ Choose one primary route for single-stage tasks. Use a multi-step route when the
 9. For each selected route, follow that route's `SKILL.md` workflow and use its bundled scripts when saving records.
 10. If the request is missing required information, ask one concise question instead of guessing.
 
+## Language Policy
+
+- User-facing explanations should follow the user's language in the current conversation.
+- Persisted Aether semantic records should use English for database-facing fields: visual asset, recipe, visual system, and candidate `name`, `summary`, `tags`, `profile`, `prompt_fragments`, `negative_fragments`, `compatible_with`, `avoid_with`, `use_cases`, rules, reasons, and metadata notes.
+- Preserve user-provided source prompts, quoted text, proper nouns, file names, and `source_references.user_note` in their original language when they are evidence rather than reusable semantic labels.
+- When presenting database objects to the user, show the stored English readable name as `id（name）`, and write surrounding analysis or recommendations in the user's language.
+- Do not create new Chinese database object names merely because the user is speaking Chinese; translate the reusable visual concept into concise English before saving candidates or long-term records.
+
 ## Route Handoff
 
 - For visual memory browsing, read and follow `../visual-memory/SKILL.md`.

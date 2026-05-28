@@ -21,6 +21,12 @@ Use only these visual asset types:
 
 Do not force all types. Extract only reusable modules that would help future prompt composition.
 
+## Language
+
+Use English for all database-facing semantic fields in candidate payloads: `name`, `summary`, `tags`, `profile`, `prompt_fragments`, `negative_fragments`, `compatible_with`, `avoid_with`, recipe `use_cases`, `composition_rules.value`, `composition_rules.reason`, visual system `visual_rules`, `avoid_rules`, relation `reason`, and metadata notes.
+
+Preserve user-provided source prompts, quoted text, proper nouns, file names, and `source_references.user_note` in their original language when they are evidence rather than reusable labels. User-facing explanations may be in the user's language, but saved visual memory labels and reusable prompt material should be English.
+
 ## Candidate Asset Fields
 
 Candidate assets should include:

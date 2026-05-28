@@ -14,6 +14,13 @@ Load:
 - `references/style-taxonomy.md` when deciding whether an observed trait is reusable visual language or one-off content.
 - `references/asset-schema-cheatsheet.md` when drafting candidate assets, recipe candidates, or visual system candidates.
 
+Language policy:
+
+- Reply to the user in the user's language.
+- Save database-facing semantic fields in English, including candidate names, summaries, tags, profile values, prompt fragments, negative fragments, recipe/system rules, relation reasons, and metadata notes.
+- Preserve source prompts, quoted text, proper nouns, file names, and source-reference user notes in their original language when they are evidence.
+- In user-facing recommendation tables, hide persisted IDs by default and show localized readable object names. Database-facing names and IDs remain English/internal; only mention IDs when the user asks for low-level details or when a command needs an exact ID.
+
 ## Workflow
 
 1. Resolve config:
@@ -64,11 +71,13 @@ Use direct CLI commands only when debugging:
 ```bash
 aether validate visual-asset-candidate --json <candidate-batch.json>
 aether visual-asset candidates create --json <candidate-batch.json>
-aether visual-asset candidates list --status pending --summary
+aether visual-asset candidates list --batch-id <batch-id> --summary
 aether visual-asset candidates get <candidate-id>
 aether recipe candidates list --batch-id <batch-id>
 aether visual-system candidates list --batch-id <batch-id>
 ```
+
+When presenting recommendations for the current sedimentation run, only use candidates from that run's `batch_id`. Do not use global `--status pending` candidate queues, because they can include older `generation_*` reuse suggestions or unrelated unfinished batches.
 
 5. Inspect recall when a recommendation is unclear:
 
@@ -87,6 +96,28 @@ aether visual-asset list --query "<keyword>" --summary
 - inherit as a variant of an existing visual asset
 - merge existing visual assets after preview
 - ignore as one-off content
+
+When presenting sedimentation recommendations to the user, always use this fixed Markdown table format, grouped by candidate type. Omit an entire section only when there are no candidates of that type.
+
+**Asset Candidates**
+
+| 候选名称 | 召回相关 | 处理建议 |
+| --- | --- | --- |
+| `<localized_candidate_name>` | `<localized_target_name>`, action: `<evolution_action>`, score: `<dedupe_score>` | `<create_new / attach_evidence / inherit_variant / merge_existing / ignore>` plus a short reason |
+
+**Recipe Candidates**
+
+| 候选名称 | 召回相关 | 处理建议 |
+| --- | --- | --- |
+| `<localized_candidate_name>` | `<localized_target_recipe_name>`, action: `<evolution_action>`, score: `<dedupe_score>` | `<create_new / attach_evidence / inherit_variant / merge_existing / ignore>` plus a short reason |
+
+**System Candidates**
+
+| 候选名称 | 召回相关 | 处理建议 |
+| --- | --- | --- |
+| `<localized_candidate_name>` | `<localized_target_system_name>`, action: `<evolution_action>`, score: `<dedupe_score>` | `<create_new / attach_evidence / inherit_variant / merge_existing / ignore>` plus a short reason |
+
+For every referenced existing asset, recipe, or system, show the localized readable name and hide the internal ID unless explicitly needed. If there is no recalled target, write `无明确召回目标`. Keep manual overrides visible when your recommendation differs from the storage layer's `evolution_action`.
 
 For whole-batch confirmation:
 

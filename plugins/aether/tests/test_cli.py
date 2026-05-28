@@ -2,7 +2,7 @@ import contextlib
 import io
 import unittest
 
-from aether_core.cli import build_parser, visual_asset_candidate_summary
+from aether_core.cli import build_parser, candidate_payload_summary, visual_asset_candidate_summary
 
 
 class CliTests(unittest.TestCase):
@@ -16,7 +16,7 @@ class CliTests(unittest.TestCase):
                 "reuse_score": 0.74,
                 "decision": "inherit_variant",
                 "target_asset_id": "legacy_target",
-                "similar_candidates": [{"asset_id": "target_asset"}],
+                "similar_candidates": [{"asset_id": "target_asset", "name": "Target Painterly Style"}],
                 "status": "pending",
                 "confirmed_asset_id": None,
                 "updated_at": "2026-05-28T00:00:00+00:00",
@@ -30,6 +30,7 @@ class CliTests(unittest.TestCase):
         self.assertEqual(summary["dedupe_score"], 0.74)
         self.assertEqual(summary["evolution_action"], "inherit_variant")
         self.assertEqual(summary["target_id"], "target_asset")
+        self.assertEqual(summary["target_name"], "Target Painterly Style")
         self.assertNotIn("decision", summary)
         self.assertNotIn("reuse_score", summary)
         self.assertNotIn("target_asset_id", summary)
@@ -54,6 +55,32 @@ class CliTests(unittest.TestCase):
             }
         )
         self.assertIsNone(create_summary["target_id"])
+        self.assertIsNone(create_summary["target_name"])
+
+    def test_payload_candidate_summary_includes_target_name(self):
+        summary = candidate_payload_summary(
+            {
+                "id": "system_candidate",
+                "batch_id": "batch",
+                "status": "pending",
+                "updated_at": "2026-05-28T00:00:00+00:00",
+                "payload": {
+                    "name": "Bioluminescent System",
+                    "metadata": {
+                        "recommendation": "inherit_variant",
+                        "evolution_action": "inherit_variant",
+                        "target_system_id": "system_target",
+                        "dedupe_score": 0.66,
+                    },
+                    "related_existing_systems": [
+                        {"system_id": "system_target", "name": "Oriental Fantasy Nature Sanctuary Art Direction"}
+                    ],
+                },
+            }
+        )
+
+        self.assertEqual(summary["target_id"], "system_target")
+        self.assertEqual(summary["target_name"], "Oriental Fantasy Nature Sanctuary Art Direction")
 
     def test_visual_asset_candidate_decide_rejects_legacy_actions(self):
         parser = build_parser()
