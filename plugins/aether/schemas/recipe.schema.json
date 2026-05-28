@@ -64,6 +64,7 @@
     "confidence": {"type": "number"},
     "source": {"type": "string"},
     "reason": {"type": "string"},
+    "metadata": {"type": "object"},
     "assets": {
       "type": "array",
       "items": {

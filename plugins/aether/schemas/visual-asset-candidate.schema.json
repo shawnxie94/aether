@@ -181,6 +181,8 @@
           "confidence": {"type": "number"},
           "source": {"type": "string"},
           "reason": {"type": "string"},
+          "related_existing_recipes": {"type": "array"},
+          "metadata": {"type": "object"},
           "status": {"type": "string"}
         }
       }
@@ -216,6 +218,7 @@
             "items": {"$ref": "#/definitions/existingAssetRelation"}
           },
           "related_existing_assets": {"type": "array"},
+          "related_existing_systems": {"type": "array"},
           "metadata": {"type": "object"},
           "status": {"type": "string"}
         }

@@ -92,6 +92,53 @@ def cmd_similarity_save(args: argparse.Namespace) -> None:
     dump_json(store.save_similarity_result(payload))
 
 
+def cmd_embedding_status(_: argparse.Namespace) -> None:
+    config, store = _store()
+    dump_json(store.embedding_status(config.data))
+
+
+def cmd_embedding_index(args: argparse.Namespace) -> None:
+    config, store = _store()
+    if args.all and args.entity_type:
+        raise SystemExit("--all cannot be combined with --entity-type")
+    dump_json(store.index_embeddings(config.data, entity_type=None if args.all else args.entity_type, rebuild=False))
+
+
+def cmd_embedding_rebuild(args: argparse.Namespace) -> None:
+    config, store = _store()
+    if args.all and args.entity_type:
+        raise SystemExit("--all cannot be combined with --entity-type")
+    dump_json(store.index_embeddings(config.data, entity_type=None if args.all else args.entity_type, rebuild=True))
+
+
+def cmd_recall(args: argparse.Namespace) -> None:
+    config, store = _store()
+    entity_type = None if args.entity_type == "all" else args.entity_type
+    if entity_type:
+        dump_json(
+            store.hybrid_recall(
+                entity_type,
+                args.query,
+                config=config.data,
+                limit=args.limit,
+                status=args.status,
+            )
+        )
+        return
+    dump_json(
+        {
+            current_type: store.hybrid_recall(
+                current_type,
+                args.query,
+                config=config.data,
+                limit=args.limit,
+                status=args.status,
+            )
+            for current_type in ("visual_asset", "visual_system", "recipe")
+        }
+    )
+
+
 def visual_asset_candidate_summary(candidate: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": candidate["id"],
@@ -200,8 +247,8 @@ def cmd_visual_asset_merge(args: argparse.Namespace) -> None:
 
 
 def cmd_visual_asset_candidates_create(args: argparse.Namespace) -> None:
-    _, store = _store()
-    dump_json(store.create_visual_asset_candidate_batch(read_json_arg(args.json)))
+    config, store = _store()
+    dump_json(store.create_visual_asset_candidate_batch(read_json_arg(args.json), config=config.data))
 
 
 def cmd_visual_asset_candidates_list(args: argparse.Namespace) -> None:
@@ -324,7 +371,13 @@ def cmd_visual_system_candidate_get(args: argparse.Namespace) -> None:
 
 def cmd_visual_system_candidate_confirm(args: argparse.Namespace) -> None:
     _, store = _store()
-    dump_json(store.confirm_visual_system_candidate(args.candidate_id))
+    dump_json(
+        store.confirm_visual_system_candidate(
+            args.candidate_id,
+            target_system_id=args.target_system_id,
+            force_new=args.force_new,
+        )
+    )
 
 
 def cmd_visual_system_candidate_ignore(args: argparse.Namespace) -> None:
@@ -396,7 +449,15 @@ def cmd_recipe_candidate_get(args: argparse.Namespace) -> None:
 
 def cmd_recipe_candidate_confirm(args: argparse.Namespace) -> None:
     _, store = _store()
-    dump_json(store.confirm_recipe_candidate(args.candidate_id, parent_system_ids=args.system_id))
+    dump_json(
+        store.confirm_recipe_candidate(
+            args.candidate_id,
+            parent_system_ids=args.system_id,
+            target_recipe_id=args.target_recipe_id,
+            variant_of_recipe_id=args.variant_of,
+            force_new=args.force_new,
+        )
+    )
 
 
 def cmd_recipe_candidate_ignore(args: argparse.Namespace) -> None:
@@ -464,6 +525,7 @@ def cmd_prompt_compose(args: argparse.Namespace) -> None:
         aspect_ratio=args.aspect_ratio,
         target_generation_skill=target_generation_skill,
         default_generation_params=config.data.get("generation", {}).get("defaultParams", {}),
+        config=config.data,
     )
     if args.save:
         dump_json(store.save_prompt_record(record))
@@ -560,8 +622,8 @@ def cmd_generation_stats(args: argparse.Namespace) -> None:
 
 
 def cmd_generation_suggest(args: argparse.Namespace) -> None:
-    _, store = _store()
-    dump_json(store.suggest_generation_reuse(args.run_id, kind=args.kind, auto=args.auto))
+    config, store = _store()
+    dump_json(store.suggest_generation_reuse(args.run_id, kind=args.kind, auto=args.auto, config=config.data))
 
 
 def cmd_validate(args: argparse.Namespace) -> None:
@@ -601,6 +663,26 @@ def build_parser() -> argparse.ArgumentParser:
     similarity_save = similarity_sub.add_parser("save")
     similarity_save.add_argument("--json", required=True)
     similarity_save.set_defaults(func=cmd_similarity_save)
+
+    embedding = sub.add_parser("embedding")
+    embedding_sub = embedding.add_subparsers(required=True)
+    embedding_status = embedding_sub.add_parser("status")
+    embedding_status.set_defaults(func=cmd_embedding_status)
+    embedding_index = embedding_sub.add_parser("index")
+    embedding_index.add_argument("--entity-type", choices=["visual_asset", "visual_system", "recipe"])
+    embedding_index.add_argument("--all", action="store_true")
+    embedding_index.set_defaults(func=cmd_embedding_index)
+    embedding_rebuild = embedding_sub.add_parser("rebuild")
+    embedding_rebuild.add_argument("--entity-type", choices=["visual_asset", "visual_system", "recipe"])
+    embedding_rebuild.add_argument("--all", action="store_true")
+    embedding_rebuild.set_defaults(func=cmd_embedding_rebuild)
+
+    recall = sub.add_parser("recall")
+    recall.add_argument("entity_type", choices=["visual_asset", "visual_system", "recipe", "all"])
+    recall.add_argument("--query", required=True)
+    recall.add_argument("--status", default="active")
+    recall.add_argument("--limit", type=int, default=5)
+    recall.set_defaults(func=cmd_recall)
 
     visual_asset = sub.add_parser("visual-asset")
     visual_asset_sub = visual_asset.add_subparsers(required=True)
@@ -712,6 +794,8 @@ def build_parser() -> argparse.ArgumentParser:
     visual_system_candidate_get.set_defaults(func=cmd_visual_system_candidate_get)
     visual_system_candidate_confirm = visual_system_candidates_sub.add_parser("confirm")
     visual_system_candidate_confirm.add_argument("candidate_id")
+    visual_system_candidate_confirm.add_argument("--target-system-id")
+    visual_system_candidate_confirm.add_argument("--force-new", action="store_true")
     visual_system_candidate_confirm.set_defaults(func=cmd_visual_system_candidate_confirm)
     visual_system_candidate_ignore = visual_system_candidates_sub.add_parser("ignore")
     visual_system_candidate_ignore.add_argument("candidate_id")
@@ -760,6 +844,9 @@ def build_parser() -> argparse.ArgumentParser:
     recipe_candidate_confirm = recipe_candidates_sub.add_parser("confirm")
     recipe_candidate_confirm.add_argument("candidate_id")
     recipe_candidate_confirm.add_argument("--system-id", action="append")
+    recipe_candidate_confirm.add_argument("--target-recipe-id")
+    recipe_candidate_confirm.add_argument("--variant-of")
+    recipe_candidate_confirm.add_argument("--force-new", action="store_true")
     recipe_candidate_confirm.set_defaults(func=cmd_recipe_candidate_confirm)
     recipe_candidate_ignore = recipe_candidates_sub.add_parser("ignore")
     recipe_candidate_ignore.add_argument("candidate_id")

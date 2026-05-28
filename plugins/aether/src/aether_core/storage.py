@@ -5,9 +5,11 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
+from .embeddings import content_hash, cosine_similarity, provider_from_config
 from .ids import new_id, slugify
 from .jsonio import json_dumps, json_loads
 from .migrations import record_schema_version
+from .recall import canonical_text, lexical_similarity, weighted_score
 from .storage_time import now_iso
 from .validation import (
     validate_generation_run,
@@ -163,6 +165,7 @@ class AetherStore:
                   confidence real not null default 0.5,
                   source text not null default '',
                   reason text not null default '',
+                  metadata_json text not null default '{}',
                   status text not null default 'draft',
                   created_at text not null,
                   updated_at text not null
@@ -208,6 +211,9 @@ class AetherStore:
                   selected_assets_json text not null default '[]',
                   constraints_json text not null default '{}',
                   intent_analysis_json text not null default '{}',
+                  intent_sketch_json text not null default '{}',
+                  recall_candidates_json text not null default '{}',
+                  recall_strategy_json text not null default '{}',
                   composition_plan_json text not null default '{}',
                   refined_prompt text not null,
                   negative_prompt text not null default '',
@@ -241,12 +247,35 @@ class AetherStore:
                   created_at text not null,
                   updated_at text not null
                 );
+
+                create table if not exists embeddings (
+                  id text primary key,
+                  entity_type text not null,
+                  entity_id text not null,
+                  content_hash text not null,
+                  provider text not null,
+                  model text not null,
+                  dimensions integer not null,
+                  vector_json text not null,
+                  created_at text not null,
+                  updated_at text not null,
+                  unique(entity_type, entity_id, provider, model, dimensions)
+                );
+
+                create index if not exists idx_embeddings_entity
+                  on embeddings(entity_type, entity_id);
+
+                create index if not exists idx_embeddings_model
+                  on embeddings(provider, model, dimensions);
                 """
             )
             self._ensure_column(conn, "prompt_records", "generation_params_json", "text not null default '{}'")
             self._ensure_column(conn, "prompt_records", "selected_assets_json", "text not null default '[]'")
             self._ensure_column(conn, "prompt_records", "composition_plan_json", "text not null default '{}'")
             self._ensure_column(conn, "prompt_records", "conflicts_json", "text not null default '[]'")
+            self._ensure_column(conn, "prompt_records", "intent_sketch_json", "text not null default '{}'")
+            self._ensure_column(conn, "prompt_records", "recall_candidates_json", "text not null default '{}'")
+            self._ensure_column(conn, "prompt_records", "recall_strategy_json", "text not null default '{}'")
             self._ensure_column(conn, "generation_runs", "visual_review_json", "text not null default '{}'")
             self._ensure_column(conn, "generation_runs", "selected_assets_json", "text not null default '[]'")
             self._ensure_column(conn, "generation_runs", "mode", "text not null default 'generate'")
@@ -255,6 +284,7 @@ class AetherStore:
             self._ensure_column(conn, "generation_runs", "edit_instruction", "text not null default ''")
             self._ensure_column(conn, "generation_runs", "edit_regions_json", "text not null default '[]'")
             self._ensure_column(conn, "recipes", "composition_rules_json", "text not null default '[]'")
+            self._ensure_column(conn, "recipes", "metadata_json", "text not null default '{}'")
             record_schema_version(conn)
 
     def create_style(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -518,6 +548,433 @@ class AetherStore:
             ]
         return assets[:limit] if limit is not None and limit >= 0 else assets
 
+    def canonical_entity_text(self, entity_type: str, entity: dict[str, Any]) -> str:
+        if entity_type == "visual_asset":
+            return canonical_text(
+                [
+                    entity.get("type"),
+                    entity.get("name"),
+                    entity.get("summary"),
+                    entity.get("tags"),
+                    entity.get("profile"),
+                    entity.get("prompt_fragments"),
+                    entity.get("negative_fragments"),
+                    entity.get("compatible_with"),
+                    entity.get("avoid_with"),
+                ]
+            )
+        if entity_type == "visual_system":
+            related_assets = []
+            for relation in entity.get("assets", []):
+                asset = self.get_visual_asset(relation["asset_id"])
+                if asset:
+                    related_assets.append(
+                        {
+                            "role": relation.get("role"),
+                            "weight": relation.get("weight"),
+                            "reason": relation.get("reason"),
+                            "asset": {
+                                "type": asset.get("type"),
+                                "name": asset.get("name"),
+                                "summary": asset.get("summary"),
+                                "tags": asset.get("tags"),
+                            },
+                        }
+                    )
+            return canonical_text(
+                [
+                    entity.get("kind"),
+                    entity.get("name"),
+                    entity.get("summary"),
+                    entity.get("tags"),
+                    entity.get("visual_rules"),
+                    entity.get("avoid_rules"),
+                    related_assets,
+                ]
+            )
+        if entity_type == "recipe":
+            parent_systems = [
+                self.get_visual_system(system_id, include_assets=False)
+                for system_id in entity.get("parent_system_ids", [])
+            ]
+            related_assets = []
+            for relation in entity.get("assets", []):
+                asset = self.get_visual_asset(relation["asset_id"])
+                if asset:
+                    related_assets.append(
+                        {
+                            "role": relation.get("role"),
+                            "weight": relation.get("weight"),
+                            "reason": relation.get("reason"),
+                            "asset": {
+                                "type": asset.get("type"),
+                                "name": asset.get("name"),
+                                "summary": asset.get("summary"),
+                                "tags": asset.get("tags"),
+                            },
+                        }
+                    )
+            return canonical_text(
+                [
+                    entity.get("name"),
+                    entity.get("summary"),
+                    entity.get("use_cases"),
+                    entity.get("required_asset_types"),
+                    entity.get("composition_rules"),
+                    entity.get("recommended_aspect_ratios"),
+                    [
+                        {
+                            "kind": system.get("kind"),
+                            "name": system.get("name"),
+                            "summary": system.get("summary"),
+                            "tags": system.get("tags"),
+                        }
+                        for system in parent_systems
+                        if system
+                    ],
+                    related_assets,
+                ]
+            )
+        raise ValueError(f"Unsupported canonical entity type: {entity_type}")
+
+    def _entities_for_recall(self, entity_type: str, status: str | None = "active") -> list[dict[str, Any]]:
+        if entity_type == "visual_asset":
+            return self.list_visual_assets(status=status, limit=None)
+        if entity_type == "visual_system":
+            return [
+                self.get_visual_system(system["id"]) or system
+                for system in self.list_visual_systems(status=status, limit=None)
+            ]
+        if entity_type == "recipe":
+            return [
+                self.get_recipe(recipe["id"]) or recipe
+                for recipe in self.list_recipes(status=status, limit=None)
+            ]
+        raise ValueError(f"Unsupported recall entity type: {entity_type}")
+
+    def _entity_id(self, entity_type: str, entity: dict[str, Any]) -> str:
+        if entity_type not in {"visual_asset", "visual_system", "recipe"}:
+            raise ValueError(f"Unsupported entity type: {entity_type}")
+        return entity["id"]
+
+    def _entity_quality_score(self, entity_type: str, entity: dict[str, Any]) -> float:
+        if entity_type == "visual_asset":
+            return float(self.visual_asset_quality(entity["id"])["score"])
+        asset_ids: list[str] = []
+        if entity_type == "visual_system":
+            asset_ids = [relation["asset_id"] for relation in entity.get("assets", [])]
+        elif entity_type == "recipe":
+            asset_ids = [relation["asset_id"] for relation in entity.get("assets", [])]
+        scores = [float(self.visual_asset_quality(asset_id)["score"]) for asset_id in asset_ids]
+        return round(sum(scores) / len(scores), 4) if scores else 0.5
+
+    def _entity_relation_score(
+        self,
+        entity_type: str,
+        entity: dict[str, Any],
+        *,
+        related_asset_ids: list[str] | None = None,
+        parent_system_ids: list[str] | None = None,
+    ) -> float:
+        related = set(related_asset_ids or [])
+        parents = set(parent_system_ids or [])
+        if entity_type == "visual_asset":
+            return 1.0 if entity["id"] in related else 0.0
+        if entity_type == "visual_system":
+            system_asset_ids = {relation["asset_id"] for relation in entity.get("assets", [])}
+            relation = len(system_asset_ids & related) / len(related) if related else 0.0
+            parent = 1.0 if entity["id"] in parents else 0.0
+            return max(relation, parent)
+        if entity_type == "recipe":
+            recipe_asset_ids = {relation["asset_id"] for relation in entity.get("assets", [])}
+            asset_relation = len(recipe_asset_ids & related) / len(related) if related else 0.0
+            parent_relation = 1.0 if parents & set(entity.get("parent_system_ids", [])) else 0.0
+            return max(asset_relation, parent_relation)
+        return 0.0
+
+    def _embedding_row(
+        self,
+        entity_type: str,
+        entity_id: str,
+        provider: str,
+        model: str,
+        dimensions: int,
+    ) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            if dimensions:
+                row = conn.execute(
+                    """
+                    select * from embeddings
+                    where entity_type = ? and entity_id = ? and provider = ? and model = ? and dimensions = ?
+                    """,
+                    (entity_type, entity_id, provider, model, dimensions),
+                ).fetchone()
+            else:
+                row = conn.execute(
+                    """
+                    select * from embeddings
+                    where entity_type = ? and entity_id = ? and provider = ? and model = ?
+                    order by updated_at desc
+                    """,
+                    (entity_type, entity_id, provider, model),
+                ).fetchone()
+        if not row:
+            return None
+        return {
+            "id": row["id"],
+            "entity_type": row["entity_type"],
+            "entity_id": row["entity_id"],
+            "content_hash": row["content_hash"],
+            "provider": row["provider"],
+            "model": row["model"],
+            "dimensions": row["dimensions"],
+            "vector": json_loads(row["vector_json"], []),
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+
+    def upsert_embedding(
+        self,
+        entity_type: str,
+        entity_id: str,
+        text: str,
+        vector: list[float],
+        provider: str,
+        model: str,
+        dimensions: int,
+    ) -> dict[str, Any]:
+        timestamp = now_iso()
+        record = {
+            "id": new_id("embedding"),
+            "entity_type": entity_type,
+            "entity_id": entity_id,
+            "content_hash": content_hash(text),
+            "provider": provider,
+            "model": model,
+            "dimensions": dimensions or len(vector),
+            "vector": vector,
+            "created_at": timestamp,
+            "updated_at": timestamp,
+        }
+        with self.connect() as conn:
+            conn.execute(
+                """
+                insert into embeddings (
+                  id, entity_type, entity_id, content_hash, provider, model, dimensions,
+                  vector_json, created_at, updated_at
+                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                on conflict(entity_type, entity_id, provider, model, dimensions) do update set
+                  content_hash=excluded.content_hash,
+                  vector_json=excluded.vector_json,
+                  updated_at=excluded.updated_at
+                """,
+                (
+                    record["id"],
+                    record["entity_type"],
+                    record["entity_id"],
+                    record["content_hash"],
+                    record["provider"],
+                    record["model"],
+                    record["dimensions"],
+                    json_dumps(record["vector"]),
+                    record["created_at"],
+                    record["updated_at"],
+                ),
+            )
+        return record
+
+    def embedding_status(self, config: dict[str, Any] | None = None) -> dict[str, Any]:
+        try:
+            provider = provider_from_config(config)
+            provider_error = ""
+        except RuntimeError as exc:
+            provider = None
+            provider_error = str(exc)
+        rows_by_entity: dict[str, int] = {}
+        with self.connect() as conn:
+            rows = conn.execute("select entity_type, count(*) as count from embeddings group by entity_type").fetchall()
+        for row in rows:
+            rows_by_entity[row["entity_type"]] = row["count"]
+        entity_counts = {
+            "visual_asset": len(self.list_visual_assets(limit=None)),
+            "visual_system": len(self.list_visual_systems(limit=None)),
+            "recipe": len(self.list_recipes(limit=None)),
+        }
+        index_health: dict[str, dict[str, int]] = {}
+        if provider and provider.provider_name != "disabled":
+            for entity_type in ("visual_asset", "visual_system", "recipe"):
+                current = 0
+                stale = 0
+                missing = 0
+                for entity in self._entities_for_recall(entity_type, status=None):
+                    entity_id = self._entity_id(entity_type, entity)
+                    text = self.canonical_entity_text(entity_type, entity)
+                    existing = self._embedding_row(
+                        entity_type,
+                        entity_id,
+                        provider.provider_name,
+                        provider.model,
+                        provider.dimensions,
+                    )
+                    if not existing:
+                        missing += 1
+                    elif existing["content_hash"] == content_hash(text):
+                        current += 1
+                    else:
+                        stale += 1
+                index_health[entity_type] = {
+                    "current": current,
+                    "stale": stale,
+                    "missing": missing,
+                }
+        return {
+            "provider": getattr(provider, "provider_name", "unavailable") if provider else "unavailable",
+            "model": getattr(provider, "model", "") if provider else "",
+            "dimensions": getattr(provider, "dimensions", 0) if provider else 0,
+            "provider_error": provider_error,
+            "entity_counts": entity_counts,
+            "indexed_counts": rows_by_entity,
+            "index_health": index_health,
+            "needs_rebuild": any(
+                health["stale"] > 0 or health["missing"] > 0
+                for health in index_health.values()
+            ),
+        }
+
+    def index_embeddings(
+        self,
+        config: dict[str, Any] | None = None,
+        entity_type: str | None = None,
+        rebuild: bool = False,
+    ) -> dict[str, Any]:
+        provider = provider_from_config(config)
+        if provider.provider_name == "disabled":
+            return {
+                "indexed": [],
+                "skipped": [{"reason": "embedding provider disabled"}],
+                "provider": provider.provider_name,
+                "model": provider.model,
+                "dimensions": provider.dimensions,
+            }
+        entity_types = [entity_type] if entity_type else ["visual_asset", "visual_system", "recipe"]
+        to_embed: list[tuple[str, str, str]] = []
+        skipped: list[dict[str, Any]] = []
+        for current_type in entity_types:
+            for entity in self._entities_for_recall(current_type, status=None):
+                entity_id = self._entity_id(current_type, entity)
+                text = self.canonical_entity_text(current_type, entity)
+                text_hash = content_hash(text)
+                existing = self._embedding_row(
+                    current_type,
+                    entity_id,
+                    provider.provider_name,
+                    provider.model,
+                    provider.dimensions,
+                )
+                if existing and existing["content_hash"] == text_hash and not rebuild:
+                    skipped.append({"entity_type": current_type, "entity_id": entity_id, "reason": "unchanged"})
+                    continue
+                to_embed.append((current_type, entity_id, text))
+        vectors = provider.embed_texts([item[2] for item in to_embed]) if to_embed else []
+        indexed = [
+            self.upsert_embedding(
+                current_type,
+                entity_id,
+                text,
+                vector,
+                provider.provider_name,
+                provider.model,
+                provider.dimensions or len(vector),
+            )
+            for (current_type, entity_id, text), vector in zip(to_embed, vectors)
+        ]
+        return {
+            "indexed": indexed,
+            "skipped": skipped,
+            "provider": provider.provider_name,
+            "model": provider.model,
+            "dimensions": provider.dimensions,
+        }
+
+    def hybrid_recall(
+        self,
+        entity_type: str,
+        query_text: str,
+        *,
+        config: dict[str, Any] | None = None,
+        limit: int = 5,
+        status: str | None = "active",
+        related_asset_ids: list[str] | None = None,
+        parent_system_ids: list[str] | None = None,
+        min_score: float = 0.0,
+    ) -> list[dict[str, Any]]:
+        provider = None
+        query_vector: list[float] | None = None
+        provider_error = ""
+        try:
+            provider = provider_from_config(config)
+            if provider.provider_name != "disabled" and query_text:
+                query_vector = provider.embed_texts([query_text])[0]
+        except RuntimeError as exc:
+            provider_error = str(exc)
+            provider = None
+
+        results: list[dict[str, Any]] = []
+        for entity in self._entities_for_recall(entity_type, status=status):
+            entity_id = self._entity_id(entity_type, entity)
+            text = self.canonical_entity_text(entity_type, entity)
+            lexical_score, matched_terms = lexical_similarity(query_text, text)
+            semantic_score = 0.0
+            if provider and query_vector is not None:
+                existing = self._embedding_row(
+                    entity_type,
+                    entity_id,
+                    provider.provider_name,
+                    provider.model,
+                    provider.dimensions,
+                )
+                if existing and existing["content_hash"] == content_hash(text):
+                    semantic_score = max(0.0, cosine_similarity(query_vector, existing["vector"]))
+            relation_score = self._entity_relation_score(
+                entity_type,
+                entity,
+                related_asset_ids=related_asset_ids,
+                parent_system_ids=parent_system_ids,
+            )
+            quality_score = self._entity_quality_score(entity_type, entity)
+            score = weighted_score(
+                semantic_score=semantic_score,
+                lexical_score=lexical_score,
+                relation_score=relation_score,
+                quality_score=quality_score,
+            )
+            if score <= min_score and lexical_score <= 0 and semantic_score <= 0 and relation_score <= 0:
+                continue
+            result = {
+                "entity_type": entity_type,
+                "entity_id": entity_id,
+                "name": entity.get("name"),
+                "score": score,
+                "semantic_score": round(semantic_score, 4),
+                "lexical_score": round(lexical_score, 4),
+                "relation_score": round(relation_score, 4),
+                "quality_score": round(quality_score, 4),
+                "matched_terms": matched_terms,
+                "provider_error": provider_error,
+            }
+            if entity_type == "visual_asset":
+                result["asset_id"] = entity_id
+                result["type"] = entity.get("type")
+            elif entity_type == "visual_system":
+                result["system_id"] = entity_id
+                result["kind"] = entity.get("kind")
+            elif entity_type == "recipe":
+                result["recipe_id"] = entity_id
+                result["parent_system_ids"] = entity.get("parent_system_ids", [])
+            results.append(result)
+        results.sort(key=lambda item: item["score"], reverse=True)
+        return results[:limit]
+
     def update_visual_asset_status(
         self,
         asset_id: str,
@@ -557,7 +1014,11 @@ class AetherStore:
         payload.setdefault("status", "draft")
         return self.create_visual_asset(payload)
 
-    def create_visual_asset_candidate_batch(self, payload: dict[str, Any]) -> dict[str, Any]:
+    def create_visual_asset_candidate_batch(
+        self,
+        payload: dict[str, Any],
+        config: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         validate_visual_asset_candidate(payload)
         batch_id = payload.get("batch_id") or new_id("candidate_batch")
         source_references = payload.get("source_references", [])
@@ -567,19 +1028,25 @@ class AetherStore:
                     **candidate,
                     "batch_id": batch_id,
                     "source_references": candidate.get("source_references", source_references),
-                }
+                },
+                config=config,
             )
             for candidate in payload.get("candidate_assets", [])
         ]
         recipes = [
-            self.create_recipe_candidate({**recipe, "batch_id": batch_id})
+            self.create_recipe_candidate({**recipe, "batch_id": batch_id}, config=config)
             for recipe in payload.get("recipe_candidates", [])
         ]
         system_candidate_payloads = payload.get("visual_system_candidates")
         if system_candidate_payloads is None:
-            system_candidate_payloads = self._suggest_visual_system_candidates(batch_id, candidates, recipes)
+            system_candidate_payloads = self._suggest_visual_system_candidates(
+                batch_id,
+                candidates,
+                recipes,
+                config=config,
+            )
         systems = [
-            self.create_visual_system_candidate({**system, "batch_id": batch_id})
+            self.create_visual_system_candidate({**system, "batch_id": batch_id}, config=config)
             for system in system_candidate_payloads
         ]
         return {
@@ -594,12 +1061,13 @@ class AetherStore:
         batch_id: str,
         candidates: list[dict[str, Any]],
         recipes: list[dict[str, Any]],
+        config: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
         if not candidates:
             return []
         payloads = [candidate["payload"] for candidate in candidates]
         asset_types = {payload["type"] for payload in payloads}
-        related_assets = self._related_visual_assets_for_candidate_payloads(payloads)
+        related_assets = self._related_visual_assets_for_candidate_payloads(payloads, config=config)
         has_system_shape = len(payloads) >= 3 and len(asset_types) >= 2
         has_existing_context = len(related_assets) >= 2 and len(payloads) >= 2
         has_recipe_context = bool(recipes) and len(payloads) >= 2
@@ -641,7 +1109,7 @@ class AetherStore:
                 "asset_id": asset["asset_id"],
                 "role": "optional",
                 "weight": min(0.75, max(0.45, asset["similarity_score"] + 0.35)),
-                "reason": "related active asset recalled by cross-asset token overlap",
+                "reason": "related active asset recalled by hybrid asset similarity",
             }
             for asset in related_assets[:6]
         ]
@@ -686,59 +1154,68 @@ class AetherStore:
         self,
         payloads: list[dict[str, Any]],
         limit: int = 8,
+        config: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
-        def token_set(value: Any) -> set[str]:
-            import re
-
-            if isinstance(value, list):
-                value = " ".join(str(item) for item in value)
-            elif isinstance(value, dict):
-                value = " ".join(str(item) for item in value.values())
-            else:
-                value = str(value or "")
-            return {token for token in re.split(r"[^a-zA-Z0-9\u4e00-\u9fff]+", value.lower()) if len(token) >= 2}
-
-        source_tokens: set[str] = set()
-        for payload in payloads:
-            for key in ("name", "summary", "tags", "prompt_fragments", "negative_fragments", "profile", "compatible_with"):
-                source_tokens |= token_set(payload.get(key))
-        if not source_tokens:
+        query_text = canonical_text(
+            [
+                [
+                    payload.get(key)
+                    for key in (
+                        "type",
+                        "name",
+                        "summary",
+                        "tags",
+                        "prompt_fragments",
+                        "negative_fragments",
+                        "profile",
+                        "compatible_with",
+                    )
+                ]
+                for payload in payloads
+            ]
+        )
+        if not query_text:
             return []
-        suggestions: list[dict[str, Any]] = []
-        for asset in self.list_visual_assets(status="active", limit=None):
-            asset_tokens: set[str] = set()
-            for key in ("name", "summary", "tags", "prompt_fragments", "negative_fragments", "profile", "compatible_with"):
-                asset_tokens |= token_set(asset.get(key))
-            if not asset_tokens:
-                continue
-            score = len(source_tokens & asset_tokens) / len(source_tokens | asset_tokens)
-            if score <= 0:
-                continue
-            suggestions.append(
-                {
-                    "asset_id": asset["id"],
-                    "type": asset["type"],
-                    "name": asset["name"],
-                    "similarity_score": round(score, 4),
-                    "matched_terms": sorted(source_tokens & asset_tokens)[:10],
-                }
-            )
-        suggestions.sort(key=lambda item: item["similarity_score"], reverse=True)
-        return suggestions[:limit]
+        return [
+            {
+                "asset_id": item["asset_id"],
+                "type": item["type"],
+                "name": item["name"],
+                "similarity_score": item["score"],
+                "matched_terms": item["matched_terms"],
+                "semantic_score": item["semantic_score"],
+                "lexical_score": item["lexical_score"],
+                "relation_score": item["relation_score"],
+                "quality_score": item["quality_score"],
+            }
+            for item in self.hybrid_recall("visual_asset", query_text, config=config, limit=limit)
+        ]
 
-    def create_visual_asset_candidate(self, payload: dict[str, Any]) -> dict[str, Any]:
+    def create_visual_asset_candidate(
+        self,
+        payload: dict[str, Any],
+        config: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         validate_visual_asset_candidate(payload)
         timestamp = now_iso()
         candidate_id = payload.get("id") or new_id("asset_candidate")
         similar_candidates = payload.get("similar_candidates")
         if similar_candidates is None:
-            similar_candidates = self._suggest_similar_visual_assets(payload)
+            similar_candidates = self._suggest_similar_visual_assets(payload, config=config)
         reuse_score = float(payload.get("reuse_score", similar_candidates[0]["similarity_score"] if similar_candidates else 0))
         decision = payload.get("decision")
         if decision is None:
-            if similar_candidates and similar_candidates[0]["similarity_score"] >= 0.8:
+            top_score = 0.0
+            if similar_candidates:
+                top = similar_candidates[0]
+                top_score = max(
+                    float(top.get("similarity_score", 0.0)),
+                    float(top.get("lexical_score", 0.0)),
+                    float(top.get("semantic_score", 0.0)),
+                )
+            if similar_candidates and top_score >= 0.8:
                 decision = "existing_asset"
-            elif similar_candidates and similar_candidates[0]["similarity_score"] >= 0.45:
+            elif similar_candidates and top_score >= 0.45:
                 decision = "asset_variant"
             else:
                 decision = "new_asset"
@@ -805,42 +1282,42 @@ class AetherStore:
             )
         return record
 
-    def _suggest_similar_visual_assets(self, payload: dict[str, Any], limit: int = 5) -> list[dict[str, Any]]:
-        def token_set(value: Any) -> set[str]:
-            import re
-
-            if isinstance(value, list):
-                value = " ".join(str(item) for item in value)
-            elif isinstance(value, dict):
-                value = " ".join(str(item) for item in value.values())
-            else:
-                value = str(value or "")
-            return {token for token in re.split(r"[^a-zA-Z0-9\u4e00-\u9fff]+", value.lower()) if len(token) >= 2}
-
-        source_tokens = set()
-        for key in ("name", "summary", "tags", "prompt_fragments", "negative_fragments", "profile"):
-            source_tokens |= token_set(payload.get(key))
-
-        suggestions: list[dict[str, Any]] = []
-        for asset in self.list_visual_assets(asset_type=payload["type"], status="active", limit=None):
-            asset_tokens = set()
-            for key in ("name", "summary", "tags", "prompt_fragments", "negative_fragments", "profile"):
-                asset_tokens |= token_set(asset.get(key))
-            if not source_tokens or not asset_tokens:
-                score = 0.0
-            else:
-                score = len(source_tokens & asset_tokens) / len(source_tokens | asset_tokens)
-            if score > 0:
-                suggestions.append(
-                    {
-                        "asset_id": asset["id"],
-                        "name": asset["name"],
-                        "similarity_score": round(score, 4),
-                        "matched_terms": sorted(source_tokens & asset_tokens)[:10],
-                    }
-                )
-        suggestions.sort(key=lambda item: item["similarity_score"], reverse=True)
-        return suggestions[:limit]
+    def _suggest_similar_visual_assets(
+        self,
+        payload: dict[str, Any],
+        limit: int = 5,
+        config: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        query_text = canonical_text(
+            [
+                payload.get("type"),
+                payload.get("name"),
+                payload.get("summary"),
+                payload.get("tags"),
+                payload.get("prompt_fragments"),
+                payload.get("negative_fragments"),
+                payload.get("profile"),
+            ]
+        )
+        suggestions = []
+        for item in self.hybrid_recall("visual_asset", query_text, config=config, limit=50, min_score=0.0):
+            if item.get("type") != payload["type"]:
+                continue
+            suggestions.append(
+                {
+                    "asset_id": item["asset_id"],
+                    "name": item["name"],
+                    "similarity_score": item["score"],
+                    "matched_terms": item["matched_terms"],
+                    "semantic_score": item["semantic_score"],
+                    "lexical_score": item["lexical_score"],
+                    "relation_score": item["relation_score"],
+                    "quality_score": item["quality_score"],
+                }
+            )
+            if len(suggestions) >= limit:
+                break
+        return suggestions
 
     def get_visual_asset_candidate(self, candidate_id: str) -> dict[str, Any] | None:
         with self.connect() as conn:
@@ -1300,7 +1777,12 @@ class AetherStore:
         relations = [self._visual_system_asset_from_row(row) for row in rows]
         return relations[:limit] if limit is not None and limit >= 0 else relations
 
-    def create_visual_system_candidate(self, payload: dict[str, Any]) -> dict[str, Any]:
+    def create_visual_system_candidate(
+        self,
+        payload: dict[str, Any],
+        config: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        payload = self._annotate_visual_system_candidate_recall(dict(payload), config=config)
         validate_visual_system_candidate(payload)
         timestamp = now_iso()
         candidate_id = payload.get("id") or new_id("system_candidate")
@@ -1337,6 +1819,62 @@ class AetherStore:
                 ),
             )
         return record
+
+    def _annotate_visual_system_candidate_recall(
+        self,
+        payload: dict[str, Any],
+        config: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        if payload.get("related_existing_systems"):
+            return payload
+        query_text = canonical_text(
+            [
+                payload.get("kind"),
+                payload.get("name"),
+                payload.get("summary"),
+                payload.get("tags"),
+                payload.get("visual_rules"),
+                payload.get("avoid_rules"),
+                payload.get("related_existing_assets"),
+            ]
+        )
+        related_asset_ids = [
+            relation["asset_id"]
+            for relation in payload.get("existing_asset_relations", [])
+            if isinstance(relation, dict) and relation.get("asset_id")
+        ]
+        systems = self.hybrid_recall(
+            "visual_system",
+            query_text,
+            config=config,
+            limit=5,
+            related_asset_ids=related_asset_ids,
+            min_score=0.0,
+        )
+        related_systems = []
+        for system in systems:
+            dedupe_score = max(
+                float(system.get("score", 0.0)),
+                float(system.get("semantic_score", 0.0)),
+                float(system.get("lexical_score", 0.0)),
+                float(system.get("relation_score", 0.0)),
+            )
+            recommendation = "suggest_create"
+            if dedupe_score >= 0.82:
+                recommendation = "attach_or_extend"
+            elif dedupe_score >= 0.65:
+                recommendation = "possible_duplicate"
+            related_systems.append({**system, "dedupe_score": round(dedupe_score, 4), "recommendation": recommendation})
+        if related_systems:
+            payload["related_existing_systems"] = related_systems
+            top = related_systems[0]
+            metadata = dict(payload.get("metadata", {}))
+            if top["recommendation"] in {"attach_or_extend", "possible_duplicate"}:
+                metadata["recommendation"] = top["recommendation"]
+                metadata["target_system_id"] = top["system_id"]
+                metadata["dedupe_score"] = top["dedupe_score"]
+            payload["metadata"] = metadata
+        return payload
 
     def get_visual_system_candidate(self, candidate_id: str) -> dict[str, Any] | None:
         with self.connect() as conn:
@@ -1406,7 +1944,12 @@ class AetherStore:
             self.list_visual_system_candidates(status=status, batch_id=batch_id, limit=None),
         )
 
-    def confirm_visual_system_candidate(self, candidate_id: str) -> dict[str, Any]:
+    def confirm_visual_system_candidate(
+        self,
+        candidate_id: str,
+        target_system_id: str | None = None,
+        force_new: bool = False,
+    ) -> dict[str, Any]:
         candidate = self.get_visual_system_candidate(candidate_id)
         if not candidate:
             raise KeyError(f"Visual system candidate not found: {candidate_id}")
@@ -1450,6 +1993,34 @@ class AetherStore:
                     "reason": relation.get("reason", ""),
                 }
             )
+        metadata = dict(payload.get("metadata", {}))
+        if target_system_id:
+            metadata["recommendation"] = "attach_or_extend"
+            metadata["target_system_id"] = target_system_id
+        if force_new:
+            metadata["recommendation"] = "suggest_create"
+            metadata.pop("target_system_id", None)
+        target_system_id = metadata.get("target_system_id")
+        if metadata.get("recommendation") == "attach_or_extend" and target_system_id:
+            if not self.get_visual_system(target_system_id, include_assets=False):
+                raise KeyError(f"Target visual system not found: {target_system_id}")
+            for relation in assets:
+                self.set_visual_system_asset(target_system_id, relation)
+            timestamp = now_iso()
+            with self.connect() as conn:
+                conn.execute(
+                    """
+                    update visual_system_candidates
+                    set status = ?, confirmed_system_id = ?, updated_at = ?
+                    where id = ?
+                    """,
+                    ("confirmed", target_system_id, timestamp, candidate_id),
+                )
+            updated = self.get_visual_system_candidate(candidate_id)
+            assert updated is not None
+            updated["visual_system"] = self.get_visual_system(target_system_id)
+            updated["dedupe_decision"] = "attached_to_existing_system"
+            return updated
         system_payload = {
             key: value
             for key, value in payload.items()
@@ -1463,6 +2034,7 @@ class AetherStore:
                 "candidate_asset_relations",
                 "existing_asset_relations",
                 "related_existing_assets",
+                "related_existing_systems",
                 "batch_id",
             }
         }
@@ -1503,6 +2075,7 @@ class AetherStore:
             "confidence": float(payload.get("confidence", 0.5)),
             "source": payload.get("source", ""),
             "reason": payload.get("reason", ""),
+            "metadata": payload.get("metadata", {}),
             "status": payload.get("status", "draft"),
             "created_at": payload.get("created_at", timestamp),
             "updated_at": timestamp,
@@ -1513,9 +2086,9 @@ class AetherStore:
                 insert into recipes (
                   id, name, summary, parent_system_ids_json, use_cases_json,
                   required_asset_types_json, composition_rules_json, recommended_aspect_ratios_json,
-                  source_reference_ids_json, confidence, source, reason, status,
+                  source_reference_ids_json, confidence, source, reason, metadata_json, status,
                   created_at, updated_at
-                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 on conflict(id) do update set
                   name=excluded.name,
                   summary=excluded.summary,
@@ -1528,6 +2101,7 @@ class AetherStore:
                   confidence=excluded.confidence,
                   source=excluded.source,
                   reason=excluded.reason,
+                  metadata_json=excluded.metadata_json,
                   status=excluded.status,
                   updated_at=excluded.updated_at
                 """,
@@ -1544,6 +2118,7 @@ class AetherStore:
                     record["confidence"],
                     record["source"],
                     record["reason"],
+                    json_dumps(record["metadata"]),
                     record["status"],
                     record["created_at"],
                     record["updated_at"],
@@ -1704,7 +2279,12 @@ class AetherStore:
         relations = [self._recipe_asset_from_row(row) for row in rows]
         return relations[:limit] if limit is not None and limit >= 0 else relations
 
-    def create_recipe_candidate(self, payload: dict[str, Any]) -> dict[str, Any]:
+    def create_recipe_candidate(
+        self,
+        payload: dict[str, Any],
+        config: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        payload = self._annotate_recipe_candidate_recall(dict(payload), config=config)
         validate_recipe_candidate(payload)
         timestamp = now_iso()
         candidate_id = payload.get("id") or new_id("recipe_candidate")
@@ -1741,6 +2321,66 @@ class AetherStore:
                 ),
             )
         return record
+
+    def _annotate_recipe_candidate_recall(
+        self,
+        payload: dict[str, Any],
+        config: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        if payload.get("related_existing_recipes"):
+            return payload
+        query_text = canonical_text(
+            [
+                payload.get("name"),
+                payload.get("summary"),
+                payload.get("tags"),
+                payload.get("use_cases"),
+                payload.get("required_asset_types"),
+                payload.get("composition_rules"),
+                payload.get("recommended_aspect_ratios"),
+            ]
+        )
+        related_asset_ids = [
+            relation["asset_id"]
+            for relation in payload.get("recipe_assets", [])
+            if isinstance(relation, dict) and relation.get("asset_id")
+        ]
+        parent_system_ids = [system_id for system_id in payload.get("parent_system_ids", []) if isinstance(system_id, str)]
+        recipes = self.hybrid_recall(
+            "recipe",
+            query_text,
+            config=config,
+            limit=5,
+            related_asset_ids=related_asset_ids,
+            parent_system_ids=parent_system_ids,
+            min_score=0.0,
+        )
+        related_recipes = []
+        for recipe in recipes:
+            dedupe_score = max(
+                float(recipe.get("score", 0.0)),
+                float(recipe.get("semantic_score", 0.0)),
+                float(recipe.get("lexical_score", 0.0)),
+                float(recipe.get("relation_score", 0.0)),
+            )
+            recommendation = "suggest_create"
+            if dedupe_score >= 0.86:
+                recommendation = "merge_or_update"
+            elif dedupe_score >= 0.72:
+                recommendation = "variant"
+            elif dedupe_score >= 0.58:
+                recommendation = "possible_related"
+            related_recipes.append({**recipe, "dedupe_score": round(dedupe_score, 4), "recommendation": recommendation})
+        if related_recipes:
+            payload["related_existing_recipes"] = related_recipes
+            top = related_recipes[0]
+            metadata = dict(payload.get("metadata", {}))
+            if top["recommendation"] in {"merge_or_update", "variant", "possible_related"}:
+                metadata["recommendation"] = top["recommendation"]
+                metadata["target_recipe_id"] = top["recipe_id"]
+                metadata["dedupe_score"] = top["dedupe_score"]
+            payload["metadata"] = metadata
+        return payload
 
     def get_recipe_candidate(self, candidate_id: str) -> dict[str, Any] | None:
         with self.connect() as conn:
@@ -1810,7 +2450,14 @@ class AetherStore:
             self.list_recipe_candidates(status=status, batch_id=batch_id, limit=None),
         )
 
-    def confirm_recipe_candidate(self, candidate_id: str, parent_system_ids: list[str] | None = None) -> dict[str, Any]:
+    def confirm_recipe_candidate(
+        self,
+        candidate_id: str,
+        parent_system_ids: list[str] | None = None,
+        target_recipe_id: str | None = None,
+        variant_of_recipe_id: str | None = None,
+        force_new: bool = False,
+    ) -> dict[str, Any]:
         candidate = self.get_recipe_candidate(candidate_id)
         if not candidate:
             raise KeyError(f"Recipe candidate not found: {candidate_id}")
@@ -1863,6 +2510,48 @@ class AetherStore:
         }
         if parent_system_ids is not None:
             recipe_payload["parent_system_ids"] = parent_system_ids
+        metadata = dict(recipe_payload.get("metadata", {}))
+        if target_recipe_id:
+            metadata["recommendation"] = "merge_or_update"
+            metadata["target_recipe_id"] = target_recipe_id
+        if variant_of_recipe_id:
+            metadata["recommendation"] = "variant"
+            metadata["target_recipe_id"] = variant_of_recipe_id
+        if force_new:
+            metadata["recommendation"] = "suggest_create"
+            metadata.pop("target_recipe_id", None)
+        recipe_payload["metadata"] = metadata
+        if metadata.get("recommendation") == "merge_or_update" and metadata.get("target_recipe_id"):
+            target_recipe_id = metadata["target_recipe_id"]
+            if not self.get_recipe(target_recipe_id, include_assets=False):
+                raise KeyError(f"Target recipe not found: {target_recipe_id}")
+            for relation in recipe_assets:
+                self.set_recipe_asset(target_recipe_id, relation)
+            timestamp = now_iso()
+            with self.connect() as conn:
+                conn.execute(
+                    """
+                    update recipe_candidates
+                    set status = ?, confirmed_recipe_id = ?, updated_at = ?
+                    where id = ?
+                    """,
+                    ("confirmed", target_recipe_id, timestamp, candidate_id),
+                )
+            updated = self.get_recipe_candidate(candidate_id)
+            assert updated is not None
+            updated["recipe"] = self.get_recipe(target_recipe_id)
+            updated["dedupe_decision"] = "merged_into_existing_recipe"
+            return updated
+        if metadata.get("recommendation") == "variant" and metadata.get("target_recipe_id"):
+            recipe_payload["metadata"] = {
+                **metadata,
+                "variant_of_recipe_id": metadata["target_recipe_id"],
+                "dedupe_decision": "variant",
+            }
+            if not recipe_payload.get("parent_system_ids"):
+                target_recipe = self.get_recipe(metadata["target_recipe_id"])
+                if target_recipe:
+                    recipe_payload["parent_system_ids"] = target_recipe.get("parent_system_ids", [])
         recipe_payload["assets"] = recipe_assets
         recipe = self.create_recipe(recipe_payload)
         timestamp = now_iso()
@@ -2033,6 +2722,9 @@ class AetherStore:
             "selected_assets": selected_assets or [],
             "constraints": constraints,
             "intent_analysis": payload.get("intent_analysis", {}),
+            "intent_sketch": payload.get("intent_sketch", {}),
+            "recall_candidates": payload.get("recall_candidates", {}),
+            "recall_strategy": payload.get("recall_strategy", {}),
             "composition_plan": payload.get("composition_plan", {}),
             "refined_prompt": payload["refined_prompt"],
             "negative_prompt": payload.get("negative_prompt", ""),
@@ -2047,9 +2739,10 @@ class AetherStore:
                 """
                 insert into prompt_records (
                   id, source_prompt, style_id, target_generation_skill, selected_assets_json, constraints_json,
-                  intent_analysis_json, composition_plan_json, refined_prompt, negative_prompt, generation_params_json,
+                  intent_analysis_json, intent_sketch_json, recall_candidates_json, recall_strategy_json,
+                  composition_plan_json, refined_prompt, negative_prompt, generation_params_json,
                   variants_json, assumptions_json, conflicts_json, created_at
-                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     record["id"],
@@ -2059,6 +2752,9 @@ class AetherStore:
                     json_dumps(record["selected_assets"]),
                     json_dumps(record["constraints"]),
                     json_dumps(record["intent_analysis"]),
+                    json_dumps(record["intent_sketch"]),
+                    json_dumps(record["recall_candidates"]),
+                    json_dumps(record["recall_strategy"]),
                     json_dumps(record["composition_plan"]),
                     record["refined_prompt"],
                     record["negative_prompt"],
@@ -2306,6 +3002,7 @@ class AetherStore:
         run_id: str,
         kind: str | None = None,
         auto: bool = False,
+        config: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         run = self.get_generation_run(run_id)
         if not run:
@@ -2342,7 +3039,12 @@ class AetherStore:
             elif self._has_duplicate_recipe(selected_ids):
                 result["skipped"].append("similar recipe already exists")
             else:
-                result["recipe_candidates"].append(self.create_recipe_candidate(self._generation_recipe_candidate_payload(run, selected_assets, batch_id)))
+                result["recipe_candidates"].append(
+                    self.create_recipe_candidate(
+                        self._generation_recipe_candidate_payload(run, selected_assets, batch_id),
+                        config=config,
+                    )
+                )
 
         can_suggest_system = (
             len(selected_assets) >= 3
@@ -2361,7 +3063,8 @@ class AetherStore:
             else:
                 result["visual_system_candidates"].append(
                     self.create_visual_system_candidate(
-                        self._generation_visual_system_candidate_payload(run, selected_assets, batch_id)
+                        self._generation_visual_system_candidate_payload(run, selected_assets, batch_id),
+                        config=config,
                     )
                 )
         return result
@@ -2784,6 +3487,7 @@ class AetherStore:
             "confidence": row["confidence"],
             "source": row["source"],
             "reason": row["reason"],
+            "metadata": json_loads(row["metadata_json"], {}),
             "status": row["status"],
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],

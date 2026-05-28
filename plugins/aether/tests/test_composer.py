@@ -164,6 +164,73 @@ class ComposerTests(unittest.TestCase):
             self.assertEqual(record["constraints"]["selected_systems"][0]["system_id"], system["id"])
             self.assertEqual(record["constraints"]["selected_recipes"][0]["recipe_id"], recipe["id"])
 
+    def test_compose_prompt_recalls_system_and_recipe_from_intent_sketch(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = AetherStore(Path(temp_dir) / "aether.sqlite")
+            store.init()
+
+            style = store.create_visual_asset(
+                {
+                    "type": "style",
+                    "name": "Oriental Fantasy Painterly Anime",
+                    "summary": "bright oriental fantasy natural sanctuary painterly anime",
+                    "prompt_fragments": ["bright oriental fantasy painterly anime"],
+                    "status": "active",
+                }
+            )
+            scene = store.create_visual_asset(
+                {
+                    "type": "scene",
+                    "name": "Natural Sanctuary Spirit Encounter",
+                    "summary": "small human meets spirit in natural sanctuary",
+                    "prompt_fragments": ["natural sanctuary spirit encounter"],
+                    "status": "active",
+                }
+            )
+            system = store.create_visual_system(
+                {
+                    "kind": "art_direction",
+                    "name": "Oriental Fantasy Natural Sanctuary",
+                    "summary": "oriental fantasy natural sanctuary spirit encounter",
+                    "visual_rules": [
+                        {"key": "medium", "value": ["painterly anime"]},
+                        {"key": "subject_aesthetic", "value": ["oriental fantasy natural sanctuary"]},
+                    ],
+                    "assets": [
+                        {"asset_id": style["id"], "role": "core"},
+                        {"asset_id": scene["id"], "role": "optional"},
+                    ],
+                    "status": "active",
+                }
+            )
+            recipe = store.create_recipe(
+                {
+                    "name": "Oriental Fantasy Spirit Encounter Key Art",
+                    "summary": "oriental fantasy natural sanctuary spirit encounter key art",
+                    "parent_system_ids": [system["id"]],
+                    "composition_rules": [
+                        {"key": "subject_scene_binding", "value": ["small human encounters spirit in sanctuary"]}
+                    ],
+                    "assets": [{"asset_id": scene["id"], "role": "core"}],
+                    "status": "active",
+                }
+            )
+
+            record = compose_prompt(
+                store,
+                "oriental fantasy natural sanctuary spirit encounter",
+                default_generation_params={"aspectRatio": "1:1"},
+            )
+
+            self.assertEqual(record["constraints"]["selected_systems"][0]["system_id"], system["id"])
+            self.assertEqual(record["constraints"]["selected_recipes"][0]["recipe_id"], recipe["id"])
+            self.assertTrue(record["intent_sketch"]["query_terms"])
+            self.assertEqual(record["recall_strategy"]["mode"], "lexical_relation")
+            self.assertEqual(record["recall_candidates"]["visual_systems"][0]["system_id"], system["id"])
+            self.assertEqual(record["recall_candidates"]["recipes"][0]["recipe_id"], recipe["id"])
+            recalled_asset_ids = {item["asset_id"] for item in record["recall_candidates"]["visual_assets"]}
+            self.assertIn(scene["id"], recalled_asset_ids)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -27,10 +27,46 @@
       }
     },
     "style": {"type": "object"},
+    "embedding": {
+      "type": "object",
+      "properties": {
+        "provider": {"type": "string", "enum": ["disabled", "openai", "local"]},
+        "model": {"type": "string"},
+        "dimensions": {"type": "integer", "minimum": 0},
+        "batchSize": {"type": "integer", "minimum": 1},
+        "cache": {
+          "type": "object",
+          "properties": {
+            "mode": {"type": "string", "enum": ["sqlite"]},
+            "rebuildOnModelChange": {"type": "boolean"}
+          }
+        },
+        "providers": {
+          "type": "object",
+          "properties": {
+            "openai": {
+              "type": "object",
+              "properties": {
+                "apiKeyEnv": {"type": "string"},
+                "model": {"type": "string"},
+                "dimensions": {"type": "integer", "minimum": 0}
+              }
+            },
+            "local": {
+              "type": "object",
+              "properties": {
+                "command": {"type": "string"},
+                "model": {"type": "string"},
+                "dimensions": {"type": "integer", "minimum": 0}
+              }
+            }
+          }
+        }
+      }
+    },
     "prompt": {"type": "object"},
     "generation": {"type": "object"},
     "codex": {"type": "object"},
     "backend": {"type": "object"}
   }
 }
-

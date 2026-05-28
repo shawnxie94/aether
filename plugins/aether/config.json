@@ -38,6 +38,28 @@
     "defaultEmbeddingStorage": "sqlite-json",
     "allowUserOverrideOnDedupe": true
   },
+  "embedding": {
+    "provider": "disabled",
+    "model": "",
+    "dimensions": 0,
+    "batchSize": 32,
+    "cache": {
+      "mode": "sqlite",
+      "rebuildOnModelChange": true
+    },
+    "providers": {
+      "openai": {
+        "apiKeyEnv": "OPENAI_API_KEY",
+        "model": "text-embedding-3-small",
+        "dimensions": 1536
+      },
+      "local": {
+        "command": "",
+        "model": "",
+        "dimensions": 0
+      }
+    }
+  },
   "prompt": {
     "refinementEngine": "codex",
     "defaultVariantCount": 2,

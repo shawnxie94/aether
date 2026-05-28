@@ -98,6 +98,23 @@ def _selected_asset_id(selected: Any) -> str:
     return ""
 
 
+def _intent_sketch(source_prompt: str, query: str = "") -> dict[str, Any]:
+    terms = sorted(_tokens(" ".join([source_prompt, query])))
+    return {
+        "subject": source_prompt,
+        "scene": "",
+        "action": "",
+        "mood": [],
+        "style_intent": [],
+        "composition_intent": [],
+        "color_lighting_intent": [],
+        "negative_intent": [],
+        "query_terms": terms,
+        "user_constraints": [],
+        "assumptions": [],
+    }
+
+
 def _quality_score(store: AetherStore, asset_id: str) -> float:
     return float(store.visual_asset_quality(asset_id)["score"])
 
@@ -192,11 +209,38 @@ def compose_prompt(
     aspect_ratio: str | None = None,
     target_generation_skill: str | None = None,
     default_generation_params: dict[str, Any] | None = None,
+    config: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     explicit_asset_ids = explicit_asset_ids or []
     system_ids = system_ids or []
     recipe_ids = recipe_ids or []
     explicit_set = set(explicit_asset_ids)
+    intent_sketch = _intent_sketch(source_prompt, query)
+    recall_query = " ".join([source_prompt, query, " ".join(intent_sketch["query_terms"])])
+    recalled_systems: list[dict[str, Any]] = []
+    recalled_recipes: list[dict[str, Any]] = []
+    recalled_assets: list[dict[str, Any]] = []
+    if not system_ids:
+        recalled_systems = [
+            item
+            for item in store.hybrid_recall("visual_system", recall_query, config=config, limit=3)
+            if item["score"] >= 0.02
+        ]
+        system_ids = [item["system_id"] for item in recalled_systems[:1]]
+    if not recipe_ids:
+        recalled_recipes = [
+            item
+            for item in store.hybrid_recall("recipe", recall_query, config=config, limit=3)
+            if item["score"] >= 0.02
+        ]
+        recipe_ids = [item["recipe_id"] for item in recalled_recipes[:1]]
+    recalled_assets = [
+        item
+        for item in store.hybrid_recall("visual_asset", recall_query, config=config, limit=12)
+        if item["score"] >= 0.02
+    ]
+    recalled_system_reasons = {item["system_id"]: item for item in recalled_systems}
+    recalled_recipe_reasons = {item["recipe_id"]: item for item in recalled_recipes}
     prompt_tokens = _tokens(source_prompt)
     query_tokens = _tokens(query)
     active_assets = store.list_visual_assets(status="active", limit=None)
@@ -212,6 +256,11 @@ def compose_prompt(
     recipe_composition_rules: list[str] = []
     recipe_negative_rules: list[str] = []
 
+    for item in recalled_assets:
+        boosted_asset_reasons.setdefault(item["asset_id"], []).append(
+            f"recalled asset score {item['score']:.2f}"
+        )
+
     for system_id in system_ids:
         system = store.get_visual_system(system_id)
         if not system or system["status"] == "archived":
@@ -223,7 +272,8 @@ def compose_prompt(
                 "name": system["name"],
                 "visual_rules": system.get("visual_rules", []),
                 "avoid_rules": system.get("avoid_rules", []),
-                "reason": "requested visual system",
+                "reason": "recalled visual system" if system["id"] in recalled_system_reasons else "requested visual system",
+                "recall": recalled_system_reasons.get(system["id"]),
             }
         )
         system_visual_rules.extend(
@@ -251,7 +301,8 @@ def compose_prompt(
                 "name": recipe["name"],
                 "composition_rules": recipe.get("composition_rules", []),
                 "recommended_aspect_ratios": recipe.get("recommended_aspect_ratios", []),
-                "reason": "requested recipe",
+                "reason": "recalled recipe" if recipe["id"] in recalled_recipe_reasons else "requested recipe",
+                "recall": recalled_recipe_reasons.get(recipe["id"]),
             }
         )
         for rule in recipe.get("composition_rules", []):
@@ -465,6 +516,18 @@ def compose_prompt(
             "selected_recipes": selected_recipes,
             "avoided_asset_ids": sorted(avoided_asset_ids),
             "conflicts": conflicts,
+        },
+        "intent_sketch": intent_sketch,
+        "recall_candidates": {
+            "visual_systems": recalled_systems,
+            "recipes": recalled_recipes,
+            "visual_assets": recalled_assets,
+        },
+        "recall_strategy": {
+            "mode": "hybrid" if config and config.get("embedding", {}).get("provider") not in (None, "", "disabled") else "lexical_relation",
+            "semantic_enabled": bool(config and config.get("embedding", {}).get("provider") not in (None, "", "disabled")),
+            "embedding_provider": (config or {}).get("embedding", {}).get("provider", "disabled"),
+            "embedding_model": (config or {}).get("embedding", {}).get("model", ""),
         },
         "intent_analysis": {
             "source_prompt": source_prompt,

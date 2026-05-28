@@ -347,6 +347,8 @@ def validate_recipe(payload: dict[str, Any]) -> None:
             raise ValidationError(f"Field {field} must be a list")
     if "confidence" in payload and not isinstance(payload["confidence"], (int, float)):
         raise ValidationError("Field confidence must be a number")
+    if "metadata" in payload and not isinstance(payload["metadata"], dict):
+        raise ValidationError("Field metadata must be a dict")
     for asset_type in payload.get("required_asset_types", []):
         if asset_type not in VISUAL_ASSET_TYPES:
             raise ValidationError(f"Field required_asset_types contains unsupported type: {asset_type}")

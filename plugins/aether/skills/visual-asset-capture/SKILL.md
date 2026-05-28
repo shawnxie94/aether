@@ -160,6 +160,7 @@ Visual system candidates should include:
 - `candidate_asset_relations`
 - `existing_asset_relations`
 - `related_existing_assets`
+- `related_existing_systems` when an active visual system may already cover the candidate
 - `metadata.recommendation`: `suggest_create`
 
 Use the same strict relation `role` enum for `candidate_asset_relations` and `existing_asset_relations`: `core`, `optional`, `reference_only`, or `avoid`.
@@ -212,7 +213,9 @@ Use `visual_rules` for positive stable constraints only. Put negative boundaries
 aether validate visual-asset-candidate --json <candidate-batch.json>
 ```
 
-8. Persist the candidate batch before asking the user to decide. The storage layer will attach similarity suggestions against active assets of the same type, store recipe candidates, and can auto-suggest visual system candidates when no explicit `visual_system_candidates` are provided:
+When an existing visual system is a strong match, prefer `metadata.recommendation: "attach_or_extend"` and `metadata.target_system_id` over creating a parallel top-level system.
+
+8. Persist the candidate batch before asking the user to decide. The storage layer will attach hybrid similarity suggestions against active assets of the same type, store recipe candidates, add related recipe/system recall metadata, and can auto-suggest visual system candidates when no explicit `visual_system_candidates` are provided:
 
 ```bash
 aether visual-asset candidates create --json <candidate-batch.json>
@@ -220,6 +223,14 @@ aether visual-asset candidates list --status pending --summary
 aether visual-asset candidates get <candidate-id>
 aether recipe candidates list --batch-id <batch-id>
 aether visual-system candidates list --batch-id <batch-id>
+```
+
+Use recall debugging when candidate decisions are unclear:
+
+```bash
+aether recall visual_asset --query "<candidate summary>"
+aether recall visual_system --query "<candidate summary>"
+aether recall recipe --query "<candidate summary>"
 ```
 
 9. Compare candidates against existing active visual assets by listing or searching matching type/tag/query when more context is needed:
@@ -261,6 +272,9 @@ aether recipe candidates ignore <recipe-candidate-id> --cleanup
 aether recipe candidates cleanup --status ignored
 aether recipe candidates confirm <recipe-candidate-id>
 aether recipe candidates confirm <recipe-candidate-id> --system-id <visual-system-id>
+aether recipe candidates confirm <recipe-candidate-id> --target-recipe-id <recipe-id>
+aether recipe candidates confirm <recipe-candidate-id> --variant-of <recipe-id>
+aether recipe candidates confirm <recipe-candidate-id> --force-new
 ```
 
 14. After all visual system candidate assets have been confirmed or mapped to existing assets, confirm visual system candidates only if the user wants to create that higher-level system:
@@ -271,6 +285,8 @@ aether visual-system candidates ignore <visual-system-candidate-id>
 aether visual-system candidates ignore <visual-system-candidate-id> --cleanup
 aether visual-system candidates cleanup --status ignored
 aether visual-system candidates confirm <visual-system-candidate-id>
+aether visual-system candidates confirm <visual-system-candidate-id> --target-system-id <visual-system-id>
+aether visual-system candidates confirm <visual-system-candidate-id> --force-new
 ```
 
 Use `ignore` for candidates the user has rejected. Use `ignore --cleanup` when the user explicitly says the candidate is not needed and should be removed immediately. Use `cleanup --status ignored` to physically delete ignored candidate records later. Use `delete <candidate-id>` only when the user explicitly asks to remove a specific unconfirmed candidate. Confirmed candidates are protected because they preserve creation traceability.

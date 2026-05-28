@@ -1,3 +1,4 @@
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -711,6 +712,243 @@ class StorageTests(unittest.TestCase):
             )
             self.assertIn("clear pastel sky bands", payload["visual_rules"][2]["value"])
             self.assertIn("wide open aerial depth", payload["visual_rules"][3]["value"])
+
+    def test_visual_system_candidate_attaches_to_recalled_existing_system(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = AetherStore(Path(temp_dir) / "aether.sqlite")
+            store.init()
+
+            style = store.create_visual_asset(
+                {
+                    "type": "style",
+                    "name": "Oriental Fantasy Painterly Style",
+                    "summary": "bright painterly anime natural sanctuary",
+                    "status": "active",
+                }
+            )
+            system = store.create_visual_system(
+                {
+                    "kind": "art_direction",
+                    "name": "Oriental Fantasy Natural Sanctuary",
+                    "summary": "bright painterly anime natural sanctuary with spirit encounters",
+                    "visual_rules": [
+                        {"key": "medium", "value": ["painterly anime"]},
+                        {"key": "subject_aesthetic", "value": ["natural sanctuary spirit encounter"]},
+                    ],
+                    "assets": [{"asset_id": style["id"], "role": "core", "weight": 0.9}],
+                    "status": "active",
+                }
+            )
+            candidate_asset = store.create_visual_asset_candidate(
+                {
+                    "type": "scene",
+                    "name": "Golden Leaf Spirit Sanctuary",
+                    "summary": "oriental fantasy natural sanctuary scene",
+                    "status": "pending",
+                }
+            )
+            candidate = store.create_visual_system_candidate(
+                {
+                    "batch_id": candidate_asset["batch_id"],
+                    "kind": "art_direction",
+                    "name": "Golden Leaf Spirit Art Direction",
+                    "summary": "bright painterly anime natural sanctuary with leaf spirits",
+                    "visual_rules": [
+                        {"key": "medium", "value": ["painterly anime"]},
+                        {"key": "subject_aesthetic", "value": ["leaf spirit natural sanctuary"]},
+                    ],
+                    "candidate_asset_relations": [
+                        {"candidate_asset_id": candidate_asset["id"], "role": "core", "weight": 0.8}
+                    ],
+                    "existing_asset_relations": [
+                        {"asset_id": style["id"], "role": "core", "weight": 0.8}
+                    ],
+                    "status": "pending",
+                }
+            )
+
+            self.assertEqual(candidate["payload"]["metadata"]["recommendation"], "attach_or_extend")
+            confirmed_asset = store.decide_visual_asset_candidate(candidate_asset["id"], "new_asset")
+            confirmed = store.confirm_visual_system_candidate(candidate["id"])
+            self.assertEqual(confirmed["confirmed_system_id"], system["id"])
+            relation_asset_ids = {
+                relation["asset_id"]
+                for relation in store.list_visual_system_assets(system_id=system["id"])
+            }
+            self.assertIn(confirmed_asset["confirmed_asset_id"], relation_asset_ids)
+
+    def test_recipe_candidate_merges_into_recalled_existing_recipe(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = AetherStore(Path(temp_dir) / "aether.sqlite")
+            store.init()
+
+            style = store.create_visual_asset({"type": "style", "name": "Painterly Fantasy", "status": "active"})
+            scene = store.create_visual_asset({"type": "scene", "name": "Spirit Grove", "status": "active"})
+            system = store.create_visual_system(
+                {
+                    "kind": "art_direction",
+                    "name": "Fantasy Grove",
+                    "visual_rules": [{"key": "subject_aesthetic", "value": ["spirit grove"]}],
+                    "assets": [{"asset_id": style["id"], "role": "core"}],
+                    "status": "active",
+                }
+            )
+            recipe = store.create_recipe(
+                {
+                    "name": "Fantasy Grove Key Art",
+                    "summary": "painterly spirit grove key art",
+                    "parent_system_ids": [system["id"]],
+                    "composition_rules": [{"key": "asset_roles", "value": ["style and scene define key art"]}],
+                    "assets": [{"asset_id": style["id"], "role": "core"}],
+                    "status": "active",
+                }
+            )
+            candidate = store.create_recipe_candidate(
+                {
+                    "name": "Fantasy Grove Key Art Variant",
+                    "summary": "painterly spirit grove key art",
+                    "parent_system_ids": [system["id"]],
+                    "composition_rules": [{"key": "asset_roles", "value": ["style and scene define key art"]}],
+                    "recipe_assets": [
+                        {"asset_id": style["id"], "role": "core"},
+                        {"asset_id": scene["id"], "role": "optional"},
+                    ],
+                    "status": "pending",
+                }
+            )
+
+            self.assertEqual(candidate["payload"]["metadata"]["recommendation"], "merge_or_update")
+            confirmed = store.confirm_recipe_candidate(candidate["id"])
+            self.assertEqual(confirmed["confirmed_recipe_id"], recipe["id"])
+            relation_asset_ids = {
+                relation["asset_id"]
+                for relation in store.list_recipe_assets(recipe_id=recipe["id"])
+            }
+            self.assertIn(scene["id"], relation_asset_ids)
+
+    def test_embedding_status_and_disabled_index(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = AetherStore(Path(temp_dir) / "aether.sqlite")
+            store.init()
+            store.create_visual_asset({"type": "style", "name": "Soft Paint", "status": "active"})
+
+            status = store.embedding_status({"embedding": {"provider": "disabled"}})
+            self.assertEqual(status["provider"], "disabled")
+            self.assertFalse(status["needs_rebuild"])
+            result = store.index_embeddings({"embedding": {"provider": "disabled"}}, entity_type="visual_asset")
+            self.assertEqual(result["skipped"][0]["reason"], "embedding provider disabled")
+
+    def test_candidate_dedupe_uses_configured_semantic_embedding(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            embed_script = root / "fake_embed.py"
+            embed_script.write_text(
+                "\n".join(
+                    [
+                        "import json, sys",
+                        "body = json.load(sys.stdin)",
+                        "vectors = []",
+                        "for text in body.get('texts', []):",
+                        "    lowered = text.lower()",
+                        "    if any(term in lowered for term in ['celestial', 'lunar', 'moon']):",
+                        "        vectors.append([1.0, 0.0])",
+                        "    else:",
+                        "        vectors.append([0.0, 1.0])",
+                        "json.dump({'vectors': vectors}, sys.stdout)",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            config = {
+                "embedding": {
+                    "provider": "local",
+                    "model": "fake-semantic",
+                    "providers": {
+                        "local": {
+                            "command": f"{sys.executable} {embed_script}",
+                            "model": "fake-semantic",
+                            "dimensions": 2,
+                        }
+                    },
+                }
+            }
+            store = AetherStore(root / "aether.sqlite")
+            store.init()
+            asset = store.create_visual_asset(
+                {
+                    "type": "scene",
+                    "name": "Celestial Waterfall Gate",
+                    "summary": "celestial waterfall glowing arch",
+                    "status": "active",
+                }
+            )
+            system = store.create_visual_system(
+                {
+                    "kind": "art_direction",
+                    "name": "Celestial Vista Direction",
+                    "summary": "celestial luminous gateway scene direction",
+                    "visual_rules": [{"key": "subject_aesthetic", "value": ["celestial gateway"]}],
+                    "assets": [{"asset_id": asset["id"], "role": "core"}],
+                    "status": "active",
+                }
+            )
+            recipe = store.create_recipe(
+                {
+                    "name": "Celestial Gateway Key Art",
+                    "summary": "celestial luminous gateway composition",
+                    "parent_system_ids": [system["id"]],
+                    "composition_rules": [{"key": "subject_scene_binding", "value": ["gateway dominates the scene"]}],
+                    "assets": [{"asset_id": asset["id"], "role": "core"}],
+                    "status": "active",
+                }
+            )
+            store.index_embeddings(config)
+            status = store.embedding_status(config)
+            self.assertEqual(status["index_health"]["visual_asset"]["current"], 1)
+            self.assertEqual(status["index_health"]["visual_system"]["current"], 1)
+            self.assertEqual(status["index_health"]["recipe"]["current"], 1)
+            self.assertFalse(status["needs_rebuild"])
+
+            candidate = store.create_visual_asset_candidate(
+                {
+                    "type": "scene",
+                    "name": "Lunar Cascade Entrance",
+                    "summary": "moonlit cascade threshold",
+                    "status": "pending",
+                },
+                config=config,
+            )
+
+            self.assertEqual(candidate["similar_candidates"][0]["asset_id"], asset["id"])
+            self.assertEqual(candidate["similar_candidates"][0]["semantic_score"], 1.0)
+            self.assertEqual(candidate["decision"], "existing_asset")
+
+            system_candidate = store.create_visual_system_candidate(
+                {
+                    "kind": "art_direction",
+                    "name": "Lunar Gate Direction",
+                    "summary": "moonlit threshold scene direction",
+                    "visual_rules": [{"key": "subject_aesthetic", "value": ["lunar gate"]}],
+                    "status": "pending",
+                },
+                config=config,
+            )
+            self.assertEqual(system_candidate["payload"]["metadata"]["recommendation"], "attach_or_extend")
+            self.assertEqual(system_candidate["payload"]["metadata"]["target_system_id"], system["id"])
+            self.assertEqual(system_candidate["payload"]["related_existing_systems"][0]["semantic_score"], 1.0)
+
+            recipe_candidate = store.create_recipe_candidate(
+                {
+                    "name": "Moon Gate Composition",
+                    "summary": "lunar threshold composition",
+                    "composition_rules": [{"key": "subject_scene_binding", "value": ["moon gate dominates the scene"]}],
+                    "status": "pending",
+                },
+                config=config,
+            )
+            self.assertEqual(recipe_candidate["payload"]["metadata"]["recommendation"], "merge_or_update")
+            self.assertEqual(recipe_candidate["payload"]["metadata"]["target_recipe_id"], recipe["id"])
+            self.assertEqual(recipe_candidate["payload"]["related_existing_recipes"][0]["semantic_score"], 1.0)
 
     def test_liked_feedback_triggers_generation_reuse_suggestion(self):
         with tempfile.TemporaryDirectory() as temp_dir:

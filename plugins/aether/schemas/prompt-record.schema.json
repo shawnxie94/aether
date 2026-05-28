@@ -10,6 +10,24 @@
     "selected_assets": {"type": "array"},
     "constraints": {"type": "object"},
     "intent_analysis": {"type": "object"},
+    "intent_sketch": {"type": "object"},
+    "recall_candidates": {
+      "type": "object",
+      "properties": {
+        "visual_systems": {"type": "array"},
+        "recipes": {"type": "array"},
+        "visual_assets": {"type": "array"}
+      }
+    },
+    "recall_strategy": {
+      "type": "object",
+      "properties": {
+        "mode": {"type": "string"},
+        "semantic_enabled": {"type": "boolean"},
+        "embedding_provider": {"type": "string"},
+        "embedding_model": {"type": "string"}
+      }
+    },
     "composition_plan": {"type": "object"},
     "refined_prompt": {"type": "string"},
     "negative_prompt": {"type": "string"},
