@@ -3376,6 +3376,7 @@ class AetherStore:
                 target_recipe = self.get_recipe(metadata["target_recipe_id"])
                 if target_recipe:
                     recipe_payload["parent_system_ids"] = target_recipe.get("parent_system_ids", [])
+        recipe_payload["status"] = "active"
         recipe_payload["assets"] = recipe_assets
         recipe = self.create_recipe(recipe_payload)
         self.create_recipe_evidence(

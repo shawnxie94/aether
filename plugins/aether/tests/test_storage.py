@@ -1113,6 +1113,7 @@ class StorageTests(unittest.TestCase):
             )
             child_recipe = store.get_recipe(recipe_confirmed["confirmed_recipe_id"])
             self.assertEqual(child_recipe["parent_recipe_id"], recipe["id"])
+            self.assertEqual(child_recipe["status"], "active")
 
     def test_create_new_and_variants_use_unique_ids_without_overwriting_existing_records(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1184,6 +1185,7 @@ class StorageTests(unittest.TestCase):
             child_recipe = store.get_recipe(child_recipe_confirmed["confirmed_recipe_id"])
             self.assertNotEqual(child_recipe["id"], parent_recipe["id"])
             self.assertEqual(child_recipe["parent_recipe_id"], parent_recipe["id"])
+            self.assertEqual(child_recipe["status"], "active")
             self.assertEqual(store.get_recipe(parent_recipe["id"])["summary"], "parent recipe")
 
     def test_merge_preview_abstracts_and_marks_duplicates(self):
