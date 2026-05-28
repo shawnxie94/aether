@@ -52,7 +52,23 @@
   "generation_params": {
     "aspectRatio": "16:9"
   },
-  "variants": [],
+  "variants": [
+    {
+      "id": "variant_1",
+      "title": "Wide rainy city scene",
+      "refined_prompt": "A lonely girl walking through a rain-soaked futuristic city at night, cinematic wide shot, neon reflections, low-key lighting, soft bloom, wet asphalt, restrained melancholic mood.",
+      "negative_prompt": "flat lighting, crowded composition, overly saturated colors",
+      "generation_params": {
+        "aspectRatio": "16:9"
+      },
+      "composition_plan": {
+        "camera": "wide shot",
+        "scene": "rain-soaked futuristic city"
+      },
+      "selected_assets": [],
+      "notes": ["Single-image example variant."]
+    }
+  ],
   "assumptions": ["Night lighting is inferred from the selected lighting asset."],
   "conflicts": []
 }

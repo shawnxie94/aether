@@ -107,6 +107,72 @@ class SavePromptRecordScriptTests(unittest.TestCase):
 
             self.assertEqual(output["record"]["generation_params"]["aspectRatio"], "3:4")
 
+    def test_emit_confirmation_lists_multi_image_prompt_variants(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "config.json").write_text(
+                json.dumps(
+                    {
+                        "storage": {
+                            "databasePath": "aether.sqlite",
+                            "assetRoot": "assets",
+                            "referenceImageDir": "assets/references",
+                            "generatedImageDir": "assets/generated",
+                            "cacheDir": "cache",
+                            "runDir": "runs",
+                        },
+                        "generation": {
+                            "defaultParams": {
+                                "aspectRatio": "1:1",
+                            }
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            payload = {
+                "source_prompt": "three portraits of the same character",
+                "refined_prompt": "shared character continuity prompt",
+                "negative_prompt": "wrong identity",
+                "variants": [
+                    {
+                        "id": "front_view",
+                        "title": "Front View",
+                        "refined_prompt": "front view portrait prompt",
+                        "negative_prompt": "side view",
+                        "generation_params": {"aspectRatio": "3:4"},
+                        "composition_plan": {"camera": "front view"},
+                        "notes": ["keep identity markers"],
+                    },
+                    {
+                        "id": "side_view",
+                        "title": "Side View",
+                        "refined_prompt": "side view portrait prompt",
+                        "negative_prompt": "front view",
+                        "generation_params": {"aspectRatio": "3:4"},
+                        "composition_plan": {"camera": "side view"},
+                    },
+                ],
+            }
+
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), "--json", "-", "--emit-confirmation"],
+                cwd=root,
+                env={**os.environ, "HOME": str(root)},
+                input=json.dumps(payload),
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            output = json.loads(result.stdout)
+
+            self.assertEqual(len(output["record"]["variants"]), 2)
+            self.assertIn("**Prompt Variants**", output["confirmation_message"])
+            self.assertIn("Front View", output["confirmation_message"])
+            self.assertIn("front view portrait prompt", output["confirmation_message"])
+            self.assertIn("Side View", output["confirmation_message"])
+            self.assertIn("Ask the user to confirm or revise these prompt variants", output["confirmation_message"])
+
     def test_compose_prompt_record_script_saves_and_emits_confirmation(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

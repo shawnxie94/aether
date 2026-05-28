@@ -33,7 +33,22 @@
     "refined_prompt": {"type": "string"},
     "negative_prompt": {"type": "string"},
     "generation_params": {"type": "object"},
-    "variants": {"type": "array"},
+    "variants": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {"type": "string"},
+          "title": {"type": "string"},
+          "refined_prompt": {"type": "string"},
+          "negative_prompt": {"type": "string"},
+          "generation_params": {"type": "object"},
+          "composition_plan": {"type": "object"},
+          "selected_assets": {"type": "array"},
+          "notes": {"type": "array", "items": {"type": "string"}}
+        }
+      }
+    },
     "assumptions": {"type": "array", "items": {"type": "string"}},
     "conflicts": {"type": "array"}
   }

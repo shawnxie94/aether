@@ -29,6 +29,7 @@ aether config show
 
 - Start with `generation.defaultParams`.
 - If the request came from a prompt record, overlay `prompt_record.generation_params`.
+- If generating from a prompt record variant, overlay `variant.generation_params` after prompt-level params.
 - If the user explicitly overrides a parameter, overlay that last.
 - Always carry the final `aspectRatio` into the underlying image-generation skill call when that skill supports an aspect ratio parameter.
 - Store the same final parameter object in the generation run's `skill_params`.
@@ -36,6 +37,8 @@ aether config show
 4. Choose the operation mode.
 
 Use `mode: generate` for new images.
+
+When an approved prompt record contains `variants[]`, treat each variant as a separate generation run unless the user selects only specific variants. For each run, use the variant's `refined_prompt`, `negative_prompt`, `generation_params`, and `composition_plan`, falling back to the prompt record's top-level values for missing fields. Preserve lineage in `skill_result_meta` with `prompt_record_id`, `prompt_variant_id`, and `prompt_variant_title`.
 
 Use `mode: edit` when the user asks to fix, retouch, adjust, inpaint, or locally revise an existing generated image. In edit mode:
 
@@ -139,6 +142,16 @@ The JSON should include:
 - `outputs`: archived generated asset metadata
 - `status`: `generated`, `edited`, or `failed`
 - `error` when failed
+
+For variant-based generation, include `prompt_record` and put the variant lineage in `skill_result_meta`:
+
+```json
+{
+  "prompt_record_id": "prompt_...",
+  "prompt_variant_id": "variant_1",
+  "prompt_variant_title": "Front View"
+}
+```
 
 8. Ask the user for feedback. Save feedback when provided:
 

@@ -22,10 +22,60 @@ def format_list(values: list) -> str:
     return "\n".join(f"{index}. {value}" for index, value in enumerate(values, start=1))
 
 
+def format_variants(variants: list) -> str:
+    if not variants:
+        return "(none)"
+    blocks = []
+    for index, variant in enumerate(variants, start=1):
+        if not isinstance(variant, dict):
+            blocks.append(f"### Variant {index}\n\n```text\n{variant}\n```")
+            continue
+        label = variant.get("title") or variant.get("name") or variant.get("id") or f"Variant {index}"
+        prompt = variant.get("refined_prompt") or variant.get("prompt") or ""
+        negative_prompt = variant.get("negative_prompt", "")
+        generation_params = json.dumps(variant.get("generation_params", {}), ensure_ascii=False, indent=2)
+        composition_plan = json.dumps(variant.get("composition_plan", {}), ensure_ascii=False, indent=2)
+        notes = format_list(variant.get("notes", []))
+        blocks.append(
+            "\n".join(
+                [
+                    f"### {index}. {label}",
+                    "",
+                    "**Prompt**",
+                    "```text",
+                    prompt,
+                    "```",
+                    "",
+                    "**Negative Prompt**",
+                    "```text",
+                    negative_prompt,
+                    "```",
+                    "",
+                    "**Image Params**",
+                    "```json",
+                    generation_params,
+                    "```",
+                    "",
+                    "**Composition Plan**",
+                    "```json",
+                    composition_plan,
+                    "```",
+                    "",
+                    "**Notes**",
+                    "```text",
+                    notes,
+                    "```",
+                ]
+            )
+        )
+    return "\n\n".join(blocks)
+
+
 def build_confirmation_message(record: dict) -> str:
     generation_params = json.dumps(record.get("generation_params", {}), ensure_ascii=False, indent=2)
     selected_assets = json.dumps(record.get("selected_assets", []), ensure_ascii=False, indent=2)
     conflicts = json.dumps(record.get("conflicts", []), ensure_ascii=False, indent=2)
+    variants = record.get("variants", [])
     return "\n".join(
         [
             f"Prompt record saved: `{record['id']}`",
@@ -45,6 +95,9 @@ def build_confirmation_message(record: dict) -> str:
             record.get("negative_prompt", ""),
             "```",
             "",
+            "**Prompt Variants**",
+            format_variants(variants),
+            "",
             "**Assumptions**",
             "```text",
             format_list(record.get("assumptions", [])),
@@ -60,7 +113,11 @@ def build_confirmation_message(record: dict) -> str:
             conflicts,
             "```",
             "",
-            "Ask the user to confirm or revise this complete prompt before calling image-generate.",
+            (
+                "Ask the user to confirm or revise these prompt variants before calling image-generate."
+                if variants
+                else "Ask the user to confirm or revise this complete prompt before calling image-generate."
+            ),
         ]
     )
 

@@ -1,11 +1,11 @@
 ---
 name: prompt-refine
-description: Use when the user gives a text-only fuzzy image-generation prompt and wants Aether to refine it with selected or recommended visual assets using Codex as the refinement engine. If the user also provides reference image(s), prefer visual-asset-capture unless they explicitly ask only for text prompt refinement.
+description: Use when the user gives a text-only fuzzy image-generation prompt or multi-image prompt set and wants Aether to refine it into one or more generation-ready prompts with selected or recommended visual assets using Codex as the refinement engine. If the user also provides reference image(s), prefer visual-asset-capture unless they explicitly ask only for text prompt refinement.
 ---
 
 # Aether Prompt Refine
 
-Use this skill to turn a fuzzy image prompt into a visual-asset-aware generation prompt.
+Use this skill to turn fuzzy image prompts into visual-asset-aware generation prompts. For multi-image requests, produce one shared prompt record with multiple per-image `variants`.
 
 Load `references/refinement-rules.md` when deciding how far to expand or reinterpret a prompt.
 Use `references/prompt-record-template.json` as the output shape.
@@ -66,10 +66,21 @@ The composed output now includes an `intent_sketch`, `recall_candidates`, and `r
 - action
 - mood
 - composition and likely output format
+- requested image count or sequence structure
 - constraints
 - missing assumptions
 
 5. Refine the prompt by combining the user intent with selected visual assets. Preserve the user's subject, scene, action, emotion, and explicit constraints.
+
+For single-image requests, write the final prompt in top-level `refined_prompt`, with `variants: []` unless a useful alternate wording is explicitly requested.
+
+For multi-image requests, such as "三张图", carousel posts, storyboards, character turnarounds, comparison sets, batches of angles, or multiple scenes, write:
+
+- top-level `refined_prompt`: shared series brief and continuity constraints
+- top-level `negative_prompt`: shared negative constraints
+- `variants[]`: one object per requested image, each with `id`, `title`, `refined_prompt`, `negative_prompt`, `generation_params`, `composition_plan`, optional `selected_assets`, and `notes`
+
+Each variant must be independently generation-ready. Keep shared identity/style constraints consistent, but vary the requested angle, scene, pose, framing, moment, or shot-specific detail. If the user asks for N images, produce N variants unless the request is ambiguous; then ask one concise question.
 
 Also recommend image generation parameters in `generation_params`. Always include `aspectRatio`; use an explicit user-requested ratio when present, otherwise choose the most suitable ratio for the composition. Fall back to `generation.defaultParams.aspectRatio` from config when there is no strong composition signal. Put the reason for the ratio recommendation in `assumptions`, not inside `generation_params`.
 
@@ -110,7 +121,7 @@ The JSON should include:
 - `refined_prompt`
 - `negative_prompt`
 - `generation_params`, including `aspectRatio`
-- `variants`
+- `variants`; for multi-image requests, one generation-ready object per image
 - `assumptions`
 - `conflicts`
 
@@ -122,6 +133,6 @@ The JSON should include:
 - If no visual asset is provided, recommend a small coherent set of active visual assets and ask before applying them when the choice is not obvious.
 - Do not over-compose with too many visual assets; prefer a small coherent set over a long keyword stack.
 - Do not use a visual asset if it conflicts with explicit user constraints.
-- If the user explicitly asked to generate an image, save the prompt record first, relay the script's complete `confirmation_message` including the full refined prompt, full negative prompt, suggested image params, and assumptions, then ask the user to confirm or revise before handing off to `image-generate`.
+- If the user explicitly asked to generate image(s), save the prompt record first, relay the script's complete `confirmation_message` including every prompt variant, shared/full negative prompt, suggested image params, and assumptions, then ask the user to confirm or revise before handing off to `image-generate`.
 - Skip the confirmation checkpoint only when the user explicitly says to auto-generate after refinement.
 - Do not use this as the default for reference image plus source-prompt inputs; use `visual-asset-capture` for visual asset sedimentation.

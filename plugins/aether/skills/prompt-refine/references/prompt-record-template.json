@@ -30,7 +30,20 @@
     "aspectRatio": "1:1",
     "quality": "standard"
   },
-  "variants": [],
+  "variants": [
+    {
+      "id": "variant_1",
+      "title": "Single image prompt variant",
+      "refined_prompt": "",
+      "negative_prompt": "",
+      "generation_params": {
+        "aspectRatio": "1:1"
+      },
+      "composition_plan": {},
+      "selected_assets": [],
+      "notes": []
+    }
+  ],
   "assumptions": [],
   "conflicts": []
 }
