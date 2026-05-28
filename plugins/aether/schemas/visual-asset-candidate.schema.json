@@ -3,6 +3,108 @@
   "title": "Aether Visual Asset Candidate Batch",
   "type": "object",
   "required": ["candidate_assets"],
+  "definitions": {
+    "relationRole": {
+      "type": "string",
+      "enum": ["core", "optional", "avoid", "reference_only"]
+    },
+    "recipeAssetRelation": {
+      "type": "object",
+      "properties": {
+        "candidate_asset_id": {"type": "string"},
+        "asset_id": {"type": "string"},
+        "role": {"$ref": "#/definitions/relationRole"},
+        "weight": {"type": "number"},
+        "reason": {"type": "string"}
+      },
+      "anyOf": [
+        {"required": ["candidate_asset_id"]},
+        {"required": ["asset_id"]}
+      ]
+    },
+    "compositionRule": {
+      "type": "object",
+      "required": ["key", "value"],
+      "properties": {
+        "key": {
+          "type": "string",
+          "enum": [
+            "asset_roles",
+            "layering_order",
+            "subject_scene_binding",
+            "style_application",
+            "palette_lighting_binding",
+            "composition_camera_binding",
+            "mood_tone_binding",
+            "negative_constraints"
+          ]
+        },
+        "value": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "reason": {"type": "string"}
+      }
+    },
+    "candidateAssetRelation": {
+      "type": "object",
+      "required": ["candidate_asset_id"],
+      "properties": {
+        "candidate_asset_id": {"type": "string"},
+        "role": {"$ref": "#/definitions/relationRole"},
+        "weight": {"type": "number"},
+        "reason": {"type": "string"}
+      }
+    },
+    "existingAssetRelation": {
+      "type": "object",
+      "required": ["asset_id"],
+      "properties": {
+        "asset_id": {"type": "string"},
+        "role": {"$ref": "#/definitions/relationRole"},
+        "weight": {"type": "number"},
+        "reason": {"type": "string"}
+      }
+    },
+    "visualRule": {
+      "type": "object",
+      "required": ["key", "value"],
+      "properties": {
+        "key": {
+          "type": "string",
+          "enum": [
+            "setting_scope",
+            "environment_logic",
+            "culture_symbols",
+            "technology_magic_rules",
+            "recurring_motifs",
+            "tone_atmosphere",
+            "genre_conventions",
+            "subject_scope",
+            "palette_lighting",
+            "composition_pacing",
+            "rendering_expectations",
+            "genre_boundaries",
+            "series_identity",
+            "character_continuity",
+            "location_continuity",
+            "continuity_rules",
+            "medium",
+            "rendering",
+            "color_lighting",
+            "composition_language",
+            "material_brush_edge",
+            "subject_aesthetic"
+          ]
+        },
+        "value": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "reason": {"type": "string"}
+      }
+    }
+  },
   "properties": {
     "batch_id": {"type": "string"},
     "source_references": {"type": "array"},
@@ -13,11 +115,30 @@
         "required": ["type", "name"],
         "properties": {
           "id": {"type": "string"},
-          "type": {"type": "string"},
+          "type": {
+            "type": "string",
+            "enum": [
+              "style",
+              "color_palette",
+              "lighting",
+              "composition",
+              "camera",
+              "mood",
+              "scene",
+              "texture",
+              "character",
+              "prop_symbol",
+              "shape_line",
+              "negative_rule"
+            ]
+          },
           "name": {"type": "string"},
           "summary": {"type": "string"},
           "tags": {"type": "array"},
-          "profile": {"type": "object"},
+          "profile": {
+            "type": "object",
+            "description": "Structured reusable asset parameters. Keys are constrained by the candidate asset type in runtime validation."
+          },
           "source_references": {"type": "array"},
           "source_reference_ids": {"type": "array"},
           "prompt_fragments": {"type": "array"},
@@ -43,13 +164,20 @@
           "parent_system_ids": {"type": "array"},
           "use_cases": {"type": "array"},
           "required_asset_types": {"type": "array"},
+          "composition_rules": {
+            "type": "array",
+            "items": {"$ref": "#/definitions/compositionRule"}
+          },
           "recommended_aspect_ratios": {"type": "array"},
           "source_reference_ids": {"type": "array"},
           "candidate_asset_ids": {"type": "array"},
           "core_candidate_asset_ids": {"type": "array"},
           "optional_candidate_asset_ids": {"type": "array"},
           "avoid_candidate_asset_ids": {"type": "array"},
-          "recipe_assets": {"type": "array"},
+          "recipe_assets": {
+            "type": "array",
+            "items": {"$ref": "#/definitions/recipeAssetRelation"}
+          },
           "confidence": {"type": "number"},
           "source": {"type": "string"},
           "reason": {"type": "string"},
@@ -68,15 +196,25 @@
           "name": {"type": "string"},
           "summary": {"type": "string"},
           "tags": {"type": "array"},
-          "visual_rules": {"type": "array"},
+          "visual_rules": {
+            "type": "array",
+            "items": {"$ref": "#/definitions/visualRule"},
+            "description": "Stable visual system constraints as key/value rule objects. Use kind-specific keys."
+          },
           "avoid_rules": {"type": "array"},
           "source_reference_ids": {"type": "array"},
           "candidate_asset_ids": {"type": "array"},
           "core_candidate_asset_ids": {"type": "array"},
           "optional_candidate_asset_ids": {"type": "array"},
           "avoid_candidate_asset_ids": {"type": "array"},
-          "candidate_asset_relations": {"type": "array"},
-          "existing_asset_relations": {"type": "array"},
+          "candidate_asset_relations": {
+            "type": "array",
+            "items": {"$ref": "#/definitions/candidateAssetRelation"}
+          },
+          "existing_asset_relations": {
+            "type": "array",
+            "items": {"$ref": "#/definitions/existingAssetRelation"}
+          },
           "related_existing_assets": {"type": "array"},
           "metadata": {"type": "object"},
           "status": {"type": "string"}

@@ -4,19 +4,20 @@ Use this reference when deciding which reusable traits belong in a visual asset 
 
 ## Include
 
-- `art_style`: medium and rendering family, such as cinematic photo, watercolor, anime, pixel art, 3D render.
-- `color_palette`: dominant colors, saturation, contrast, warm or cool bias.
-- `lighting`: low-key, high-key, neon rim light, soft daylight, hard shadow, volumetric light.
-- `composition`: framing, negative space, symmetry, scale relationship, camera angle.
-- `mood`: reusable emotional atmosphere, not one-off plot.
-- `camera_language`: focal length feel, depth of field, documentary, cinematic, macro, aerial.
-- `materials`: repeated visual materials such as glass, metal, wet asphalt, paper grain.
-- `era`: reusable time or culture cue such as retro futurism or millennial digital.
-- `line_and_shape`: hard edge, soft edge, geometric, organic, elongated vertical shapes.
-- `detail_density`: minimal, dense, restrained background, maximalist.
-- `post_processing`: bloom, film grain, vignette, HDR, muted contrast.
-- `visual_keywords`: compact reusable visual tags.
-- `negative_traits`: style-breaking traits to avoid.
+Use the profile keys defined by the selected visual asset type:
+
+- `style`: medium, rendering, finish, edge treatment, detail density, reference family.
+- `color_palette`: dominant colors, accent colors, saturation, contrast, temperature, color relationship.
+- `lighting`: light source, direction, intensity, contrast, atmosphere, surface interaction.
+- `composition`: framing, subject scale, layout, depth, negative space, focal hierarchy.
+- `camera`: shot type, angle, lens feel, depth of field, movement, perspective.
+- `mood`: emotional tone, atmosphere, pacing, tension, sensory cues.
+- `scene`: setting type, environment elements, spatial layout, era or culture, weather or atmosphere, scale.
+- `texture`: material, surface quality, pattern, granularity, edge behavior, finish.
+- `character`: silhouette, anatomy, costume, expression, pose language, identity markers.
+- `prop_symbol`: object type, symbolic meaning, shape language, material, placement, recurrence.
+- `shape_line`: line quality, shape language, contour, rhythm, geometry, edge treatment.
+- `negative_rule`: avoid subjects, avoid styles, avoid colors or lighting, avoid composition, avoid artifacts, reason.
 
 ## Exclude
 

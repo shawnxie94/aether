@@ -100,7 +100,12 @@ class ComposerTests(unittest.TestCase):
                 {
                     "kind": "genre",
                     "name": "Oil Pastel Daily Anime",
-                    "visual_rules": ["preserve tactile handmade paper feel"],
+                    "visual_rules": [
+                        {
+                            "key": "rendering_expectations",
+                            "value": ["preserve tactile handmade paper feel"],
+                        }
+                    ],
                     "avoid_rules": ["avoid glossy 3D rendering"],
                     "assets": [
                         {"asset_id": style["id"], "role": "core", "weight": 0.9},
@@ -113,6 +118,16 @@ class ComposerTests(unittest.TestCase):
                 {
                     "name": "Oil Pastel Portrait",
                     "parent_system_ids": [system["id"]],
+                    "composition_rules": [
+                        {
+                            "key": "style_application",
+                            "value": ["keep paper grain visible over the portrait paint"],
+                        },
+                        {
+                            "key": "negative_constraints",
+                            "value": ["avoid smoothing out handmade texture"],
+                        },
+                    ],
                     "recommended_aspect_ratios": ["3:4"],
                     "assets": [
                         {"asset_id": texture["id"], "role": "core", "weight": 0.9},
@@ -135,8 +150,17 @@ class ComposerTests(unittest.TestCase):
             self.assertIn(palette["id"], selected_ids)
             self.assertEqual(record["generation_params"]["aspectRatio"], "3:4")
             self.assertIn("preserve tactile handmade paper feel", record["refined_prompt"])
+            self.assertIn("style_application: keep paper grain visible over the portrait paint", record["refined_prompt"])
             self.assertIn("avoid glossy 3D rendering", record["negative_prompt"])
-            self.assertIn("preserve tactile handmade paper feel", record["composition_plan"]["system_rules"])
+            self.assertIn("negative_constraints: avoid smoothing out handmade texture", record["negative_prompt"])
+            self.assertIn(
+                "rendering_expectations: preserve tactile handmade paper feel",
+                record["composition_plan"]["system_rules"],
+            )
+            self.assertIn(
+                "style_application: keep paper grain visible over the portrait paint",
+                record["composition_plan"]["composition_rules"],
+            )
             self.assertEqual(record["constraints"]["selected_systems"][0]["system_id"], system["id"])
             self.assertEqual(record["constraints"]["selected_recipes"][0]["recipe_id"], recipe["id"])
 

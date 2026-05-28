@@ -157,6 +157,7 @@ class AetherStore:
                   parent_system_ids_json text not null default '[]',
                   use_cases_json text not null default '[]',
                   required_asset_types_json text not null default '[]',
+                  composition_rules_json text not null default '[]',
                   recommended_aspect_ratios_json text not null default '[]',
                   source_reference_ids_json text not null default '[]',
                   confidence real not null default 0.5,
@@ -253,6 +254,7 @@ class AetherStore:
             self._ensure_column(conn, "generation_runs", "source_output_asset_id", "text")
             self._ensure_column(conn, "generation_runs", "edit_instruction", "text not null default ''")
             self._ensure_column(conn, "generation_runs", "edit_regions_json", "text not null default '[]'")
+            self._ensure_column(conn, "recipes", "composition_rules_json", "text not null default '[]'")
             record_schema_version(conn)
 
     def create_style(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -658,7 +660,7 @@ class AetherStore:
                 "name": f"{primary['name']} Visual System",
                 "summary": f"Suggested {kind} from source-derived visual assets and related existing assets.",
                 "tags": sorted(asset_types),
-                "visual_rules": [payload.get("summary", "") for payload in payloads if payload.get("summary")][:6],
+                "visual_rules": self._visual_system_rules_from_sources(kind, payloads),
                 "avoid_rules": [],
                 "source_reference_ids": sorted(
                     {
@@ -935,6 +937,34 @@ class AetherStore:
                 },
             )
         return updated
+
+    def ignore_visual_asset_candidate(self, candidate_id: str) -> dict[str, Any]:
+        candidate = self.get_visual_asset_candidate(candidate_id)
+        if not candidate:
+            raise KeyError(f"Visual asset candidate not found: {candidate_id}")
+        if candidate.get("confirmed_asset_id"):
+            raise ValueError(f"Confirmed visual asset candidate cannot be ignored: {candidate_id}")
+        return self.decide_visual_asset_candidate(candidate_id, "ignore")
+
+    def delete_visual_asset_candidate(self, candidate_id: str) -> dict[str, Any]:
+        candidate = self.get_visual_asset_candidate(candidate_id)
+        if not candidate:
+            raise KeyError(f"Visual asset candidate not found: {candidate_id}")
+        if candidate.get("confirmed_asset_id") or candidate.get("status") == "confirmed":
+            raise ValueError(f"Confirmed visual asset candidate cannot be deleted: {candidate_id}")
+        with self.connect() as conn:
+            conn.execute("delete from visual_asset_candidates where id = ?", (candidate_id,))
+        return candidate
+
+    def cleanup_visual_asset_candidates(
+        self,
+        status: str = "ignored",
+        batch_id: str | None = None,
+    ) -> dict[str, Any]:
+        return self._cleanup_candidates(
+            "visual_asset",
+            self.list_visual_asset_candidates(status=status, batch_id=batch_id, limit=None),
+        )
 
     def confirm_visual_asset_candidate_batch(self, batch_id: str) -> dict[str, Any]:
         asset_results = []
@@ -1336,6 +1366,46 @@ class AetherStore:
         candidates = [self._visual_system_candidate_from_row(row) for row in rows]
         return candidates[:limit] if limit is not None and limit >= 0 else candidates
 
+    def ignore_visual_system_candidate(self, candidate_id: str) -> dict[str, Any]:
+        candidate = self.get_visual_system_candidate(candidate_id)
+        if not candidate:
+            raise KeyError(f"Visual system candidate not found: {candidate_id}")
+        if candidate.get("confirmed_system_id"):
+            raise ValueError(f"Confirmed visual system candidate cannot be ignored: {candidate_id}")
+        timestamp = now_iso()
+        with self.connect() as conn:
+            conn.execute(
+                """
+                update visual_system_candidates
+                set status = ?, updated_at = ?
+                where id = ?
+                """,
+                ("ignored", timestamp, candidate_id),
+            )
+        updated = self.get_visual_system_candidate(candidate_id)
+        assert updated is not None
+        return updated
+
+    def delete_visual_system_candidate(self, candidate_id: str) -> dict[str, Any]:
+        candidate = self.get_visual_system_candidate(candidate_id)
+        if not candidate:
+            raise KeyError(f"Visual system candidate not found: {candidate_id}")
+        if candidate.get("confirmed_system_id") or candidate.get("status") == "confirmed":
+            raise ValueError(f"Confirmed visual system candidate cannot be deleted: {candidate_id}")
+        with self.connect() as conn:
+            conn.execute("delete from visual_system_candidates where id = ?", (candidate_id,))
+        return candidate
+
+    def cleanup_visual_system_candidates(
+        self,
+        status: str = "ignored",
+        batch_id: str | None = None,
+    ) -> dict[str, Any]:
+        return self._cleanup_candidates(
+            "visual_system",
+            self.list_visual_system_candidates(status=status, batch_id=batch_id, limit=None),
+        )
+
     def confirm_visual_system_candidate(self, candidate_id: str) -> dict[str, Any]:
         candidate = self.get_visual_system_candidate(candidate_id)
         if not candidate:
@@ -1427,6 +1497,7 @@ class AetherStore:
             "parent_system_ids": payload.get("parent_system_ids", []),
             "use_cases": payload.get("use_cases", []),
             "required_asset_types": payload.get("required_asset_types", []),
+            "composition_rules": payload.get("composition_rules", []),
             "recommended_aspect_ratios": payload.get("recommended_aspect_ratios", []),
             "source_reference_ids": payload.get("source_reference_ids", []),
             "confidence": float(payload.get("confidence", 0.5)),
@@ -1441,16 +1512,17 @@ class AetherStore:
                 """
                 insert into recipes (
                   id, name, summary, parent_system_ids_json, use_cases_json,
-                  required_asset_types_json, recommended_aspect_ratios_json,
+                  required_asset_types_json, composition_rules_json, recommended_aspect_ratios_json,
                   source_reference_ids_json, confidence, source, reason, status,
                   created_at, updated_at
-                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 on conflict(id) do update set
                   name=excluded.name,
                   summary=excluded.summary,
                   parent_system_ids_json=excluded.parent_system_ids_json,
                   use_cases_json=excluded.use_cases_json,
                   required_asset_types_json=excluded.required_asset_types_json,
+                  composition_rules_json=excluded.composition_rules_json,
                   recommended_aspect_ratios_json=excluded.recommended_aspect_ratios_json,
                   source_reference_ids_json=excluded.source_reference_ids_json,
                   confidence=excluded.confidence,
@@ -1466,6 +1538,7 @@ class AetherStore:
                     json_dumps(record["parent_system_ids"]),
                     json_dumps(record["use_cases"]),
                     json_dumps(record["required_asset_types"]),
+                    json_dumps(record["composition_rules"]),
                     json_dumps(record["recommended_aspect_ratios"]),
                     json_dumps(record["source_reference_ids"]),
                     record["confidence"],
@@ -1492,6 +1565,30 @@ class AetherStore:
                 candidate = f"{base_id}-{suffix}"
                 suffix += 1
         return candidate
+
+    def _cleanup_candidates(self, kind: str, candidates: list[dict[str, Any]]) -> dict[str, Any]:
+        if kind == "visual_asset":
+            delete = self.delete_visual_asset_candidate
+        elif kind == "visual_system":
+            delete = self.delete_visual_system_candidate
+        elif kind == "recipe":
+            delete = self.delete_recipe_candidate
+        else:
+            raise ValueError(f"Unsupported candidate kind: {kind}")
+        deleted = []
+        skipped = []
+        for candidate in candidates:
+            try:
+                deleted.append(delete(candidate["id"]))
+            except ValueError as exc:
+                skipped.append({"id": candidate["id"], "reason": str(exc)})
+        return {
+            "kind": kind,
+            "deleted_count": len(deleted),
+            "skipped_count": len(skipped),
+            "deleted": deleted,
+            "skipped": skipped,
+        }
 
     def get_recipe(self, recipe_id: str, include_assets: bool = True) -> dict[str, Any] | None:
         with self.connect() as conn:
@@ -1672,6 +1769,46 @@ class AetherStore:
             rows = conn.execute(sql, tuple(params)).fetchall()
         candidates = [self._recipe_candidate_from_row(row) for row in rows]
         return candidates[:limit] if limit is not None and limit >= 0 else candidates
+
+    def ignore_recipe_candidate(self, candidate_id: str) -> dict[str, Any]:
+        candidate = self.get_recipe_candidate(candidate_id)
+        if not candidate:
+            raise KeyError(f"Recipe candidate not found: {candidate_id}")
+        if candidate.get("confirmed_recipe_id"):
+            raise ValueError(f"Confirmed recipe candidate cannot be ignored: {candidate_id}")
+        timestamp = now_iso()
+        with self.connect() as conn:
+            conn.execute(
+                """
+                update recipe_candidates
+                set status = ?, updated_at = ?
+                where id = ?
+                """,
+                ("ignored", timestamp, candidate_id),
+            )
+        updated = self.get_recipe_candidate(candidate_id)
+        assert updated is not None
+        return updated
+
+    def delete_recipe_candidate(self, candidate_id: str) -> dict[str, Any]:
+        candidate = self.get_recipe_candidate(candidate_id)
+        if not candidate:
+            raise KeyError(f"Recipe candidate not found: {candidate_id}")
+        if candidate.get("confirmed_recipe_id") or candidate.get("status") == "confirmed":
+            raise ValueError(f"Confirmed recipe candidate cannot be deleted: {candidate_id}")
+        with self.connect() as conn:
+            conn.execute("delete from recipe_candidates where id = ?", (candidate_id,))
+        return candidate
+
+    def cleanup_recipe_candidates(
+        self,
+        status: str = "ignored",
+        batch_id: str | None = None,
+    ) -> dict[str, Any]:
+        return self._cleanup_candidates(
+            "recipe",
+            self.list_recipe_candidates(status=status, batch_id=batch_id, limit=None),
+        )
 
     def confirm_recipe_candidate(self, candidate_id: str, parent_system_ids: list[str] | None = None) -> dict[str, Any]:
         candidate = self.get_recipe_candidate(candidate_id)
@@ -2249,6 +2386,53 @@ class AetherStore:
             return 0.0
         return len(left_set & right_set) / len(left_set | right_set)
 
+    def _visual_system_rules_from_sources(self, kind: str, sources: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        categories_by_kind = {
+            "worldview": [
+                ("setting_scope", {"scene"}),
+                ("environment_logic", {"scene", "mood", "lighting"}),
+                ("culture_symbols", {"prop_symbol", "shape_line"}),
+                ("technology_magic_rules", {"prop_symbol", "negative_rule"}),
+                ("recurring_motifs", {"prop_symbol", "shape_line", "texture"}),
+                ("tone_atmosphere", {"mood", "lighting", "color_palette"}),
+            ],
+            "genre": [
+                ("genre_conventions", {"style", "scene", "prop_symbol"}),
+                ("subject_scope", {"scene", "character", "prop_symbol"}),
+                ("palette_lighting", {"color_palette", "lighting", "mood"}),
+                ("composition_pacing", {"composition", "camera"}),
+                ("rendering_expectations", {"style", "texture", "shape_line"}),
+                ("genre_boundaries", {"negative_rule"}),
+            ],
+            "series": [
+                ("series_identity", {"character", "scene", "prop_symbol"}),
+                ("character_continuity", {"character", "style"}),
+                ("location_continuity", {"scene"}),
+                ("recurring_motifs", {"prop_symbol", "shape_line", "texture"}),
+                ("palette_lighting", {"color_palette", "lighting", "mood"}),
+                ("continuity_rules", {"composition", "camera", "negative_rule"}),
+            ],
+            "art_direction": [
+                ("medium", {"style", "texture", "shape_line"}),
+                ("rendering", {"style", "camera"}),
+                ("color_lighting", {"color_palette", "lighting", "mood"}),
+                ("composition_language", {"composition", "camera", "scene"}),
+                ("material_brush_edge", {"texture", "shape_line", "style"}),
+                ("subject_aesthetic", {"scene", "character", "prop_symbol", "mood"}),
+            ],
+        }
+        rules = []
+        for key, asset_types in categories_by_kind.get(kind, []):
+            values = []
+            for source in sources:
+                if source.get("type") not in asset_types:
+                    continue
+                value = source.get("summary") or source.get("name")
+                if isinstance(value, str) and value and value not in values:
+                    values.append(value)
+            rules.append({"key": key, "value": values[:4] if values else ["to_be_confirmed"]})
+        return rules
+
     def _has_duplicate_recipe(self, selected_ids: list[str], threshold: float = 0.8) -> bool:
         for recipe in self.list_recipes(limit=None):
             recipe_ids = [relation["asset_id"] for relation in self.list_recipe_assets(recipe_id=recipe["id"])]
@@ -2278,6 +2462,7 @@ class AetherStore:
             "summary": "Suggested from a successful generation using multiple reusable visual assets.",
             "use_cases": ["post-generation reuse"],
             "required_asset_types": sorted({asset["type"] for asset in selected_assets}),
+            "composition_rules": self._recipe_composition_rules_from_assets(selected_assets),
             "recommended_aspect_ratios": [run.get("skill_params", {}).get("aspectRatio")]
             if run.get("skill_params", {}).get("aspectRatio")
             else [],
@@ -2302,6 +2487,87 @@ class AetherStore:
             "status": "pending",
         }
 
+    def _recipe_composition_rules_from_assets(self, selected_assets: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        rules: list[dict[str, Any]] = []
+        role_values = [f"{asset['type']}: {asset['name']}" for asset in selected_assets]
+        if role_values:
+            rules.append(
+                {
+                    "key": "asset_roles",
+                    "value": role_values,
+                    "reason": "selected assets were used together in a successful generation",
+                }
+            )
+        type_names = {
+            asset_type: [asset["name"] for asset in selected_assets if asset["type"] == asset_type]
+            for asset_type in {asset["type"] for asset in selected_assets}
+        }
+        if any(asset_type in type_names for asset_type in ("style", "texture", "shape_line")):
+            rules.append(
+                {
+                    "key": "style_application",
+                    "value": [
+                        f"{asset_type}: {', '.join(type_names[asset_type])}"
+                        for asset_type in ("style", "texture", "shape_line")
+                        if asset_type in type_names
+                    ],
+                    "reason": "style-facing assets define how the recipe should be rendered",
+                }
+            )
+        if any(asset_type in type_names for asset_type in ("color_palette", "lighting")):
+            rules.append(
+                {
+                    "key": "palette_lighting_binding",
+                    "value": [
+                        f"{asset_type}: {', '.join(type_names[asset_type])}"
+                        for asset_type in ("color_palette", "lighting")
+                        if asset_type in type_names
+                    ],
+                    "reason": "palette and lighting assets should be applied together",
+                }
+            )
+        if any(asset_type in type_names for asset_type in ("composition", "camera")):
+            rules.append(
+                {
+                    "key": "composition_camera_binding",
+                    "value": [
+                        f"{asset_type}: {', '.join(type_names[asset_type])}"
+                        for asset_type in ("composition", "camera")
+                        if asset_type in type_names
+                    ],
+                    "reason": "composition and camera assets define framing behavior",
+                }
+            )
+        if any(asset_type in type_names for asset_type in ("character", "scene", "prop_symbol")):
+            rules.append(
+                {
+                    "key": "subject_scene_binding",
+                    "value": [
+                        f"{asset_type}: {', '.join(type_names[asset_type])}"
+                        for asset_type in ("character", "scene", "prop_symbol")
+                        if asset_type in type_names
+                    ],
+                    "reason": "subject, scene, and symbolic assets define content binding",
+                }
+            )
+        if "mood" in type_names:
+            rules.append(
+                {
+                    "key": "mood_tone_binding",
+                    "value": type_names["mood"],
+                    "reason": "mood assets constrain the recipe tone",
+                }
+            )
+        if "negative_rule" in type_names:
+            rules.append(
+                {
+                    "key": "negative_constraints",
+                    "value": type_names["negative_rule"],
+                    "reason": "negative assets should be treated as recipe-level avoid constraints",
+                }
+            )
+        return rules
+
     def _generation_visual_system_candidate_payload(
         self,
         run: dict[str, Any],
@@ -2325,7 +2591,7 @@ class AetherStore:
             "name": f"Generated System: {anchor['name']}",
             "summary": "Suggested from a high-value generation that shows reusable higher-level visual consistency.",
             "tags": sorted(asset_types),
-            "visual_rules": [asset["summary"] for asset in selected_assets if asset.get("summary")][:6],
+            "visual_rules": self._visual_system_rules_from_sources(system_kind, selected_assets),
             "avoid_rules": [run.get("negative_prompt", "")] if run.get("negative_prompt") else [],
             "existing_asset_relations": [
                 {
@@ -2512,6 +2778,7 @@ class AetherStore:
             "parent_system_ids": json_loads(row["parent_system_ids_json"], []),
             "use_cases": json_loads(row["use_cases_json"], []),
             "required_asset_types": json_loads(row["required_asset_types_json"], []),
+            "composition_rules": json_loads(row["composition_rules_json"], []),
             "recommended_aspect_ratios": json_loads(row["recommended_aspect_ratios_json"], []),
             "source_reference_ids": json_loads(row["source_reference_ids_json"], []),
             "confidence": row["confidence"],

@@ -4,6 +4,18 @@
   "parent_system_ids": ["visual_system_oriental_lotus_realm"],
   "use_cases": ["game key art", "storybook spread", "environment encounter"],
   "required_asset_types": ["scene", "style", "color_palette", "composition"],
+  "composition_rules": [
+    {
+      "key": "asset_roles",
+      "value": ["scene anchors the pond encounter", "style controls painterly finish", "palette sets lotus-green warmth"],
+      "reason": "The recipe preserves the source image's reusable role split."
+    },
+    {
+      "key": "composition_camera_binding",
+      "value": ["wide top-down encounter layout"],
+      "reason": "The composition asset should drive framing for this recipe."
+    }
+  ],
   "recommended_aspect_ratios": ["16:9", "21:9"],
   "source_reference_ids": ["asset_reference_lotus_pond"],
   "confidence": 0.65,

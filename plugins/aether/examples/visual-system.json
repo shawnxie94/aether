@@ -4,8 +4,18 @@
   "summary": "A bright oriental fantasy pond world built around lotus leaves, stone platforms, koi, small creatures, and quiet encounters.",
   "tags": ["oriental fantasy", "lotus pond", "storybook"],
   "visual_rules": [
-    "Keep lotus pond, stone, water, foliage, or small magical creature motifs visible.",
-    "Characters should feel integrated into the environment rather than isolated as close-up portraits."
+    {
+      "key": "setting_scope",
+      "value": ["lotus pond", "stone platforms", "water", "foliage", "small magical creatures"]
+    },
+    {
+      "key": "environment_logic",
+      "value": ["characters should feel integrated into the environment rather than isolated as close-up portraits"]
+    },
+    {
+      "key": "tone_atmosphere",
+      "value": ["bright oriental fantasy", "quiet encounters", "storybook calm"]
+    }
   ],
   "avoid_rules": [
     "Avoid modern city objects.",

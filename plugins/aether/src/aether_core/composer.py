@@ -48,6 +48,34 @@ def _tokens(value: str) -> set[str]:
     return {token for token in re.split(r"[^a-zA-Z0-9\u4e00-\u9fff]+", value.lower()) if len(token) >= 2}
 
 
+def _visual_rule_text(rule: Any) -> str:
+    if isinstance(rule, str):
+        return rule
+    if not isinstance(rule, dict):
+        return ""
+    key = rule.get("key")
+    value = rule.get("value")
+    if isinstance(value, list):
+        value_text = ", ".join(str(item) for item in value if item)
+    elif isinstance(value, str):
+        value_text = value
+    else:
+        value_text = ""
+    if not key or not value_text:
+        return ""
+    return f"{key}: {value_text}"
+
+
+def _profile_value_texts(value: Any) -> list[str]:
+    if isinstance(value, dict):
+        return [text for item in value.values() for text in _profile_value_texts(item)]
+    if isinstance(value, list):
+        return [text for item in value for text in _profile_value_texts(item)]
+    if isinstance(value, (str, int, float, bool)):
+        return [str(value)]
+    return []
+
+
 def _asset_text(asset: dict[str, Any]) -> str:
     parts: list[str] = [
         asset.get("name", ""),
@@ -57,7 +85,7 @@ def _asset_text(asset: dict[str, Any]) -> str:
     ]
     profile = asset.get("profile", {})
     if isinstance(profile, dict):
-        parts.extend(str(value) for value in profile.values())
+        parts.extend(text for value in profile.values() for text in _profile_value_texts(value))
     return " ".join(parts)
 
 
@@ -181,6 +209,8 @@ def compose_prompt(
     avoided_asset_ids: set[str] = set()
     system_visual_rules: list[str] = []
     system_avoid_rules: list[str] = []
+    recipe_composition_rules: list[str] = []
+    recipe_negative_rules: list[str] = []
 
     for system_id in system_ids:
         system = store.get_visual_system(system_id)
@@ -196,7 +226,9 @@ def compose_prompt(
                 "reason": "requested visual system",
             }
         )
-        system_visual_rules.extend(str(rule) for rule in system.get("visual_rules", []) if rule)
+        system_visual_rules.extend(
+            text for rule in system.get("visual_rules", []) if (text := _visual_rule_text(rule))
+        )
         system_avoid_rules.extend(str(rule) for rule in system.get("avoid_rules", []) if rule)
         for relation in system.get("assets", []):
             asset_id = relation["asset_id"]
@@ -217,10 +249,19 @@ def compose_prompt(
             {
                 "recipe_id": recipe["id"],
                 "name": recipe["name"],
+                "composition_rules": recipe.get("composition_rules", []),
                 "recommended_aspect_ratios": recipe.get("recommended_aspect_ratios", []),
                 "reason": "requested recipe",
             }
         )
+        for rule in recipe.get("composition_rules", []):
+            text = _visual_rule_text(rule)
+            if not text:
+                continue
+            if isinstance(rule, dict) and rule.get("key") == "negative_constraints":
+                recipe_negative_rules.append(text)
+            else:
+                recipe_composition_rules.append(text)
         for system_id in recipe.get("parent_system_ids", []):
             if system_id not in system_ids:
                 system = store.get_visual_system(system_id)
@@ -235,7 +276,9 @@ def compose_prompt(
                             "reason": f"parent system of recipe {recipe['name']}",
                         }
                     )
-                    system_visual_rules.extend(str(rule) for rule in system.get("visual_rules", []) if rule)
+                    system_visual_rules.extend(
+                        text for rule in system.get("visual_rules", []) if (text := _visual_rule_text(rule))
+                    )
                     system_avoid_rules.extend(str(rule) for rule in system.get("avoid_rules", []) if rule)
                     for relation in system.get("assets", []):
                         asset_id = relation["asset_id"]
@@ -374,6 +417,10 @@ def compose_prompt(
                 composition_plan["system_rules"].append(rule)
     if selected_recipes:
         composition_plan["recipes"] = selected_recipes
+        composition_plan["composition_rules"] = []
+        for rule in recipe_composition_rules:
+            if rule not in composition_plan["composition_rules"]:
+                composition_plan["composition_rules"].append(rule)
     for asset in selected:
         key = PLAN_KEYS.get(asset["type"], asset["type"])
         summary = asset.get("summary") or asset.get("name", "")
@@ -386,9 +433,15 @@ def compose_prompt(
     for fragment in system_visual_rules:
         if fragment not in refined_parts:
             refined_parts.append(fragment)
+    for fragment in recipe_composition_rules:
+        if fragment not in refined_parts:
+            refined_parts.append(fragment)
     refined_parts.extend(fragment for fragment in prompt_fragments if fragment not in refined_parts)
     negative_parts = []
     for fragment in system_avoid_rules:
+        if fragment not in negative_parts:
+            negative_parts.append(fragment)
+    for fragment in recipe_negative_rules:
         if fragment not in negative_parts:
             negative_parts.append(fragment)
     for fragment in negative_fragments:

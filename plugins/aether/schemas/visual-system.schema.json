@@ -3,6 +3,46 @@
   "title": "Aether Visual System",
   "type": "object",
   "required": ["kind", "name"],
+  "definitions": {
+    "visualRule": {
+      "type": "object",
+      "required": ["key", "value"],
+      "properties": {
+        "key": {
+          "type": "string",
+          "enum": [
+            "setting_scope",
+            "environment_logic",
+            "culture_symbols",
+            "technology_magic_rules",
+            "recurring_motifs",
+            "tone_atmosphere",
+            "genre_conventions",
+            "subject_scope",
+            "palette_lighting",
+            "composition_pacing",
+            "rendering_expectations",
+            "genre_boundaries",
+            "series_identity",
+            "character_continuity",
+            "location_continuity",
+            "continuity_rules",
+            "medium",
+            "rendering",
+            "color_lighting",
+            "composition_language",
+            "material_brush_edge",
+            "subject_aesthetic"
+          ]
+        },
+        "value": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "reason": {"type": "string"}
+      }
+    }
+  },
   "properties": {
     "id": {"type": "string"},
     "kind": {
@@ -12,7 +52,11 @@
     "name": {"type": "string"},
     "summary": {"type": "string"},
     "tags": {"type": "array", "items": {"type": "string"}},
-    "visual_rules": {"type": "array", "items": {"type": "string"}},
+    "visual_rules": {
+      "type": "array",
+      "items": {"$ref": "#/definitions/visualRule"},
+      "description": "Stable visual system constraints as key/value rule objects. Use kind-specific keys."
+    },
     "avoid_rules": {"type": "array", "items": {"type": "string"}},
     "source_reference_ids": {"type": "array", "items": {"type": "string"}},
     "metadata": {"type": "object"},

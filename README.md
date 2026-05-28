@@ -44,10 +44,18 @@ aether visual-asset candidates decide asset_candidate_example new_asset
 aether visual-asset candidates decide asset_candidate_example asset_variant --target-asset-id visual_asset_parent
 aether visual-asset candidates decide asset_candidate_example existing_asset --target-asset-id visual_asset_existing
 aether visual-asset candidates decide asset_candidate_example ignore
+aether visual-asset candidates decide asset_candidate_example ignore --cleanup
+aether visual-asset candidates cleanup --status ignored
 aether visual-asset candidates confirm-batch candidate_batch_example
 aether recipe candidates list --batch-id candidate_batch_example
+aether recipe candidates ignore recipe_candidate_example
+aether recipe candidates ignore recipe_candidate_example --cleanup
+aether recipe candidates cleanup --status ignored
 aether recipe candidates confirm recipe_candidate_example
 aether visual-system candidates list --batch-id candidate_batch_example
+aether visual-system candidates ignore system_candidate_example
+aether visual-system candidates ignore system_candidate_example --cleanup
+aether visual-system candidates cleanup --status ignored
 aether visual-system candidates confirm system_candidate_example
 ```
 

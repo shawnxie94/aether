@@ -36,6 +36,13 @@
       "summary": "A source-derived recipe for rainy neon night scenes.",
       "use_cases": ["rainy city scene", "night key art"],
       "required_asset_types": ["lighting"],
+      "composition_rules": [
+        {
+          "key": "palette_lighting_binding",
+          "value": ["neon signage lighting should reflect on wet asphalt"],
+          "reason": "The recipe is only useful when lighting and surface reflection stay bound."
+        }
+      ],
       "recommended_aspect_ratios": ["16:9", "3:4"],
       "source_reference_ids": [],
       "recipe_assets": [
@@ -58,7 +65,14 @@
       "summary": "Suggested higher-level visual system from source-derived rainy neon assets and related existing assets.",
       "tags": ["lighting", "night", "rain"],
       "visual_rules": [
-        "Keep rainy night reflections and neon rim lighting as stable visual anchors."
+        {
+          "key": "color_lighting",
+          "value": ["rainy night reflections", "neon rim lighting"]
+        },
+        {
+          "key": "composition_language",
+          "value": ["wet reflective street depth"]
+        }
       ],
       "avoid_rules": [
         "Avoid dry daylight scenes when preserving this visual system."

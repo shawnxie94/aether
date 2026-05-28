@@ -144,6 +144,7 @@ def recipe_summary(recipe: dict[str, Any]) -> dict[str, Any]:
         "parent_system_ids": recipe.get("parent_system_ids", []),
         "use_cases": recipe.get("use_cases", []),
         "required_asset_types": recipe.get("required_asset_types", []),
+        "composition_rule_count": len(recipe.get("composition_rules", [])),
         "recommended_aspect_ratios": recipe.get("recommended_aspect_ratios", []),
         "confidence": recipe.get("confidence"),
         "source": recipe.get("source"),
@@ -224,7 +225,32 @@ def cmd_visual_asset_candidate_get(args: argparse.Namespace) -> None:
 
 def cmd_visual_asset_candidate_decide(args: argparse.Namespace) -> None:
     _, store = _store()
-    dump_json(store.decide_visual_asset_candidate(args.candidate_id, args.decision, args.target_asset_id))
+    candidate = store.decide_visual_asset_candidate(args.candidate_id, args.decision, args.target_asset_id)
+    if getattr(args, "cleanup", False):
+        if args.decision != "ignore":
+            raise SystemExit("--cleanup is only supported when decision is ignore")
+        dump_json({"ignored": candidate, "deleted": store.delete_visual_asset_candidate(args.candidate_id)})
+        return
+    dump_json(candidate)
+
+
+def cmd_visual_asset_candidate_ignore(args: argparse.Namespace) -> None:
+    _, store = _store()
+    candidate = store.ignore_visual_asset_candidate(args.candidate_id)
+    if args.cleanup:
+        dump_json({"ignored": candidate, "deleted": store.delete_visual_asset_candidate(args.candidate_id)})
+        return
+    dump_json(candidate)
+
+
+def cmd_visual_asset_candidate_delete(args: argparse.Namespace) -> None:
+    _, store = _store()
+    dump_json(store.delete_visual_asset_candidate(args.candidate_id))
+
+
+def cmd_visual_asset_candidates_cleanup(args: argparse.Namespace) -> None:
+    _, store = _store()
+    dump_json(store.cleanup_visual_asset_candidates(status=args.status, batch_id=args.batch_id))
 
 
 def cmd_visual_asset_candidates_confirm_batch(args: argparse.Namespace) -> None:
@@ -301,6 +327,25 @@ def cmd_visual_system_candidate_confirm(args: argparse.Namespace) -> None:
     dump_json(store.confirm_visual_system_candidate(args.candidate_id))
 
 
+def cmd_visual_system_candidate_ignore(args: argparse.Namespace) -> None:
+    _, store = _store()
+    candidate = store.ignore_visual_system_candidate(args.candidate_id)
+    if args.cleanup:
+        dump_json({"ignored": candidate, "deleted": store.delete_visual_system_candidate(args.candidate_id)})
+        return
+    dump_json(candidate)
+
+
+def cmd_visual_system_candidate_delete(args: argparse.Namespace) -> None:
+    _, store = _store()
+    dump_json(store.delete_visual_system_candidate(args.candidate_id))
+
+
+def cmd_visual_system_candidates_cleanup(args: argparse.Namespace) -> None:
+    _, store = _store()
+    dump_json(store.cleanup_visual_system_candidates(status=args.status, batch_id=args.batch_id))
+
+
 def cmd_recipe_create(args: argparse.Namespace) -> None:
     _, store = _store()
     dump_json(store.create_recipe(read_json_arg(args.json)))
@@ -352,6 +397,25 @@ def cmd_recipe_candidate_get(args: argparse.Namespace) -> None:
 def cmd_recipe_candidate_confirm(args: argparse.Namespace) -> None:
     _, store = _store()
     dump_json(store.confirm_recipe_candidate(args.candidate_id, parent_system_ids=args.system_id))
+
+
+def cmd_recipe_candidate_ignore(args: argparse.Namespace) -> None:
+    _, store = _store()
+    candidate = store.ignore_recipe_candidate(args.candidate_id)
+    if args.cleanup:
+        dump_json({"ignored": candidate, "deleted": store.delete_recipe_candidate(args.candidate_id)})
+        return
+    dump_json(candidate)
+
+
+def cmd_recipe_candidate_delete(args: argparse.Namespace) -> None:
+    _, store = _store()
+    dump_json(store.delete_recipe_candidate(args.candidate_id))
+
+
+def cmd_recipe_candidates_cleanup(args: argparse.Namespace) -> None:
+    _, store = _store()
+    dump_json(store.cleanup_recipe_candidates(status=args.status, batch_id=args.batch_id))
 
 
 def cmd_asset_ingest(args: argparse.Namespace) -> None:
@@ -589,7 +653,19 @@ def build_parser() -> argparse.ArgumentParser:
     visual_asset_candidate_decide.add_argument("candidate_id")
     visual_asset_candidate_decide.add_argument("decision", choices=["existing_asset", "asset_variant", "new_asset", "ignore"])
     visual_asset_candidate_decide.add_argument("--target-asset-id")
+    visual_asset_candidate_decide.add_argument("--cleanup", action="store_true")
     visual_asset_candidate_decide.set_defaults(func=cmd_visual_asset_candidate_decide)
+    visual_asset_candidate_ignore = visual_asset_candidates_sub.add_parser("ignore")
+    visual_asset_candidate_ignore.add_argument("candidate_id")
+    visual_asset_candidate_ignore.add_argument("--cleanup", action="store_true")
+    visual_asset_candidate_ignore.set_defaults(func=cmd_visual_asset_candidate_ignore)
+    visual_asset_candidate_delete = visual_asset_candidates_sub.add_parser("delete")
+    visual_asset_candidate_delete.add_argument("candidate_id")
+    visual_asset_candidate_delete.set_defaults(func=cmd_visual_asset_candidate_delete)
+    visual_asset_candidates_cleanup = visual_asset_candidates_sub.add_parser("cleanup")
+    visual_asset_candidates_cleanup.add_argument("--status", choices=["ignored"], default="ignored")
+    visual_asset_candidates_cleanup.add_argument("--batch-id")
+    visual_asset_candidates_cleanup.set_defaults(func=cmd_visual_asset_candidates_cleanup)
     visual_asset_candidates_confirm_batch = visual_asset_candidates_sub.add_parser("confirm-batch")
     visual_asset_candidates_confirm_batch.add_argument("batch_id")
     visual_asset_candidates_confirm_batch.set_defaults(func=cmd_visual_asset_candidates_confirm_batch)
@@ -637,6 +713,17 @@ def build_parser() -> argparse.ArgumentParser:
     visual_system_candidate_confirm = visual_system_candidates_sub.add_parser("confirm")
     visual_system_candidate_confirm.add_argument("candidate_id")
     visual_system_candidate_confirm.set_defaults(func=cmd_visual_system_candidate_confirm)
+    visual_system_candidate_ignore = visual_system_candidates_sub.add_parser("ignore")
+    visual_system_candidate_ignore.add_argument("candidate_id")
+    visual_system_candidate_ignore.add_argument("--cleanup", action="store_true")
+    visual_system_candidate_ignore.set_defaults(func=cmd_visual_system_candidate_ignore)
+    visual_system_candidate_delete = visual_system_candidates_sub.add_parser("delete")
+    visual_system_candidate_delete.add_argument("candidate_id")
+    visual_system_candidate_delete.set_defaults(func=cmd_visual_system_candidate_delete)
+    visual_system_candidates_cleanup = visual_system_candidates_sub.add_parser("cleanup")
+    visual_system_candidates_cleanup.add_argument("--status", choices=["ignored"], default="ignored")
+    visual_system_candidates_cleanup.add_argument("--batch-id")
+    visual_system_candidates_cleanup.set_defaults(func=cmd_visual_system_candidates_cleanup)
 
     recipe = sub.add_parser("recipe")
     recipe_sub = recipe.add_subparsers(required=True)
@@ -674,6 +761,17 @@ def build_parser() -> argparse.ArgumentParser:
     recipe_candidate_confirm.add_argument("candidate_id")
     recipe_candidate_confirm.add_argument("--system-id", action="append")
     recipe_candidate_confirm.set_defaults(func=cmd_recipe_candidate_confirm)
+    recipe_candidate_ignore = recipe_candidates_sub.add_parser("ignore")
+    recipe_candidate_ignore.add_argument("candidate_id")
+    recipe_candidate_ignore.add_argument("--cleanup", action="store_true")
+    recipe_candidate_ignore.set_defaults(func=cmd_recipe_candidate_ignore)
+    recipe_candidate_delete = recipe_candidates_sub.add_parser("delete")
+    recipe_candidate_delete.add_argument("candidate_id")
+    recipe_candidate_delete.set_defaults(func=cmd_recipe_candidate_delete)
+    recipe_candidates_cleanup = recipe_candidates_sub.add_parser("cleanup")
+    recipe_candidates_cleanup.add_argument("--status", choices=["ignored"], default="ignored")
+    recipe_candidates_cleanup.add_argument("--batch-id")
+    recipe_candidates_cleanup.set_defaults(func=cmd_recipe_candidates_cleanup)
 
     asset = sub.add_parser("asset")
     asset_sub = asset.add_subparsers(required=True)

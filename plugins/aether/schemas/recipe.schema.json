@@ -3,6 +3,32 @@
   "title": "Aether Recipe",
   "type": "object",
   "required": ["name"],
+  "definitions": {
+    "compositionRule": {
+      "type": "object",
+      "required": ["key", "value"],
+      "properties": {
+        "key": {
+          "type": "string",
+          "enum": [
+            "asset_roles",
+            "layering_order",
+            "subject_scene_binding",
+            "style_application",
+            "palette_lighting_binding",
+            "composition_camera_binding",
+            "mood_tone_binding",
+            "negative_constraints"
+          ]
+        },
+        "value": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "reason": {"type": "string"}
+      }
+    }
+  },
   "properties": {
     "id": {"type": "string"},
     "name": {"type": "string"},
@@ -28,6 +54,10 @@
           "negative_rule"
         ]
       }
+    },
+    "composition_rules": {
+      "type": "array",
+      "items": {"$ref": "#/definitions/compositionRule"}
     },
     "recommended_aspect_ratios": {"type": "array", "items": {"type": "string"}},
     "source_reference_ids": {"type": "array", "items": {"type": "string"}},

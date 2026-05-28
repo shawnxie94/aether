@@ -3,6 +3,7 @@ import unittest
 from pathlib import Path
 
 from aether_core.storage import AetherStore
+from aether_core.validation import ValidationError
 
 
 class StorageTests(unittest.TestCase):
@@ -19,8 +20,8 @@ class StorageTests(unittest.TestCase):
                     "tags": ["neon", "cinematic"],
                     "status": "active",
                     "profile": {
-                        "art_style": "cinematic cyberpunk",
-                        "lighting": "neon rim light",
+                        "medium": "cinematic photo",
+                        "rendering": "cyberpunk",
                     },
                 }
             )
@@ -197,6 +198,15 @@ class StorageTests(unittest.TestCase):
             self.assertTrue(asset["id"].startswith("visual_asset_"))
             self.assertEqual(store.get_visual_asset(asset["id"])["name"], "Rainy Neon Reflection")
 
+            with self.assertRaises(ValidationError):
+                store.create_visual_asset(
+                    {
+                        "type": "lighting",
+                        "name": "Invalid Lighting Profile",
+                        "profile": {"medium": "watercolor"},
+                    }
+                )
+
             active = store.update_visual_asset_status(asset["id"], "active")
             self.assertEqual(active["status"], "active")
             self.assertEqual(len(store.list_visual_assets(asset_type="lighting", status="active")), 1)
@@ -306,7 +316,9 @@ class StorageTests(unittest.TestCase):
                     "kind": "genre",
                     "name": "Oil Pastel Daily Anime",
                     "summary": "handmade anime illustration system",
-                    "visual_rules": ["preserve tactile paper"],
+                    "visual_rules": [
+                        {"key": "rendering_expectations", "value": ["preserve tactile paper"]},
+                    ],
                     "assets": [
                         {
                             "asset_id": style["id"],
@@ -331,6 +343,13 @@ class StorageTests(unittest.TestCase):
                     "name": "Oil Pastel Character",
                     "parent_system_ids": [system["id"]],
                     "required_asset_types": ["style", "texture"],
+                    "composition_rules": [
+                        {
+                            "key": "style_application",
+                            "value": ["apply oil pastel style over paper grain"],
+                            "reason": "style and texture must stay bound",
+                        }
+                    ],
                     "recommended_aspect_ratios": ["4:3"],
                     "assets": [
                         {
@@ -348,7 +367,16 @@ class StorageTests(unittest.TestCase):
                 }
             )
             self.assertEqual(store.list_recipes(system_id=system["id"])[0]["id"], recipe["id"])
+            self.assertEqual(recipe["composition_rules"][0]["key"], "style_application")
             self.assertEqual(len(store.get_recipe(recipe["id"])["assets"]), 2)
+
+            with self.assertRaises(ValidationError):
+                store.create_recipe(
+                    {
+                        "name": "Invalid Rule Recipe",
+                        "composition_rules": [{"key": "medium", "value": ["not a recipe rule"]}],
+                    }
+                )
 
             batch = store.create_visual_asset_candidate_batch(
                 {
@@ -365,6 +393,12 @@ class StorageTests(unittest.TestCase):
                         {
                             "name": "Fantasy Source Recipe",
                             "required_asset_types": ["style"],
+                            "composition_rules": [
+                                {
+                                    "key": "asset_roles",
+                                    "value": ["style: Loose Gouache Fantasy"],
+                                }
+                            ],
                             "recipe_assets": [
                                 {
                                     "candidate_asset_id": "candidate_style",
@@ -386,6 +420,57 @@ class StorageTests(unittest.TestCase):
             confirmed_recipe = confirmed["recipe"]
             self.assertEqual(confirmed_recipe["assets"][0]["asset_id"], decided["confirmed_asset_id"])
             self.assertEqual(confirmed_recipe["assets"][0]["role"], "core")
+            self.assertEqual(confirmed_recipe["composition_rules"][0]["key"], "asset_roles")
+
+    def test_candidate_ignore_delete_and_cleanup(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = AetherStore(Path(temp_dir) / "aether.sqlite")
+            store.init()
+
+            batch = store.create_visual_asset_candidate_batch(
+                {
+                    "candidate_assets": [
+                        {
+                            "id": "candidate_palette",
+                            "type": "color_palette",
+                            "name": "Unused Palette",
+                            "summary": "temporary palette",
+                        }
+                    ],
+                    "recipe_candidates": [{"id": "recipe_candidate_unused", "name": "Unused Recipe"}],
+                    "visual_system_candidates": [
+                        {
+                            "id": "system_candidate_unused",
+                            "kind": "art_direction",
+                            "name": "Unused System",
+                        }
+                    ],
+                }
+            )
+
+            self.assertEqual(store.ignore_visual_asset_candidate("candidate_palette")["status"], "ignored")
+            self.assertEqual(store.ignore_recipe_candidate("recipe_candidate_unused")["status"], "ignored")
+            self.assertEqual(store.ignore_visual_system_candidate("system_candidate_unused")["status"], "ignored")
+
+            self.assertEqual(store.cleanup_visual_asset_candidates(batch_id=batch["batch_id"])["deleted_count"], 1)
+            self.assertEqual(store.cleanup_recipe_candidates(batch_id=batch["batch_id"])["deleted_count"], 1)
+            self.assertEqual(store.cleanup_visual_system_candidates(batch_id=batch["batch_id"])["deleted_count"], 1)
+            self.assertIsNone(store.get_visual_asset_candidate("candidate_palette"))
+            self.assertIsNone(store.get_recipe_candidate("recipe_candidate_unused"))
+            self.assertIsNone(store.get_visual_system_candidate("system_candidate_unused"))
+
+            pending = store.create_visual_system_candidate(
+                {"id": "system_candidate_pending", "kind": "art_direction", "name": "Pending System"}
+            )
+            self.assertEqual(store.delete_visual_system_candidate(pending["id"])["id"], pending["id"])
+            self.assertIsNone(store.get_visual_system_candidate(pending["id"]))
+
+            confirmed = store.create_visual_system_candidate(
+                {"id": "system_candidate_confirmed", "kind": "art_direction", "name": "Confirmed System"}
+            )
+            store.confirm_visual_system_candidate(confirmed["id"])
+            with self.assertRaises(ValueError):
+                store.delete_visual_system_candidate(confirmed["id"])
 
     def test_auto_recipe_slug_uses_unique_suffix_without_overwriting(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -582,6 +667,50 @@ class StorageTests(unittest.TestCase):
                 parent_system_ids=[confirmed_system["confirmed_system_id"]],
             )
             self.assertIn(confirmed_system["confirmed_system_id"], confirmed_recipe["recipe"]["parent_system_ids"])
+
+    def test_art_direction_suggestion_uses_fixed_visual_rule_categories(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = AetherStore(Path(temp_dir) / "aether.sqlite")
+            store.init()
+
+            batch = store.create_visual_asset_candidate_batch(
+                {
+                    "candidate_assets": [
+                        {
+                            "type": "color_palette",
+                            "name": "Pastel Sky",
+                            "summary": "clear pastel sky bands",
+                        },
+                        {
+                            "type": "lighting",
+                            "name": "Transparent Backlight",
+                            "summary": "bright transparent backlight",
+                        },
+                        {
+                            "type": "composition",
+                            "name": "Open Aerial Depth",
+                            "summary": "wide open aerial depth",
+                        },
+                    ]
+                }
+            )
+
+            system_candidate = batch["visual_system_candidates"][0]
+            payload = system_candidate["payload"]
+            self.assertEqual(payload["kind"], "art_direction")
+            self.assertEqual(
+                [rule["key"] for rule in payload["visual_rules"]],
+                [
+                    "medium",
+                    "rendering",
+                    "color_lighting",
+                    "composition_language",
+                    "material_brush_edge",
+                    "subject_aesthetic",
+                ],
+            )
+            self.assertIn("clear pastel sky bands", payload["visual_rules"][2]["value"])
+            self.assertIn("wide open aerial depth", payload["visual_rules"][3]["value"])
 
     def test_liked_feedback_triggers_generation_reuse_suggestion(self):
         with tempfile.TemporaryDirectory() as temp_dir:

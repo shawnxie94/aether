@@ -36,6 +36,150 @@ VISUAL_SYSTEM_KINDS = {
     "art_direction",
 }
 
+VISUAL_ASSET_PROFILE_KEYS_BY_TYPE = {
+    "style": {
+        "medium",
+        "rendering",
+        "finish",
+        "edge_treatment",
+        "detail_density",
+        "reference_family",
+    },
+    "color_palette": {
+        "dominant_colors",
+        "accent_colors",
+        "saturation",
+        "contrast",
+        "temperature",
+        "color_relationship",
+    },
+    "lighting": {
+        "light_source",
+        "direction",
+        "intensity",
+        "contrast",
+        "atmosphere",
+        "surface_interaction",
+    },
+    "composition": {
+        "framing",
+        "subject_scale",
+        "layout",
+        "depth",
+        "negative_space",
+        "focal_hierarchy",
+    },
+    "camera": {
+        "shot_type",
+        "angle",
+        "lens_feel",
+        "depth_of_field",
+        "movement",
+        "perspective",
+    },
+    "mood": {
+        "emotional_tone",
+        "atmosphere",
+        "pacing",
+        "tension",
+        "sensory_cues",
+    },
+    "scene": {
+        "setting_type",
+        "environment_elements",
+        "spatial_layout",
+        "era_culture",
+        "weather_atmosphere",
+        "scale",
+    },
+    "texture": {
+        "material",
+        "surface_quality",
+        "pattern",
+        "granularity",
+        "edge_behavior",
+        "finish",
+    },
+    "character": {
+        "silhouette",
+        "anatomy",
+        "costume",
+        "expression",
+        "pose_language",
+        "identity_markers",
+    },
+    "prop_symbol": {
+        "object_type",
+        "symbolic_meaning",
+        "shape_language",
+        "material",
+        "placement",
+        "recurrence",
+    },
+    "shape_line": {
+        "line_quality",
+        "shape_language",
+        "contour",
+        "rhythm",
+        "geometry",
+        "edge_treatment",
+    },
+    "negative_rule": {
+        "avoid_subjects",
+        "avoid_styles",
+        "avoid_colors_lighting",
+        "avoid_composition",
+        "avoid_artifacts",
+        "reason",
+    },
+}
+
+VISUAL_RULE_KEYS_BY_KIND = {
+    "worldview": {
+        "setting_scope",
+        "environment_logic",
+        "culture_symbols",
+        "technology_magic_rules",
+        "recurring_motifs",
+        "tone_atmosphere",
+    },
+    "genre": {
+        "genre_conventions",
+        "subject_scope",
+        "palette_lighting",
+        "composition_pacing",
+        "rendering_expectations",
+        "genre_boundaries",
+    },
+    "series": {
+        "series_identity",
+        "character_continuity",
+        "location_continuity",
+        "recurring_motifs",
+        "palette_lighting",
+        "continuity_rules",
+    },
+    "art_direction": {
+        "medium",
+        "rendering",
+        "color_lighting",
+        "composition_language",
+        "material_brush_edge",
+        "subject_aesthetic",
+    },
+}
+
+COMPOSITION_RULE_KEYS = {
+    "asset_roles",
+    "layering_order",
+    "subject_scene_binding",
+    "style_application",
+    "palette_lighting_binding",
+    "composition_camera_binding",
+    "mood_tone_binding",
+    "negative_constraints",
+}
+
 RELATION_ROLES = {
     "core",
     "optional",
@@ -70,6 +214,7 @@ def validate_visual_asset(payload: dict[str, Any]) -> None:
         raise ValidationError("Field tags must be a list")
     if "profile" in payload and not isinstance(payload["profile"], dict):
         raise ValidationError("Field profile must be a dict")
+    validate_visual_asset_profile(payload.get("profile", {}), payload["type"])
     for field in [
         "source_references",
         "prompt_fragments",
@@ -130,6 +275,7 @@ def validate_visual_asset_candidate(payload: dict[str, Any]) -> None:
             raise ValidationError(f"Field {field} must be a list")
     if "profile" in payload and not isinstance(payload["profile"], dict):
         raise ValidationError("Field profile must be a dict")
+    validate_visual_asset_profile(payload.get("profile", {}), payload["type"])
 
 
 def validate_visual_system(payload: dict[str, Any]) -> None:
@@ -140,8 +286,43 @@ def validate_visual_system(payload: dict[str, Any]) -> None:
     for field in ["tags", "visual_rules", "avoid_rules", "source_reference_ids"]:
         if field in payload and not isinstance(payload[field], list):
             raise ValidationError(f"Field {field} must be a list")
+    for rule in payload.get("visual_rules", []):
+        validate_key_value_rule(
+            rule,
+            VISUAL_RULE_KEYS_BY_KIND[payload["kind"]],
+            f"visual_rules.key for {payload['kind']}",
+        )
     if "metadata" in payload and not isinstance(payload["metadata"], dict):
         raise ValidationError("Field metadata must be a dict")
+
+
+def validate_visual_asset_profile(profile: dict[str, Any], asset_type: str) -> None:
+    allowed_keys = VISUAL_ASSET_PROFILE_KEYS_BY_TYPE[asset_type]
+    for key, value in profile.items():
+        if key not in allowed_keys:
+            raise ValidationError(
+                f"Field profile key for {asset_type} must be one of: {', '.join(sorted(allowed_keys))}"
+            )
+        if isinstance(value, list):
+            for item in value:
+                if not isinstance(item, (str, int, float, bool)):
+                    raise ValidationError("Each profile list value must be a string, number, or boolean")
+        elif not isinstance(value, (str, int, float, bool)):
+            raise ValidationError("Each profile value must be a string, number, boolean, or list")
+
+
+def validate_key_value_rule(rule: Any, allowed_keys: set[str], field_name: str) -> None:
+    if not isinstance(rule, dict):
+        raise ValidationError(f"Each {field_name.rsplit('.', 1)[0]} item must be an object with key and value")
+    _require(rule, "key", str)
+    _require(rule, "value", list)
+    if rule["key"] not in allowed_keys:
+        raise ValidationError(f"Field {field_name} must be one of: {', '.join(sorted(allowed_keys))}")
+    for value in rule["value"]:
+        if not isinstance(value, str):
+            raise ValidationError(f"Each {field_name.rsplit('.', 1)[0]}.value item must be a string")
+    if "reason" in rule and not isinstance(rule["reason"], str):
+        raise ValidationError(f"Field {field_name.rsplit('.', 1)[0]}.reason must be a string")
 
 
 def validate_asset_relation(payload: dict[str, Any]) -> None:
@@ -160,6 +341,7 @@ def validate_recipe(payload: dict[str, Any]) -> None:
         "required_asset_types",
         "recommended_aspect_ratios",
         "source_reference_ids",
+        "composition_rules",
     ]:
         if field in payload and not isinstance(payload[field], list):
             raise ValidationError(f"Field {field} must be a list")
@@ -168,6 +350,8 @@ def validate_recipe(payload: dict[str, Any]) -> None:
     for asset_type in payload.get("required_asset_types", []):
         if asset_type not in VISUAL_ASSET_TYPES:
             raise ValidationError(f"Field required_asset_types contains unsupported type: {asset_type}")
+    for rule in payload.get("composition_rules", []):
+        validate_key_value_rule(rule, COMPOSITION_RULE_KEYS, "composition_rules.key")
 
 
 def validate_recipe_asset(payload: dict[str, Any]) -> None:

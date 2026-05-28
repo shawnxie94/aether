@@ -3,6 +3,168 @@
   "title": "Aether Visual Asset",
   "type": "object",
   "required": ["type", "name"],
+  "definitions": {
+    "profileValue": {
+      "anyOf": [
+        {"type": "string"},
+        {"type": "number"},
+        {"type": "boolean"},
+        {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {"type": "string"},
+              {"type": "number"},
+              {"type": "boolean"}
+            ]
+          }
+        }
+      ]
+    },
+    "styleProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "medium": {"$ref": "#/definitions/profileValue"},
+        "rendering": {"$ref": "#/definitions/profileValue"},
+        "finish": {"$ref": "#/definitions/profileValue"},
+        "edge_treatment": {"$ref": "#/definitions/profileValue"},
+        "detail_density": {"$ref": "#/definitions/profileValue"},
+        "reference_family": {"$ref": "#/definitions/profileValue"}
+      }
+    },
+    "colorPaletteProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "dominant_colors": {"$ref": "#/definitions/profileValue"},
+        "accent_colors": {"$ref": "#/definitions/profileValue"},
+        "saturation": {"$ref": "#/definitions/profileValue"},
+        "contrast": {"$ref": "#/definitions/profileValue"},
+        "temperature": {"$ref": "#/definitions/profileValue"},
+        "color_relationship": {"$ref": "#/definitions/profileValue"}
+      }
+    },
+    "lightingProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "light_source": {"$ref": "#/definitions/profileValue"},
+        "direction": {"$ref": "#/definitions/profileValue"},
+        "intensity": {"$ref": "#/definitions/profileValue"},
+        "contrast": {"$ref": "#/definitions/profileValue"},
+        "atmosphere": {"$ref": "#/definitions/profileValue"},
+        "surface_interaction": {"$ref": "#/definitions/profileValue"}
+      }
+    },
+    "compositionProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "framing": {"$ref": "#/definitions/profileValue"},
+        "subject_scale": {"$ref": "#/definitions/profileValue"},
+        "layout": {"$ref": "#/definitions/profileValue"},
+        "depth": {"$ref": "#/definitions/profileValue"},
+        "negative_space": {"$ref": "#/definitions/profileValue"},
+        "focal_hierarchy": {"$ref": "#/definitions/profileValue"}
+      }
+    },
+    "cameraProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "shot_type": {"$ref": "#/definitions/profileValue"},
+        "angle": {"$ref": "#/definitions/profileValue"},
+        "lens_feel": {"$ref": "#/definitions/profileValue"},
+        "depth_of_field": {"$ref": "#/definitions/profileValue"},
+        "movement": {"$ref": "#/definitions/profileValue"},
+        "perspective": {"$ref": "#/definitions/profileValue"}
+      }
+    },
+    "moodProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "emotional_tone": {"$ref": "#/definitions/profileValue"},
+        "atmosphere": {"$ref": "#/definitions/profileValue"},
+        "pacing": {"$ref": "#/definitions/profileValue"},
+        "tension": {"$ref": "#/definitions/profileValue"},
+        "sensory_cues": {"$ref": "#/definitions/profileValue"}
+      }
+    },
+    "sceneProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "setting_type": {"$ref": "#/definitions/profileValue"},
+        "environment_elements": {"$ref": "#/definitions/profileValue"},
+        "spatial_layout": {"$ref": "#/definitions/profileValue"},
+        "era_culture": {"$ref": "#/definitions/profileValue"},
+        "weather_atmosphere": {"$ref": "#/definitions/profileValue"},
+        "scale": {"$ref": "#/definitions/profileValue"}
+      }
+    },
+    "textureProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "material": {"$ref": "#/definitions/profileValue"},
+        "surface_quality": {"$ref": "#/definitions/profileValue"},
+        "pattern": {"$ref": "#/definitions/profileValue"},
+        "granularity": {"$ref": "#/definitions/profileValue"},
+        "edge_behavior": {"$ref": "#/definitions/profileValue"},
+        "finish": {"$ref": "#/definitions/profileValue"}
+      }
+    },
+    "characterProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "silhouette": {"$ref": "#/definitions/profileValue"},
+        "anatomy": {"$ref": "#/definitions/profileValue"},
+        "costume": {"$ref": "#/definitions/profileValue"},
+        "expression": {"$ref": "#/definitions/profileValue"},
+        "pose_language": {"$ref": "#/definitions/profileValue"},
+        "identity_markers": {"$ref": "#/definitions/profileValue"}
+      }
+    },
+    "propSymbolProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "object_type": {"$ref": "#/definitions/profileValue"},
+        "symbolic_meaning": {"$ref": "#/definitions/profileValue"},
+        "shape_language": {"$ref": "#/definitions/profileValue"},
+        "material": {"$ref": "#/definitions/profileValue"},
+        "placement": {"$ref": "#/definitions/profileValue"},
+        "recurrence": {"$ref": "#/definitions/profileValue"}
+      }
+    },
+    "shapeLineProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "line_quality": {"$ref": "#/definitions/profileValue"},
+        "shape_language": {"$ref": "#/definitions/profileValue"},
+        "contour": {"$ref": "#/definitions/profileValue"},
+        "rhythm": {"$ref": "#/definitions/profileValue"},
+        "geometry": {"$ref": "#/definitions/profileValue"},
+        "edge_treatment": {"$ref": "#/definitions/profileValue"}
+      }
+    },
+    "negativeRuleProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "avoid_subjects": {"$ref": "#/definitions/profileValue"},
+        "avoid_styles": {"$ref": "#/definitions/profileValue"},
+        "avoid_colors_lighting": {"$ref": "#/definitions/profileValue"},
+        "avoid_composition": {"$ref": "#/definitions/profileValue"},
+        "avoid_artifacts": {"$ref": "#/definitions/profileValue"},
+        "reason": {"$ref": "#/definitions/profileValue"}
+      }
+    }
+  },
   "properties": {
     "id": {"type": "string"},
     "type": {
@@ -35,5 +197,19 @@
     "status": {"type": "string"},
     "parent_asset_id": {"type": ["string", "null"]},
     "merged_into_asset_id": {"type": ["string", "null"]}
-  }
+  },
+  "allOf": [
+    {"if": {"properties": {"type": {"const": "style"}}}, "then": {"properties": {"profile": {"$ref": "#/definitions/styleProfile"}}}},
+    {"if": {"properties": {"type": {"const": "color_palette"}}}, "then": {"properties": {"profile": {"$ref": "#/definitions/colorPaletteProfile"}}}},
+    {"if": {"properties": {"type": {"const": "lighting"}}}, "then": {"properties": {"profile": {"$ref": "#/definitions/lightingProfile"}}}},
+    {"if": {"properties": {"type": {"const": "composition"}}}, "then": {"properties": {"profile": {"$ref": "#/definitions/compositionProfile"}}}},
+    {"if": {"properties": {"type": {"const": "camera"}}}, "then": {"properties": {"profile": {"$ref": "#/definitions/cameraProfile"}}}},
+    {"if": {"properties": {"type": {"const": "mood"}}}, "then": {"properties": {"profile": {"$ref": "#/definitions/moodProfile"}}}},
+    {"if": {"properties": {"type": {"const": "scene"}}}, "then": {"properties": {"profile": {"$ref": "#/definitions/sceneProfile"}}}},
+    {"if": {"properties": {"type": {"const": "texture"}}}, "then": {"properties": {"profile": {"$ref": "#/definitions/textureProfile"}}}},
+    {"if": {"properties": {"type": {"const": "character"}}}, "then": {"properties": {"profile": {"$ref": "#/definitions/characterProfile"}}}},
+    {"if": {"properties": {"type": {"const": "prop_symbol"}}}, "then": {"properties": {"profile": {"$ref": "#/definitions/propSymbolProfile"}}}},
+    {"if": {"properties": {"type": {"const": "shape_line"}}}, "then": {"properties": {"profile": {"$ref": "#/definitions/shapeLineProfile"}}}},
+    {"if": {"properties": {"type": {"const": "negative_rule"}}}, "then": {"properties": {"profile": {"$ref": "#/definitions/negativeRuleProfile"}}}}
+  ]
 }

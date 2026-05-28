@@ -60,7 +60,7 @@ aether visual-system get <visual_system_id>
 aether recipe get <recipe_id>
 ```
 
-Present visual systems with `id`, `kind`, `name`, `status`, `summary`, `tags`, source reference count, and updated time. Present recipes with `id`, `name`, `status`, parent system ids, use cases, required asset types, recommended aspect ratios, confidence, source, and updated time.
+Present visual systems with `id`, `kind`, `name`, `status`, `summary`, `tags`, source reference count, and updated time. Present recipes with `id`, `name`, `status`, parent system ids, use cases, required asset types, composition rule count, recommended aspect ratios, confidence, source, and updated time.
 
 4. When the user asks for concrete definition, parameters, prompt recipe, negative prompt, or reference images, load the asset payload:
 
@@ -71,7 +71,7 @@ aether visual-asset get <visual_asset_id>
 Present details in this order:
 
 - name, id, type, status, summary, and tags
-- `profile` as the concrete reusable parameter definition
+- structured `profile` as the concrete reusable parameter definition, using only keys allowed for the asset type
 - `prompt_fragments`
 - `negative_fragments`
 - `compatible_with`
@@ -95,10 +95,18 @@ When the user asks for pending extracted modules or confirmation work:
 aether visual-asset candidates list --status pending --summary
 aether visual-asset candidates get <candidate_id>
 aether visual-asset candidates confirm-batch <batch_id>
+aether visual-asset candidates decide <candidate_id> ignore --cleanup
+aether visual-asset candidates cleanup --status ignored
 aether recipe candidates list --status pending
 aether recipe candidates get <recipe_candidate_id>
+aether recipe candidates ignore <recipe_candidate_id>
+aether recipe candidates ignore <recipe_candidate_id> --cleanup
+aether recipe candidates cleanup --status ignored
 aether visual-system candidates list --status pending
 aether visual-system candidates get <visual_system_candidate_id>
+aether visual-system candidates ignore <visual_system_candidate_id>
+aether visual-system candidates ignore <visual_system_candidate_id> --cleanup
+aether visual-system candidates cleanup --status ignored
 ```
 
 When the user asks why an asset is being recommended or how it has performed:
