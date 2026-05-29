@@ -77,7 +77,7 @@ function preparePersistentMarketplace() {
     copyPath(path.join(packageRoot, "docs"), path.join(persistentMarketplaceRoot, "docs"));
   }
 
-  for (const filename of ["README.md", "README.zh.md", "AGENT.md", "package.json", "LICENSE", "CHANGELOG.md", "CONTRIBUTING.md"]) {
+  for (const filename of ["README.md", "README.en.md", "AGENT.md", "package.json", "LICENSE", "CHANGELOG.md", "CONTRIBUTING.md"]) {
     const source = path.join(packageRoot, filename);
     if (fs.existsSync(source)) {
       fs.copyFileSync(source, path.join(persistentMarketplaceRoot, filename));
