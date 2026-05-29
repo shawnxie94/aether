@@ -14,6 +14,22 @@ Aether turns reference images, prompt ideas, and generated results into reusable
 - **Generation feedback loop:** Record generated results, visual consistency reviews, and user feedback, so later prompts can reuse what worked and avoid known drift.
 - **Natural-language workflow:** Use natural language to complete the full process of capturing, refining, generating, and reusing visual memory.
 
+## Quick Start
+
+Install with npm:
+
+```bash
+npx aether-codex-plugin install
+```
+
+Verify the local installation:
+
+```bash
+aether doctor
+```
+
+Restart Codex after installation, or open a new thread so the plugin skills can reload.
+
 ## Example Results
 
 > The examples use `gpt-image-2`. Results may vary across image models.
@@ -35,22 +51,6 @@ After installation, invoke Aether as a Codex plugin with `@Aether`, or as a skil
 | Refine prompts | <img src="docs/assets/readme/workflow-refine-prompt.png" alt="Prompt refinement workflow screenshot" width="460"> |
 | Generate images | <img src="docs/assets/readme/workflow-generate-image.png" alt="Image generation workflow screenshot" width="460"> |
 | Edit images | <img src="docs/assets/readme/workflow-edit-image.png" alt="Image editing workflow screenshot" width="460"> |
-
-## Installation
-
-Install with npm:
-
-```bash
-npx aether-codex-plugin install
-```
-
-Verify the local installation:
-
-```bash
-aether doctor
-```
-
-Restart Codex after installation, or open a new thread so the plugin skills can reload.
 
 ## License
 

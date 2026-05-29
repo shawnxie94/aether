@@ -1,6 +1,6 @@
 {
   "name": "aether",
-  "version": "0.0.5",
+  "version": "0.1.0",
   "description": "Personal visual asset memory, visual memory browsing, prompt refinement, and explicit image generation workflow plugin for Codex.",
   "author": {
     "name": "Aether"
