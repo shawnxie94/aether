@@ -1,128 +1,165 @@
-# Aether 安装与分享
+# Aether Installation And Sharing
 
-## npm 分享安装
+## npm Installation
 
-推荐把 Aether 作为 npm 包分发。npm 包只是分发层，包内仍保留 Codex marketplace 结构。
+The recommended sharing path is an npm package. The npm package is only a distribution layer; it still contains a Codex marketplace with the Aether plugin inside.
 
-发布后，用户可以运行：
+After publishing, users can run:
 
 ```bash
 npx aether-codex-plugin install
 ```
 
-这个命令会显式执行安装动作：
+The command performs the installation explicitly:
 
-- 将包内置 marketplace 复制到持久目录 `~/.aether/codex-marketplace/aether-codex-plugin`
-- 注册包内置 Codex marketplace
-- 初始化 `~/.aether/data`
-- 写入 `~/.config/aether/config.json`
-- 安装 `aether` CLI 到 `~/.local/bin/aether`
+- copies the bundled marketplace to `~/.aether/codex-marketplace/aether-codex-plugin`
+- registers the marketplace with Codex
+- initializes `~/.aether/data`
+- writes `~/.config/aether/config.json`
+- installs the `aether` CLI shim at `~/.local/bin/aether`
 
-不会使用 npm `postinstall` 自动写用户目录。
+The package does not use npm `postinstall` to write into user directories.
 
-如果只想查看 marketplace 根目录：
+After installation, restart Codex or open a new thread so plugin skills reload. If `aether doctor` is not found, add `~/.local/bin` to `PATH`.
+
+## First Use In Codex
+
+Start with natural language:
+
+```text
+Help me turn these references into reusable visual memory.
+```
+
+Expected result:
+
+- Codex summarizes the reusable visual traits in normal language.
+- Aether stores a pending confirmation batch.
+- Codex asks whether to save the memory as new, attach it to an existing memory, save it as a variant, or ignore one-off details.
+
+For text prompts:
+
+```text
+Refine "a lonely girl walking through a rainy future city" into a generation-ready prompt.
+```
+
+Expected result:
+
+- Codex proposes a refined prompt.
+- It lists key assumptions and image parameters.
+- It asks for confirmation before generating images.
+
+## Marketplace Path Only
+
+If you only want to print the persistent marketplace path:
 
 ```bash
 npx aether-codex-plugin marketplace-path
 ```
 
-这个命令也会刷新持久 marketplace 目录，避免 Codex 指向 `npx` 临时目录。
+This also refreshes the persistent marketplace copy so Codex does not point to an `npx` temporary directory.
 
-## Codex Marketplace 手动安装
+## Manual Codex Marketplace Installation
 
-Aether 仓库本身是一个 Codex marketplace 根目录，入口文件是：
+The repository itself is a Codex marketplace root. Its entry file is:
 
 ```text
 .agents/plugins/marketplace.json
 ```
 
-分享给其他用户时，优先分享完整仓库或发布包，而不是只分享 `plugins/aether` 目录。接收方拿到完整目录后运行：
+Share the full repository or published package rather than only `plugins/aether`. After receiving the full directory, run:
 
 ```bash
 codex plugin marketplace add <aether-marketplace-root>
 ```
 
-其中 `<aether-marketplace-root>` 是包含 `.agents/plugins/marketplace.json` 的目录。安装后在 Codex 插件界面选择 Aether，并开启新的线程让技能重新加载。
+`<aether-marketplace-root>` must be the directory containing `.agents/plugins/marketplace.json`.
 
-如果 marketplace 已添加，更新本地目录后运行：
+After installation, enable Aether in the Codex plugin UI and open a new thread.
+
+If the marketplace already exists and the local directory was updated:
 
 ```bash
 codex plugin marketplace upgrade aether
 ```
 
-## npm 发布包
+## Publishing To npm
 
-从仓库根目录运行：
+From the repository root:
 
 ```bash
 plugins/aether/scripts/package-plugin.sh
 ```
 
-输出：
+Output:
 
 ```text
 dist/aether-codex-plugin-<version>.tgz
 ```
 
-发布到 npm 前先检查包内容：
+Check package contents before publishing:
 
 ```bash
 npm pack --dry-run
 ```
 
-发布：
+Publish:
 
 ```bash
 npm publish
 ```
 
-如果以后改成 scoped package，例如 `@your-scope/aether-codex-plugin`，首次公开发布需要使用 `npm publish --access public`。
+If you switch to a scoped package such as `@your-scope/aether-codex-plugin`, first public publish needs:
 
-## 本地开发 Cache 安装
+```bash
+npm publish --access public
+```
 
-从仓库根目录运行：
+## Local Development Cache Install
+
+From the repository root:
 
 ```bash
 plugins/aether/scripts/install-local.sh
 ```
 
-这个脚本会：
+The script:
 
-- 将 `plugins/aether` 同步到 `~/.codex/plugins/cache/aether/aether/<version>`
-- 生成或迁移用户配置 `~/.aether/codex-plugin/config.json`
-- 建立配置软链 `~/.config/aether/config.json`
-- 安装命令软链 `~/.local/bin/aether`
-- 初始化 `~/.aether/data`
+- syncs `plugins/aether` to `~/.codex/plugins/cache/aether/aether/<version>`
+- creates or migrates `~/.aether/codex-plugin/config.json`
+- creates `~/.config/aether/config.json`
+- installs `~/.local/bin/aether`
+- initializes `~/.aether/data`
 
-如果用户配置已经存在，安装脚本会保留现有配置值，只从包内默认配置补齐缺失字段，并在写入前生成 `config.json.bak`。因此重装不会重置本地的 embedding provider、API key 环境变量名、生成参数或自定义存储路径。
+Existing user config is preserved. Missing fields are filled from the bundled defaults, and a `config.json.bak` backup is written before updates.
 
-这个方式会直接写入本机 Codex cache，适合当前机器快速联调；它不是推荐的插件分享入口。安装后重启 Codex，让插件技能重新加载。
+This path writes directly to the local Codex plugin cache. It is useful for development, but npm install is the recommended sharing path.
 
-## 命令行使用
-
-安装后直接使用：
+## CLI
 
 ```bash
 aether doctor
+aether config show
 aether visual-asset list --summary
 aether prompt compose --source-prompt "a lonely rainy neon city"
 ```
 
-开发仓库根目录也保留 `src -> plugins/aether/src` 软链，因此本地调试仍可使用：
+More examples: [cli.md](cli.md)
+
+Development from the repository root can use:
 
 ```bash
 PYTHONPATH=src python -m aether_core.cli doctor
 ```
 
-## 数据位置
+## Data Locations
 
-用户配置：
+User config:
 
 ```text
 ~/.config/aether/config.json -> ~/.aether/codex-plugin/config.json
 ```
 
-用户数据：
+User data:
 
 ```text
 ~/.aether/data/aether.sqlite
@@ -131,7 +168,7 @@ PYTHONPATH=src python -m aether_core.cli doctor
 ~/.aether/data/runs
 ```
 
-插件 cache：
+Plugin cache:
 
 ```text
 ~/.codex/plugins/cache/aether/aether/<version>

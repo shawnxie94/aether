@@ -1774,7 +1774,7 @@ class AetherStore:
             "compatible_with": payload.get("compatible_with", []),
             "avoid_with": payload.get("avoid_with", []),
             "recommended_aspect_ratios": payload.get("recommended_aspect_ratios", []),
-            "status": payload.get("asset_status", "draft"),
+            "status": payload.get("asset_status", "active"),
         }
 
     def create_visual_asset_evidence(self, asset_id: str, payload: dict[str, Any]) -> dict[str, Any]:

@@ -16,7 +16,7 @@
   "interface": {
     "displayName": "Aether",
     "shortDescription": "Capture and browse visual assets, refine prompts, and record explicit image generations.",
-    "longDescription": "Aether treats reference images plus source prompts as visual-asset-capture inputs by default, turns them into reusable visual assets, lists and inspects existing asset definitions with reference images, refines fuzzy text prompts with Codex, and records generation runs only when the user explicitly asks to create new images.",
+    "longDescription": "Aether helps you keep visual references, style notes, refined prompts, and image-generation history in one place. It turns image references into reusable visual memory, helps refine fuzzy prompts, and only records new image generation when you explicitly ask for it.",
     "developerName": "Aether",
     "category": "Productivity",
     "capabilities": [
@@ -24,11 +24,11 @@
       "Write"
     ],
     "defaultPrompt": [
-      "用 $aether-orchestrator 沉淀这组参考图的可复用视觉素材",
-      "用 $aether-orchestrator 列出现有全部视觉素材并查看参考图",
-      "用 $aether-orchestrator 精修这段生图提示词",
-      "用 $aether-orchestrator 基于精修提示词生成图片并记录",
-      "用 $aether-orchestrator 局部编辑这张已生成图片"
+      "帮我把这组参考图整理成可复用的视觉记忆。 / Help me turn these references into reusable visual memory.",
+      "帮我列出已经保存的视觉记忆，并看看参考图。 / Show my saved visual memories and references.",
+      "帮我把这段模糊的生图提示词精修一下。 / Refine this fuzzy image prompt.",
+      "先帮我精修提示词，我确认后再生成图片并记录。 / Refine first, then generate after I confirm.",
+      "帮我局部修改这张已经生成的图片。 / Edit part of this generated image."
     ],
     "brandColor": "#4F7CAC"
   }

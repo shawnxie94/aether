@@ -575,21 +575,18 @@ class StorageTests(unittest.TestCase):
                             "type": "scene",
                             "name": "Lotus Pond Garden",
                             "summary": "bright lotus pond with koi and stone platforms",
-                            "asset_status": "active",
                         },
                         {
                             "id": "candidate_style",
                             "type": "style",
                             "name": "Painterly Anime Garden",
                             "summary": "bright anime key art with painterly foliage",
-                            "asset_status": "active",
                         },
                         {
                             "id": "candidate_palette",
                             "type": "color_palette",
                             "name": "Amber Lotus Green",
                             "summary": "amber water and lotus green palette",
-                            "asset_status": "active",
                         },
                     ],
                     "recipe_candidates": [
@@ -612,6 +609,9 @@ class StorageTests(unittest.TestCase):
             self.assertEqual(len(confirmed["candidate_assets"]), 3)
             self.assertEqual(len(confirmed["visual_system_candidates"]), 1)
             self.assertEqual(len(confirmed["recipe_candidates"]), 1)
+            for candidate in confirmed["candidate_assets"]:
+                confirmed_asset = store.get_visual_asset(candidate["confirmed_asset_id"])
+                self.assertEqual(confirmed_asset["status"], "active")
 
             system_id = confirmed["visual_system_candidates"][0]["confirmed_system_id"]
             recipe = confirmed["recipe_candidates"][0]["recipe"]

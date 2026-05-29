@@ -14,6 +14,9 @@ const persistentMarketplaceRoot = path.join(
   process.env.AETHER_MARKETPLACE_ROOT || path.join(os.homedir(), ".aether", "codex-marketplace"),
   "aether-codex-plugin"
 );
+const defaultCliPath = path.join(os.homedir(), ".local", "bin", "aether");
+const defaultConfigPath = path.join(os.homedir(), ".config", "aether", "config.json");
+const codexConfigPath = path.join(os.homedir(), ".codex", "config.toml");
 
 function usage() {
   console.log(`Aether Codex plugin installer
@@ -25,8 +28,8 @@ Usage:
 
 Commands:
   install            Register the bundled Codex marketplace and initialize local Aether CLI/config.
-  doctor             Check that the packaged marketplace and plugin files are present.
-  marketplace-path   Print the package root path to pass to codex plugin marketplace add.
+  doctor             Check packaged files and common local prerequisites.
+  marketplace-path   Print the persistent marketplace path used for Codex registration.
 `);
 }
 
@@ -70,7 +73,11 @@ function preparePersistentMarketplace() {
   copyPath(path.join(packageRoot, ".agents"), path.join(persistentMarketplaceRoot, ".agents"));
   copyPath(pluginRoot, path.join(persistentMarketplaceRoot, "plugins", "aether"));
 
-  for (const filename of ["README.md", "AGENT.md", "package.json"]) {
+  if (fs.existsSync(path.join(packageRoot, "docs"))) {
+    copyPath(path.join(packageRoot, "docs"), path.join(persistentMarketplaceRoot, "docs"));
+  }
+
+  for (const filename of ["README.md", "README.zh.md", "AGENT.md", "package.json", "LICENSE", "CHANGELOG.md", "CONTRIBUTING.md"]) {
     const source = path.join(packageRoot, filename);
     if (fs.existsSync(source)) {
       fs.copyFileSync(source, path.join(persistentMarketplaceRoot, filename));
@@ -112,6 +119,44 @@ function run(command, args, options = {}) {
 }
 
 function doctor() {
+  const checks = {
+    package: {
+      marketplaceManifest: fs.existsSync(marketplacePath),
+      pluginManifest: fs.existsSync(path.join(pluginRoot, ".codex-plugin", "plugin.json")),
+      localInstallScript: fs.existsSync(localInstallScript),
+      docsPackaged: fs.existsSync(path.join(packageRoot, "docs", "install.md")),
+      licensePackaged: fs.existsSync(path.join(packageRoot, "LICENSE")),
+    },
+    install: {
+      persistentMarketplaceRoot,
+      persistentMarketplaceExists: fs.existsSync(persistentMarketplaceRoot),
+      cliPath: defaultCliPath,
+      cliExists: fs.existsSync(defaultCliPath),
+      configPath: defaultConfigPath,
+      configExists: fs.existsSync(defaultConfigPath),
+      codexConfigPath,
+      codexConfigExists: fs.existsSync(codexConfigPath),
+    },
+    runtime: {},
+  };
+  for (const [name, args] of [
+    ["python3", ["--version"]],
+    ["codex", ["--version"]],
+  ]) {
+    const result = spawnSync(name, args, {
+      cwd: packageRoot,
+      env: process.env,
+      stdio: "pipe",
+      encoding: "utf8",
+    });
+    checks.runtime[name] = {
+      available: !result.error && result.status === 0,
+      output: (result.stdout || result.stderr || "").trim(),
+    };
+  }
+  const codexConfig = fs.existsSync(codexConfigPath) ? fs.readFileSync(codexConfigPath, "utf8") : "";
+  checks.install.marketplaceRegistered = codexConfig.includes("[marketplaces.aether]")
+    && codexConfig.includes(persistentMarketplaceRoot);
   ensurePath(marketplacePath, "Codex marketplace manifest");
   ensurePath(path.join(pluginRoot, ".codex-plugin", "plugin.json"), "Codex plugin manifest");
   ensurePath(localInstallScript, "local install script");
@@ -123,6 +168,7 @@ function doctor() {
       sourceMarketplaceRoot: packageRoot,
       marketplacePath,
       pluginRoot,
+      checks,
     },
     null,
     2
@@ -154,6 +200,7 @@ codex plugin marketplace add ${marketplaceRoot}`);
   console.log(`
 Aether plugin installation finished.
 Restart Codex or open a new thread so plugin skills reload.
+If the aether command is not on your PATH yet, add ~/.local/bin.
 `);
 }
 

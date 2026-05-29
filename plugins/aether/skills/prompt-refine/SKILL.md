@@ -133,6 +133,7 @@ The JSON should include:
 - If no visual asset is provided, recommend a small coherent set of active visual assets and ask before applying them when the choice is not obvious.
 - Do not over-compose with too many visual assets; prefer a small coherent set over a long keyword stack.
 - Do not use a visual asset if it conflicts with explicit user constraints.
-- If the user explicitly asked to generate image(s), save the prompt record first, relay the script's complete `confirmation_message` including every prompt variant, shared/full negative prompt, suggested image params, and assumptions, then ask the user to confirm or revise before handing off to `image-generate`.
+- If the user explicitly asked to generate image(s), save the prompt record first, relay the script's complete `confirmation_message` in natural language, including every prompt variant, shared/full negative prompt, suggested image params, and assumptions, then ask the user to confirm or revise before handing off to `image-generate`.
+- Do not show raw prompt-record JSON, selected asset IDs, `composition_plan`, `generation_params`, or `conflicts` objects to non-technical users unless they ask for low-level details.
 - Skip the confirmation checkpoint only when the user explicitly says to auto-generate after refinement.
 - Do not use this as the default for reference image plus source-prompt inputs; use `visual-asset-capture` for visual asset sedimentation.

@@ -38,9 +38,10 @@ aether visual-asset list --query "<keyword>" --summary
 aether visual-asset list --tag "<tag>" --summary
 ```
 
-Present each asset with:
+Present each asset with a human-readable name first and hide internal IDs by default. Only show an exact ID when the user asks for low-level details or when a follow-up command needs it.
 
-- `id`
+Useful fields:
+
 - `type`
 - `name`
 - `status`
@@ -67,7 +68,7 @@ aether visual-system get <visual_system_id>
 aether recipe get <recipe_id>
 ```
 
-Present visual systems with `id`, `kind`, `name`, `status`, `summary`, `tags`, source reference count, and updated time. Present recipes with `id`, `name`, `status`, parent system ids, use cases, required asset types, composition rule count, recommended aspect ratios, confidence, source, and updated time.
+Present visual systems and recipes with readable names first and hide exact IDs by default. Include the ID only when the user asks for low-level inspection or when a command needs it.
 
 4. When the user asks for concrete definition, parameters, prompt recipe, negative prompt, or reference images, load the asset payload:
 

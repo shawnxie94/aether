@@ -748,21 +748,40 @@ def cmd_serve(args: argparse.Namespace) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="aether")
-    sub = parser.add_subparsers(required=True)
+    parser = argparse.ArgumentParser(
+        prog="aether",
+        description="Aether local CLI for Codex visual memory, prompt refinement, and generation history.",
+        epilog=(
+            "Most users can work through Codex natural language. Use this CLI for health checks, "
+            "scripting, and inspecting local records."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    sub = parser.add_subparsers(required=True, title="commands")
 
-    init = sub.add_parser("init")
+    init = sub.add_parser("init", help="Initialize local Aether storage directories and database.")
     init.set_defaults(func=cmd_init)
 
-    doctor = sub.add_parser("doctor")
+    doctor = sub.add_parser(
+        "doctor",
+        help="Check the active Aether config, database, and basic local state.",
+        description="Check that Aether can load config, initialize storage, and read the visual memory database.",
+    )
     doctor.set_defaults(func=cmd_doctor)
 
-    config = sub.add_parser("config")
+    config = sub.add_parser("config", help="Inspect the active Aether configuration.")
     config_sub = config.add_subparsers(required=True)
-    config_show = config_sub.add_parser("show")
+    config_show = config_sub.add_parser(
+        "show",
+        help="Print the active config path, root, and config values.",
+        description=(
+            "Show which config file Aether is using. This is useful when global config, workspace config, "
+            "and .aether/config.json could all exist."
+        ),
+    )
     config_show.set_defaults(func=cmd_config_show)
 
-    embedding = sub.add_parser("embedding")
+    embedding = sub.add_parser("embedding", help="Index or inspect optional embedding recall state.")
     embedding_sub = embedding.add_subparsers(required=True)
     embedding_status = embedding_sub.add_parser("status")
     embedding_status.set_defaults(func=cmd_embedding_status)
@@ -775,14 +794,21 @@ def build_parser() -> argparse.ArgumentParser:
     embedding_rebuild.add_argument("--all", action="store_true")
     embedding_rebuild.set_defaults(func=cmd_embedding_rebuild)
 
-    recall = sub.add_parser("recall")
+    recall = sub.add_parser("recall", help="Search visual memory with lexical and optional embedding recall.")
     recall.add_argument("entity_type", choices=["visual_asset", "visual_system", "recipe", "all"])
     recall.add_argument("--query", required=True)
     recall.add_argument("--status", default="active")
     recall.add_argument("--limit", type=int, default=5)
     recall.set_defaults(func=cmd_recall)
 
-    visual_asset = sub.add_parser("visual-asset")
+    visual_asset = sub.add_parser(
+        "visual-asset",
+        help="List, inspect, and maintain reusable visual memories.",
+        description=(
+            "Reusable visual memories include styles, lighting, color palettes, compositions, moods, "
+            "characters, scenes, props, and negative rule sets."
+        ),
+    )
     visual_asset_sub = visual_asset.add_subparsers(required=True)
     visual_asset_create = visual_asset_sub.add_parser("create")
     visual_asset_create.add_argument("--json", required=True)
@@ -793,13 +819,17 @@ def build_parser() -> argparse.ArgumentParser:
     visual_asset_branch.add_argument("--json", required=True)
     visual_asset_branch.add_argument("--ingest-assets", action="store_true")
     visual_asset_branch.set_defaults(func=cmd_visual_asset_branch)
-    visual_asset_list = visual_asset_sub.add_parser("list")
-    visual_asset_list.add_argument("--type")
-    visual_asset_list.add_argument("--status")
-    visual_asset_list.add_argument("--tag")
-    visual_asset_list.add_argument("--query")
-    visual_asset_list.add_argument("--limit", type=int, default=50)
-    visual_asset_list.add_argument("--summary", action="store_true")
+    visual_asset_list = visual_asset_sub.add_parser(
+        "list",
+        help="List saved visual memories.",
+        description="List saved visual memories with optional filters for type, status, tag, and query.",
+    )
+    visual_asset_list.add_argument("--type", help="Filter by visual memory type, such as style or lighting.")
+    visual_asset_list.add_argument("--status", help="Filter by status, such as active or archived.")
+    visual_asset_list.add_argument("--tag", help="Filter by tag.")
+    visual_asset_list.add_argument("--query", help="Search names, summaries, and reusable prompt fragments.")
+    visual_asset_list.add_argument("--limit", type=int, default=50, help="Maximum records to return.")
+    visual_asset_list.add_argument("--summary", action="store_true", help="Return compact summaries instead of full records.")
     visual_asset_list.set_defaults(func=cmd_visual_asset_list)
     visual_asset_get = visual_asset_sub.add_parser("get")
     visual_asset_get.add_argument("asset_id")
@@ -875,7 +905,7 @@ def build_parser() -> argparse.ArgumentParser:
     visual_asset_quality.add_argument("asset_id")
     visual_asset_quality.set_defaults(func=cmd_visual_asset_quality)
 
-    visual_system = sub.add_parser("visual-system")
+    visual_system = sub.add_parser("visual-system", help="Manage higher-level visual systems and art directions.")
     visual_system_sub = visual_system.add_subparsers(required=True)
     visual_system_create = visual_system_sub.add_parser("create")
     visual_system_create.add_argument("--json", required=True)
@@ -946,7 +976,7 @@ def build_parser() -> argparse.ArgumentParser:
     visual_system_candidates_cleanup.add_argument("--batch-id")
     visual_system_candidates_cleanup.set_defaults(func=cmd_visual_system_candidates_cleanup)
 
-    recipe = sub.add_parser("recipe")
+    recipe = sub.add_parser("recipe", help="Manage reusable visual recipes that combine memories.")
     recipe_sub = recipe.add_subparsers(required=True)
     recipe_create = recipe_sub.add_parser("create")
     recipe_create.add_argument("--json", required=True)
@@ -1019,7 +1049,7 @@ def build_parser() -> argparse.ArgumentParser:
     recipe_candidates_cleanup.add_argument("--batch-id")
     recipe_candidates_cleanup.set_defaults(func=cmd_recipe_candidates_cleanup)
 
-    asset = sub.add_parser("asset")
+    asset = sub.add_parser("asset", help="Inspect local reference and generated image files.")
     asset_sub = asset.add_subparsers(required=True)
     asset_ingest = asset_sub.add_parser("ingest")
     asset_ingest.add_argument("--path", required=True)
@@ -1038,32 +1068,43 @@ def build_parser() -> argparse.ArgumentParser:
     asset_unreferenced.add_argument("--kind", choices=["reference", "generated"])
     asset_unreferenced.set_defaults(func=cmd_asset_unreferenced)
 
-    prompt = sub.add_parser("prompt")
+    prompt = sub.add_parser("prompt", help="Compose or save generation-ready prompts.")
     prompt_sub = prompt.add_subparsers(required=True)
-    prompt_save = prompt_sub.add_parser("save")
-    prompt_save.add_argument("--json", required=True)
+    prompt_save = prompt_sub.add_parser("save", help="Save a complete prompt record from JSON.")
+    prompt_save.add_argument("--json", required=True, help="Prompt record JSON path, or '-' for stdin.")
     prompt_save.set_defaults(func=cmd_prompt_save)
-    prompt_compose = prompt_sub.add_parser("compose")
-    prompt_compose.add_argument("--source-prompt", required=True)
-    prompt_compose.add_argument("--asset-id", action="append")
-    prompt_compose.add_argument("--system-id", action="append")
-    prompt_compose.add_argument("--recipe-id", action="append")
-    prompt_compose.add_argument("--query")
-    prompt_compose.add_argument("--aspect-ratio")
-    prompt_compose.add_argument("--target-generation-skill")
-    prompt_compose.add_argument("--save", action="store_true")
+    prompt_compose = prompt_sub.add_parser(
+        "compose",
+        help="Refine a source prompt with optional visual memory context.",
+        description=(
+            "Compose a generation-ready prompt. You can pass a natural source prompt and optionally guide "
+            "recall with a query, saved visual memory, visual system, or recipe."
+        ),
+    )
+    prompt_compose.add_argument("--source-prompt", required=True, help="The user's original image prompt.")
+    prompt_compose.add_argument("--asset-id", action="append", help="Saved visual memory ID to apply. Repeatable.")
+    prompt_compose.add_argument("--system-id", action="append", help="Visual system ID to apply. Repeatable.")
+    prompt_compose.add_argument("--recipe-id", action="append", help="Recipe ID to apply. Repeatable.")
+    prompt_compose.add_argument("--query", help="Keywords used to recall related visual memory.")
+    prompt_compose.add_argument("--aspect-ratio", help="Preferred image aspect ratio, such as 1:1, 3:4, or 16:9.")
+    prompt_compose.add_argument("--target-generation-skill", help="Generation skill name to target.")
+    prompt_compose.add_argument("--save", action="store_true", help="Save the composed prompt record.")
     prompt_compose.set_defaults(func=cmd_prompt_compose)
 
-    generation = sub.add_parser("generation")
+    generation = sub.add_parser("generation", help="Record and inspect image-generation history.")
     generation_sub = generation.add_subparsers(required=True)
-    generation_record = generation_sub.add_parser("record")
-    generation_record.add_argument("--json", required=True)
+    generation_record = generation_sub.add_parser("record", help="Record a generation or edit result from JSON.")
+    generation_record.add_argument("--json", required=True, help="Generation run JSON path, or '-' for stdin.")
     generation_record.set_defaults(func=cmd_generation_record)
-    generation_list = generation_sub.add_parser("list")
-    generation_list.add_argument("--asset-id")
-    generation_list.add_argument("--status")
-    generation_list.add_argument("--review")
-    generation_list.add_argument("--limit", type=int, default=20)
+    generation_list = generation_sub.add_parser(
+        "list",
+        help="List recent image-generation records.",
+        description="Show recent generation/edit history with prompt previews, output paths, review status, and feedback.",
+    )
+    generation_list.add_argument("--asset-id", help="Filter to generations using a specific visual memory ID.")
+    generation_list.add_argument("--status", help="Filter by generation status, such as generated, edited, or failed.")
+    generation_list.add_argument("--review", help="Filter by visual review result, such as pass or major_deviation.")
+    generation_list.add_argument("--limit", type=int, default=20, help="Maximum records to return.")
     generation_list.set_defaults(func=cmd_generation_list)
     generation_get = generation_sub.add_parser("get")
     generation_get.add_argument("run_id")
@@ -1082,9 +1123,9 @@ def build_parser() -> argparse.ArgumentParser:
     generation_feedback.add_argument("--notes")
     generation_feedback.set_defaults(func=cmd_generation_feedback)
 
-    serve = sub.add_parser("serve")
-    serve.add_argument("--host")
-    serve.add_argument("--port", type=int)
+    serve = sub.add_parser("serve", help="Reserved for a future local HTTP service.")
+    serve.add_argument("--host", help="Future service host override.")
+    serve.add_argument("--port", type=int, help="Future service port override.")
     serve.set_defaults(func=cmd_serve)
 
     validate = sub.add_parser("validate")

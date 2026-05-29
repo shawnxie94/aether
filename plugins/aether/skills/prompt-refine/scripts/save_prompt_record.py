@@ -18,13 +18,41 @@ from aether_core.validation import validate_prompt_record
 
 def format_list(values: list) -> str:
     if not values:
-        return "(none)"
+        return "无"
     return "\n".join(f"{index}. {value}" for index, value in enumerate(values, start=1))
+
+
+def format_settings(settings: dict) -> str:
+    if not settings:
+        return "默认设置"
+    readable = []
+    labels = {
+        "aspectRatio": "画面比例",
+        "quality": "质量",
+    }
+    for key, value in settings.items():
+        readable.append(f"{labels.get(key, key)}: {value}")
+    return "，".join(readable)
+
+
+def format_selected_assets(assets: list) -> str:
+    if not assets:
+        return "未指定长期视觉记忆。"
+    lines = []
+    for index, asset in enumerate(assets, start=1):
+        if not isinstance(asset, dict):
+            lines.append(f"{index}. {asset}")
+            continue
+        name = asset.get("name") or asset.get("summary") or asset.get("type") or "视觉记忆"
+        kind = asset.get("type")
+        label = f"{name}（{kind}）" if kind else name
+        lines.append(f"{index}. {label}")
+    return "\n".join(lines)
 
 
 def format_variants(variants: list) -> str:
     if not variants:
-        return "(none)"
+        return "无"
     blocks = []
     for index, variant in enumerate(variants, start=1):
         if not isinstance(variant, dict):
@@ -33,9 +61,10 @@ def format_variants(variants: list) -> str:
         label = variant.get("title") or variant.get("name") or variant.get("id") or f"Variant {index}"
         prompt = variant.get("refined_prompt") or variant.get("prompt") or ""
         negative_prompt = variant.get("negative_prompt", "")
-        generation_params = json.dumps(variant.get("generation_params", {}), ensure_ascii=False, indent=2)
-        composition_plan = json.dumps(variant.get("composition_plan", {}), ensure_ascii=False, indent=2)
+        generation_params = format_settings(variant.get("generation_params", {}))
+        composition_plan = variant.get("composition_plan", {})
         notes = format_list(variant.get("notes", []))
+        composition_note = "；".join(f"{key}: {value}" for key, value in composition_plan.items()) or "无"
         blocks.append(
             "\n".join(
                 [
@@ -51,20 +80,12 @@ def format_variants(variants: list) -> str:
                     negative_prompt,
                     "```",
                     "",
-                    "**Image Params**",
-                    "```json",
-                    generation_params,
-                    "```",
+                    f"**建议设置**：{generation_params}",
                     "",
-                    "**Composition Plan**",
-                    "```json",
-                    composition_plan,
-                    "```",
+                    f"**构图要点**：{composition_note}",
                     "",
                     "**Notes**",
-                    "```text",
                     notes,
-                    "```",
                 ]
             )
         )
@@ -72,51 +93,42 @@ def format_variants(variants: list) -> str:
 
 
 def build_confirmation_message(record: dict) -> str:
-    generation_params = json.dumps(record.get("generation_params", {}), ensure_ascii=False, indent=2)
-    selected_assets = json.dumps(record.get("selected_assets", []), ensure_ascii=False, indent=2)
-    conflicts = json.dumps(record.get("conflicts", []), ensure_ascii=False, indent=2)
+    generation_params = format_settings(record.get("generation_params", {}))
+    selected_assets = format_selected_assets(record.get("selected_assets", []))
+    conflicts = format_list(record.get("conflicts", []))
     variants = record.get("variants", [])
     return "\n".join(
         [
-            f"Prompt record saved: `{record['id']}`",
+            "提示词已经整理好。",
             "",
-            "**Selected Assets**",
-            "```json",
+            "**使用的视觉记忆**",
             selected_assets,
-            "```",
             "",
-            "**Refined Prompt**",
+            "**精修后的提示词**",
             "```text",
             record.get("refined_prompt", ""),
             "```",
             "",
-            "**Negative Prompt**",
+            "**需要避免的内容**",
             "```text",
             record.get("negative_prompt", ""),
             "```",
             "",
-            "**Prompt Variants**",
+            "**多图版本**",
             format_variants(variants),
             "",
-            "**Assumptions**",
-            "```text",
+            "**我做出的假设**",
             format_list(record.get("assumptions", [])),
-            "```",
             "",
-            "**Suggested Image Params**",
-            "```json",
-            generation_params,
-            "```",
+            f"**建议图片设置**：{generation_params}",
             "",
-            "**Conflicts**",
-            "```json",
+            "**可能冲突或需要你确认的点**",
             conflicts,
-            "```",
             "",
             (
-                "Ask the user to confirm or revise these prompt variants before calling image-generate."
+                "请用户确认这些版本是否可以开始生成，或指出要调整的地方。"
                 if variants
-                else "Ask the user to confirm or revise this complete prompt before calling image-generate."
+                else "请用户确认这版提示词是否可以开始生成，或指出要调整的地方。"
             ),
         ]
     )

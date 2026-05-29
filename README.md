@@ -1,175 +1,57 @@
 # Aether
 
-Aether is a Codex plugin backed visual asset memory and prompt refinement system for AI image generation.
+![](docs/assets/readme/aether-hero-visual-memory.png)
 
-The repository is a single-plugin Codex marketplace. The Aether plugin package lives in `plugins/aether`.
+English | [简体中文](README.zh.md)
 
-It keeps model reasoning inside Codex and uses the local project core for deterministic work:
+Aether turns reference images, prompt ideas, and generated results into reusable visual memory, helping you keep creating images with a consistent aesthetic direction.
 
-- config discovery
-- local SQLite storage
-- visual asset memory
-- visual systems and recommendation recipes
-- visual memory browsing
-- prompt refinement records
-- generation run records
-- Codex plugin and skill entrypoints
+## Core Capabilities
 
-## Quick Start
+- **Reusable visual memory:** Extract stable visual language from reference images and generated results, then save it as memory that can be reused over time instead of one-off prompt text.
+- **Memory-aware prompt refinement:** Recall saved style, lighting, palette, composition, mood, scene, character, and negative rules, then combine them into a more stable prompt while preserving the user's original intent.
+- **Evolvable visual systems:** Decide whether new visual material should become new memory, be added to existing memory, be saved as a variant, or become a merge candidate, so the visual library can grow without becoming chaotic.
+- **Generation feedback loop:** Record generated results, visual consistency reviews, and user feedback, so later prompts can reuse what worked and avoid known drift.
+- **Natural-language workflow:** Use natural language to complete the full process of capturing, refining, generating, and reusing visual memory.
+
+## Example Results
+
+> The examples use `gpt-image-2`. Results may vary across image models.
+
+| Reference | Generated |
+| --- | --- |
+| <img src="docs/assets/readme/example-sketch-reference.png" alt="Sketch style reference" width="220"> | <img src="docs/assets/readme/example-sketch-output.png" alt="Sketch style generated output" width="220"> |
+| <img src="docs/assets/readme/example-night-city-reference.png" alt="Night city reference" width="220"> | <img src="docs/assets/readme/example-night-city-output.png" alt="Night city generated output" width="220"> |
+| <img src="docs/assets/readme/example-soft-portrait-reference.png" alt="Soft portrait reference" width="220"> | <img src="docs/assets/readme/example-soft-portrait-output.png" alt="Soft portrait generated output" width="220"> |
+
+## Usage
+
+After installation, invoke Aether as a Codex plugin with `@Aether`, or as a skill with `$aether-orchestrator`. Aether automatically chooses the right workflow from your natural-language request.
+
+| Workflow | Example |
+| --- | --- |
+| Capture visual memory | <img src="docs/assets/readme/workflow-capture-memory.png" alt="Capture visual memory workflow screenshot" width="460"> |
+| Browse visual memory | <img src="docs/assets/readme/workflow-browse-memory.png" alt="Browse visual memory workflow screenshot" width="460"> |
+| Refine prompts | <img src="docs/assets/readme/workflow-refine-prompt.png" alt="Prompt refinement workflow screenshot" width="460"> |
+| Generate images | <img src="docs/assets/readme/workflow-generate-image.png" alt="Image generation workflow screenshot" width="460"> |
+| Edit images | <img src="docs/assets/readme/workflow-edit-image.png" alt="Image editing workflow screenshot" width="460"> |
+
+## Installation
+
+Install with npm:
 
 ```bash
 npx aether-codex-plugin install
+```
+
+Verify the local installation:
+
+```bash
 aether doctor
 ```
 
-The project reads configuration from `~/.config/aether/config.json` first, then falls back to the nearest workspace `config.json`, then `.aether/config.json` in the current directory.
-See `docs/install.md` for npm sharing, manual marketplace installation, and local development installation.
+Restart Codex after installation, or open a new thread so the plugin skills can reload.
 
-## CLI Examples
+## License
 
-Create and inspect reusable visual assets:
-
-```bash
-aether visual-asset create --json visual-asset.json
-aether visual-asset list --type lighting --summary
-aether visual-asset get visual_asset_lighting-rainy-neon-reflection
-```
-
-Persist image-analysis candidate assets and confirm them:
-
-```bash
-aether visual-asset candidates create --json visual-asset-candidates.json
-aether visual-asset candidates list --status pending --summary
-aether visual-asset candidates decide asset_candidate_example create_new
-aether visual-asset candidates decide asset_candidate_example inherit_variant --target-asset-id visual_asset_parent
-aether visual-asset candidates decide asset_candidate_example attach_evidence --target-asset-id visual_asset_existing
-aether visual-asset candidates decide asset_candidate_example ignore
-aether visual-asset candidates decide asset_candidate_example ignore --cleanup
-aether visual-asset candidates cleanup --status ignored
-aether visual-asset candidates confirm-batch candidate_batch_example
-aether recipe candidates list --batch-id candidate_batch_example
-aether recipe candidates ignore recipe_candidate_example
-aether recipe candidates ignore recipe_candidate_example --cleanup
-aether recipe candidates cleanup --status ignored
-aether recipe candidates confirm recipe_candidate_example
-aether visual-system candidates list --batch-id candidate_batch_example
-aether visual-system candidates ignore system_candidate_example
-aether visual-system candidates ignore system_candidate_example --cleanup
-aether visual-system candidates cleanup --status ignored
-aether visual-system candidates confirm system_candidate_example
-```
-
-Create and inspect higher-level visual systems and recipes:
-
-```bash
-aether visual-system create --json visual-system.json
-aether visual-system list --summary
-aether visual-system add-asset visual_system_example visual_asset_example --role core --weight 0.9
-aether recipe create --json recipe.json
-aether recipe list --system-id visual_system_example --summary
-aether recipe add-asset recipe_example visual_asset_example --role core --weight 0.9
-```
-
-Activate, archive, branch, or merge visual assets:
-
-```bash
-aether visual-asset activate visual_asset_lighting-rainy-neon-reflection
-aether visual-asset archive visual_asset_lighting-rainy-neon-reflection
-aether visual-asset branch visual_asset_parent --json visual-asset-variant.json
-aether visual-asset merge visual_asset_branch visual_asset_parent
-```
-
-Ingest a reference asset:
-
-```bash
-aether asset ingest --path reference.png --kind reference
-```
-
-Inspect local assets:
-
-```bash
-aether asset list --kind generated
-aether asset stats
-aether asset duplicates --kind generated
-aether asset unreferenced --kind generated
-```
-
-Save a refined prompt:
-
-```bash
-aether prompt compose --source-prompt "a lonely girl in a future city" --query "rain neon" --save
-aether prompt compose --source-prompt "a quiet character portrait" --system-id visual_system_example --recipe-id recipe_example
-aether prompt save --json prompt-record.json
-```
-
-Prompt records include `generation_params`, so prompt refinement can recommend an image `aspectRatio` and image generation can carry that value into `skill_params`.
-Prompt composition records also include `selected_assets`, `composition_plan`, and `conflicts`.
-
-Record a generation:
-
-```bash
-aether generation record --json generation-run.json
-```
-
-Generation records include `visual_review` so Aether can capture post-generation consistency checks and recommend prompt revision or regeneration when the generated image drifts from the selected visual assets.
-Successful generation records also archive generated image files into `generatedImageDir` and store archived asset metadata in `outputs`.
-
-Review generation history:
-
-```bash
-aether generation list
-aether generation list --asset-id visual_asset_lighting-rainy-neon-reflection
-aether generation get generation_example
-aether generation stats
-aether generation suggest generation_example
-```
-
-Inspect asset evidence and generated quality feedback:
-
-```bash
-aether visual-asset evidence visual_asset_lighting-rainy-neon-reflection
-aether visual-asset quality visual_asset_lighting-rainy-neon-reflection
-```
-
-Validate JSON before saving:
-
-```bash
-aether validate visual-asset --json visual-asset.json
-aether validate prompt --json prompt-record.json
-aether validate generation --json generation-run.json
-```
-
-## Codex Plugin
-
-Marketplace metadata lives in `.agents/plugins/marketplace.json`.
-
-Plugin metadata lives in `plugins/aether/.codex-plugin/plugin.json`.
-
-Skills live in:
-
-- `plugins/aether/skills/aether-orchestrator`
-- `plugins/aether/skills/visual-memory`
-- `plugins/aether/skills/visual-asset-capture`
-- `plugins/aether/skills/prompt-refine`
-- `plugins/aether/skills/image-generate`
-
-The plugin reads project configuration from the workspace `config.json`; it does not store project data in the plugin install directory.
-
-## Schemas And Examples
-
-JSON schemas live in `plugins/aether/schemas/`:
-
-- `plugins/aether/schemas/config.schema.json`
-- `plugins/aether/schemas/visual-asset.schema.json`
-- `plugins/aether/schemas/visual-asset-candidate.schema.json`
-- `plugins/aether/schemas/prompt-record.schema.json`
-- `plugins/aether/schemas/generation-run.schema.json`
-
-Example payloads live in `plugins/aether/examples/`:
-
-- `plugins/aether/examples/visual-asset.json`
-- `plugins/aether/examples/visual-asset-candidates.json`
-- `plugins/aether/examples/prompt-record.json`
-- `plugins/aether/examples/generation-run.json`
-
-The SQLite database records schema version in `schema_migrations`.
+MIT. See [LICENSE](LICENSE).

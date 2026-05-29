@@ -43,7 +43,8 @@ Candidate assets should include:
 - `compatible_with`
 - `avoid_with`
 - `recommended_aspect_ratios`
-- `status`: `draft`
+
+Confirmed candidate assets become active visual assets by default. Only include `asset_status: "draft"` when the user explicitly wants a confirmed asset to remain out of active recall.
 
 Do not include storage-owned recall or decision fields in input payloads: `related_existing_*`, `decision`, `reuse_score`, `target_asset_id`, `metadata.target_system_id`, or `metadata.target_recipe_id`.
 

@@ -60,11 +60,13 @@ class SavePromptRecordScriptTests(unittest.TestCase):
             self.assertEqual(output["record"]["refined_prompt"], "complete refined prompt")
             self.assertEqual(output["record"]["generation_params"]["aspectRatio"], "16:9")
             self.assertEqual(output["record"]["generation_params"]["quality"], "standard")
+            self.assertIn("提示词已经整理好", output["confirmation_message"])
             self.assertIn("complete refined prompt", output["confirmation_message"])
             self.assertIn("complete negative prompt", output["confirmation_message"])
-            self.assertIn('"aspectRatio": "16:9"', output["confirmation_message"])
+            self.assertIn("画面比例: 16:9", output["confirmation_message"])
             self.assertIn("1. first assumption", output["confirmation_message"])
-            self.assertIn("Ask the user to confirm", output["confirmation_message"])
+            self.assertIn("请用户确认", output["confirmation_message"])
+            self.assertNotIn("```json", output["confirmation_message"])
 
     def test_emit_confirmation_adds_default_generation_params(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -167,11 +169,11 @@ class SavePromptRecordScriptTests(unittest.TestCase):
             output = json.loads(result.stdout)
 
             self.assertEqual(len(output["record"]["variants"]), 2)
-            self.assertIn("**Prompt Variants**", output["confirmation_message"])
+            self.assertIn("**多图版本**", output["confirmation_message"])
             self.assertIn("Front View", output["confirmation_message"])
             self.assertIn("front view portrait prompt", output["confirmation_message"])
             self.assertIn("Side View", output["confirmation_message"])
-            self.assertIn("Ask the user to confirm or revise these prompt variants", output["confirmation_message"])
+            self.assertIn("请用户确认这些版本", output["confirmation_message"])
 
     def test_compose_prompt_record_script_saves_and_emits_confirmation(self):
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -87,6 +87,9 @@ class CandidateBatchScriptTests(unittest.TestCase):
             self.assertTrue(output["batch_id"].startswith("candidate_batch_"))
             self.assertEqual(output["candidate_assets"][0]["evolution_action"], "create_new")
             self.assertIn("aether visual-asset candidates confirm-batch", output["next_commands"][1])
+            self.assertIn("参考图分析已经保存为待确认建议", output["user_message"])
+            self.assertIn("Painterly Test Style", output["user_message"])
+            self.assertIn("保存为新的视觉记忆", output["user_message"])
 
 
 if __name__ == "__main__":

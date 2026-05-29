@@ -169,6 +169,8 @@ aether generation suggest <run_id>
 
 Successful reviewed generations can emit `reuse_suggestions` in the saved generation response. These suggestions are recipe or visual system candidates, not final long-term assets. Confirm them with the recipe or visual-system candidate commands when the user wants to preserve the generated combination.
 
+When presenting results to the user, show the generated image, a short quality/style review, and a simple feedback question. Keep generation run IDs, archived asset metadata, retry fields, `skill_params`, and provider metadata internal unless the user asks for technical details.
+
 ## Rules
 
 - This skill is the Aether workflow skill. The actual image-generation capability is selected by `generation.defaultGenerationSkill`.

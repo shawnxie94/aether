@@ -20,8 +20,13 @@
     "plugins/aether/skills/",
     "plugins/aether/src/",
     "scripts/aether-plugin.js",
+    "docs/",
     "README.md",
-    "AGENT.md"
+    "README.zh.md",
+    "AGENT.md",
+    "LICENSE",
+    "CHANGELOG.md",
+    "CONTRIBUTING.md"
   ],
   "scripts": {
     "pack:plugin": "npm pack --pack-destination dist",

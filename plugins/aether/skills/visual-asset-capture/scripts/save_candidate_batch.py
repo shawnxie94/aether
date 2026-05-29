@@ -96,17 +96,65 @@ def next_commands(batch_id: str, assets: list[dict], recipes: list[dict], system
     return commands
 
 
+def readable_action(action: str | None) -> str:
+    return {
+        "create_new": "保存为新的视觉记忆",
+        "attach_evidence": "归入已有视觉记忆，作为补充参考",
+        "inherit_variant": "保存为已有视觉记忆的变体",
+        "merge_existing": "建议和已有视觉记忆合并，合并前需要再次确认",
+        "ignore": "忽略为一次性内容",
+    }.get(action or "", action or "待判断")
+
+
+def format_candidate_table(title: str, rows: list[dict]) -> list[str]:
+    if not rows:
+        return []
+    lines = [
+        f"**{title}**",
+        "",
+        "| 候选名称 | 召回相关 | 处理建议 |",
+        "| --- | --- | --- |",
+    ]
+    for row in rows:
+        action = row.get("evolution_action") or row.get("recommendation")
+        target = row.get("target_name") or "无明确召回目标"
+        score = row.get("dedupe_score")
+        related = target if score is None else f"{target}，相似度 {score:.2f}"
+        lines.append(f"| {row.get('name') or '未命名'} | {related} | {readable_action(action)} |")
+    return lines + [""]
+
+
+def build_user_message(summary: dict) -> str:
+    parts = [
+        "参考图分析已经保存为待确认建议。",
+        "",
+        "下面是建议的处理方式；普通用户只需要确认保存方式，不需要关心内部编号。",
+        "",
+    ]
+    parts.extend(format_candidate_table("视觉记忆建议", summary["candidate_assets"]))
+    parts.extend(format_candidate_table("组合方式建议", summary["recipe_candidates"]))
+    parts.extend(format_candidate_table("整体风格方向建议", summary["visual_system_candidates"]))
+    parts.extend(
+        [
+            "你可以直接回复：全部确认、只保存某几项、把某项归入已有记忆，或忽略某项。",
+        ]
+    )
+    return "\n".join(parts)
+
+
 def build_summary(saved: dict) -> dict:
     assets = [asset_summary(candidate) for candidate in saved.get("candidate_assets", [])]
     recipes = [payload_candidate_summary(candidate) for candidate in saved.get("recipe_candidates", [])]
     systems = [payload_candidate_summary(candidate) for candidate in saved.get("visual_system_candidates", [])]
-    return {
+    summary = {
         "batch_id": saved["batch_id"],
         "candidate_assets": assets,
         "recipe_candidates": recipes,
         "visual_system_candidates": systems,
         "next_commands": next_commands(saved["batch_id"], assets, recipes, systems),
     }
+    summary["user_message"] = build_user_message(summary)
+    return summary
 
 
 def main() -> None:

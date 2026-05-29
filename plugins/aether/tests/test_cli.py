@@ -6,6 +6,18 @@ from aether_core.cli import build_parser, candidate_payload_summary, visual_asse
 
 
 class CliTests(unittest.TestCase):
+    def test_help_text_explains_common_entrypoints(self):
+        parser = build_parser()
+        root_help = parser.format_help()
+        self.assertIn("Codex visual memory", root_help)
+        self.assertIn("visual-asset", root_help)
+        self.assertIn("generation", root_help)
+
+        with contextlib.redirect_stdout(io.StringIO()) as stdout:
+            with self.assertRaises(SystemExit):
+                parser.parse_args(["visual-asset", "list", "--help"])
+        self.assertIn("List saved visual memories", stdout.getvalue())
+
     def test_visual_asset_candidate_summary_uses_evolution_fields(self):
         summary = visual_asset_candidate_summary(
             {

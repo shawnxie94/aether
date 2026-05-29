@@ -65,6 +65,7 @@ python skills/visual-asset-capture/scripts/save_candidate_batch.py --json <candi
 ```
 
 The storage layer recomputes hybrid/embedding recall, writes `evolution_action`, stores recipe/system candidates, and can auto-suggest visual system candidates.
+Relay the script's `user_message` to the user rather than dumping the raw JSON summary. Treat `batch_id`, candidate IDs, and `next_commands` as internal handoff details unless the user asks for technical details.
 
 Use direct CLI commands only when debugging:
 
@@ -97,7 +98,7 @@ aether visual-asset list --query "<keyword>" --summary
 - merge existing visual assets after preview
 - ignore as one-off content
 
-When presenting sedimentation recommendations to the user, always use this fixed Markdown table format, grouped by candidate type. Omit an entire section only when there are no candidates of that type.
+When presenting sedimentation recommendations to the user, always use this fixed Markdown table format, grouped by candidate type. Omit an entire section only when there are no candidates of that type. Keep the surrounding explanation in the user's language and avoid exposing raw storage fields unless the user asks for them.
 
 **Asset Candidates**
 
