@@ -230,6 +230,7 @@ class ComposerTests(unittest.TestCase):
             self.assertEqual(record["recall_candidates"]["recipes"][0]["recipe_id"], recipe["id"])
             recalled_asset_ids = {item["asset_id"] for item in record["recall_candidates"]["visual_assets"]}
             self.assertIn(scene["id"], recalled_asset_ids)
+            self.assertNotIn("visual_assets_raw", record["recall_candidates"])
 
     def test_compose_prompt_collapses_recalled_asset_family(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -260,6 +261,7 @@ class ComposerTests(unittest.TestCase):
                 store,
                 "bright fantasy painterly leaf sea",
                 default_generation_params={"aspectRatio": "1:1"},
+                include_debug_recall=True,
             )
 
             raw_ids = {item["asset_id"] for item in record["recall_candidates"]["visual_assets_raw"]}

@@ -135,6 +135,8 @@ def cmd_recall(args: argparse.Namespace) -> None:
 
 def visual_asset_candidate_summary(candidate: dict[str, Any]) -> dict[str, Any]:
     payload = candidate.get("payload", {})
+    if not isinstance(payload, dict):
+        payload = {}
     suggestion = payload.get("evolution_suggestion", {})
     action = payload.get("evolution_action") or suggestion.get("action")
     target_id = suggestion.get("target_id")
@@ -219,6 +221,8 @@ def recipe_summary(recipe: dict[str, Any]) -> dict[str, Any]:
 
 def candidate_payload_summary(candidate: dict[str, Any]) -> dict[str, Any]:
     payload = candidate.get("payload", {})
+    if not isinstance(payload, dict):
+        payload = {}
     metadata = payload.get("metadata", {})
     target_id = metadata.get("target_system_id") or metadata.get("target_recipe_id")
     target_name = None
@@ -247,6 +251,42 @@ def candidate_payload_summary(candidate: dict[str, Any]) -> dict[str, Any]:
         "target_name": target_name,
         "dedupe_score": metadata.get("dedupe_score"),
         "updated_at": candidate["updated_at"],
+    }
+
+
+def evidence_summary(evidence: dict[str, Any]) -> dict[str, Any]:
+    payload = evidence.get("payload", {})
+    output = payload.get("output") if isinstance(payload, dict) else None
+    review = payload if isinstance(payload, dict) and evidence.get("evidence_type") == "review" else {}
+    return {
+        "id": evidence["id"],
+        "evidence_type": evidence.get("evidence_type"),
+        "asset_id": evidence.get("asset_id"),
+        "recipe_id": evidence.get("recipe_id"),
+        "system_id": evidence.get("system_id"),
+        "generation_run_id": evidence.get("generation_run_id") or evidence.get("source_generation_id"),
+        "source_candidate_id": evidence.get("source_candidate_id"),
+        "source_reference_id": evidence.get("source_reference_id"),
+        "output": _first_output_path([output]) if output else "",
+        "review": review.get("style_consistency"),
+        "score": review.get("score"),
+        "recommendation": review.get("recommendation"),
+        "created_at": evidence.get("created_at"),
+    }
+
+
+def revision_summary(revision: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": revision["id"],
+        "entity_type": revision.get("entity_type"),
+        "entity_id": revision.get("entity_id"),
+        "action": revision.get("action"),
+        "source_candidate_id": revision.get("source_candidate_id"),
+        "source_generation_id": revision.get("source_generation_id"),
+        "target_entity_id": revision.get("target_entity_id"),
+        "changed_fields": sorted((revision.get("diff") or {}).keys()),
+        "reason": _text_preview(revision.get("reason", ""), limit=160),
+        "created_at": revision.get("created_at"),
     }
 
 
@@ -355,6 +395,11 @@ def cmd_visual_asset_candidates_cleanup(args: argparse.Namespace) -> None:
     dump_json(store.cleanup_visual_asset_candidates(status=args.status, batch_id=args.batch_id))
 
 
+def cmd_visual_asset_candidates_compact(args: argparse.Namespace) -> None:
+    _, store = _store()
+    dump_json(store.compact_visual_asset_candidates(status=args.status, batch_id=args.batch_id))
+
+
 def cmd_visual_asset_candidates_confirm_batch(args: argparse.Namespace) -> None:
     _, store = _store()
     dump_json(store.confirm_visual_asset_candidate_batch(args.batch_id))
@@ -362,18 +407,18 @@ def cmd_visual_asset_candidates_confirm_batch(args: argparse.Namespace) -> None:
 
 def cmd_visual_asset_evidence(args: argparse.Namespace) -> None:
     _, store = _store()
-    dump_json(
-        store.list_visual_asset_evidence(
-            asset_id=args.asset_id,
-            evidence_type=args.type,
-            limit=args.limit,
-        )
+    evidence = store.list_visual_asset_evidence(
+        asset_id=args.asset_id,
+        evidence_type=args.type,
+        limit=args.limit,
     )
+    dump_json([evidence_summary(item) for item in evidence] if args.summary else evidence)
 
 
 def cmd_visual_asset_revisions(args: argparse.Namespace) -> None:
     _, store = _store()
-    dump_json(store.list_revisions("visual_asset", entity_id=args.asset_id, limit=args.limit))
+    revisions = store.list_revisions("visual_asset", entity_id=args.asset_id, limit=args.limit)
+    dump_json([revision_summary(item) for item in revisions] if args.summary else revisions)
 
 
 def cmd_visual_asset_quality(args: argparse.Namespace) -> None:
@@ -428,12 +473,14 @@ def cmd_visual_system_merge(args: argparse.Namespace) -> None:
 
 def cmd_visual_system_evidence(args: argparse.Namespace) -> None:
     _, store = _store()
-    dump_json(store.list_visual_system_evidence(system_id=args.system_id, evidence_type=args.type, limit=args.limit))
+    evidence = store.list_visual_system_evidence(system_id=args.system_id, evidence_type=args.type, limit=args.limit)
+    dump_json([evidence_summary(item) for item in evidence] if args.summary else evidence)
 
 
 def cmd_visual_system_revisions(args: argparse.Namespace) -> None:
     _, store = _store()
-    dump_json(store.list_revisions("visual_system", entity_id=args.system_id, limit=args.limit))
+    revisions = store.list_revisions("visual_system", entity_id=args.system_id, limit=args.limit)
+    dump_json([revision_summary(item) for item in revisions] if args.summary else revisions)
 
 
 def cmd_visual_system_candidates_list(args: argparse.Namespace) -> None:
@@ -479,6 +526,11 @@ def cmd_visual_system_candidate_delete(args: argparse.Namespace) -> None:
 def cmd_visual_system_candidates_cleanup(args: argparse.Namespace) -> None:
     _, store = _store()
     dump_json(store.cleanup_visual_system_candidates(status=args.status, batch_id=args.batch_id))
+
+
+def cmd_visual_system_candidates_compact(args: argparse.Namespace) -> None:
+    _, store = _store()
+    dump_json(store.compact_visual_system_candidates(status=args.status, batch_id=args.batch_id))
 
 
 def cmd_recipe_create(args: argparse.Namespace) -> None:
@@ -528,12 +580,14 @@ def cmd_recipe_merge(args: argparse.Namespace) -> None:
 
 def cmd_recipe_evidence(args: argparse.Namespace) -> None:
     _, store = _store()
-    dump_json(store.list_recipe_evidence(recipe_id=args.recipe_id, evidence_type=args.type, limit=args.limit))
+    evidence = store.list_recipe_evidence(recipe_id=args.recipe_id, evidence_type=args.type, limit=args.limit)
+    dump_json([evidence_summary(item) for item in evidence] if args.summary else evidence)
 
 
 def cmd_recipe_revisions(args: argparse.Namespace) -> None:
     _, store = _store()
-    dump_json(store.list_revisions("recipe", entity_id=args.recipe_id, limit=args.limit))
+    revisions = store.list_revisions("recipe", entity_id=args.recipe_id, limit=args.limit)
+    dump_json([revision_summary(item) for item in revisions] if args.summary else revisions)
 
 
 def cmd_recipe_candidates_list(args: argparse.Namespace) -> None:
@@ -583,6 +637,11 @@ def cmd_recipe_candidates_cleanup(args: argparse.Namespace) -> None:
     dump_json(store.cleanup_recipe_candidates(status=args.status, batch_id=args.batch_id))
 
 
+def cmd_recipe_candidates_compact(args: argparse.Namespace) -> None:
+    _, store = _store()
+    dump_json(store.compact_recipe_candidates(status=args.status, batch_id=args.batch_id))
+
+
 def cmd_asset_ingest(args: argparse.Namespace) -> None:
     config, store = _store()
     asset = ingest_asset(config, args.path, args.kind)
@@ -630,6 +689,7 @@ def cmd_prompt_compose(args: argparse.Namespace) -> None:
         target_generation_skill=target_generation_skill,
         default_generation_params=config.data.get("generation", {}).get("defaultParams", {}),
         config=config.data,
+        include_debug_recall=args.debug_recall,
     )
     if args.save:
         dump_json(store.save_prompt_record(record))
@@ -717,7 +777,7 @@ def cmd_generation_get(args: argparse.Namespace) -> None:
     run = store.get_generation_run(args.run_id)
     if not run:
         raise SystemExit(f"Generation run not found: {args.run_id}")
-    dump_json(run)
+    dump_json(generation_summary(run) if args.summary else run)
 
 
 def cmd_generation_stats(args: argparse.Namespace) -> None:
@@ -889,6 +949,10 @@ def build_parser() -> argparse.ArgumentParser:
     visual_asset_candidates_cleanup.add_argument("--status", choices=["ignored"], default="ignored")
     visual_asset_candidates_cleanup.add_argument("--batch-id")
     visual_asset_candidates_cleanup.set_defaults(func=cmd_visual_asset_candidates_cleanup)
+    visual_asset_candidates_compact = visual_asset_candidates_sub.add_parser("compact")
+    visual_asset_candidates_compact.add_argument("--status", choices=["pending", "confirmed", "ignored"])
+    visual_asset_candidates_compact.add_argument("--batch-id")
+    visual_asset_candidates_compact.set_defaults(func=cmd_visual_asset_candidates_compact)
     visual_asset_candidates_confirm_batch = visual_asset_candidates_sub.add_parser("confirm-batch")
     visual_asset_candidates_confirm_batch.add_argument("batch_id")
     visual_asset_candidates_confirm_batch.set_defaults(func=cmd_visual_asset_candidates_confirm_batch)
@@ -896,10 +960,12 @@ def build_parser() -> argparse.ArgumentParser:
     visual_asset_evidence.add_argument("asset_id")
     visual_asset_evidence.add_argument("--type")
     visual_asset_evidence.add_argument("--limit", type=int, default=50)
+    visual_asset_evidence.add_argument("--summary", action="store_true")
     visual_asset_evidence.set_defaults(func=cmd_visual_asset_evidence)
     visual_asset_revisions = visual_asset_sub.add_parser("revisions")
     visual_asset_revisions.add_argument("asset_id")
     visual_asset_revisions.add_argument("--limit", type=int, default=50)
+    visual_asset_revisions.add_argument("--summary", action="store_true")
     visual_asset_revisions.set_defaults(func=cmd_visual_asset_revisions)
     visual_asset_quality = visual_asset_sub.add_parser("quality")
     visual_asset_quality.add_argument("asset_id")
@@ -939,10 +1005,12 @@ def build_parser() -> argparse.ArgumentParser:
     visual_system_evidence.add_argument("system_id")
     visual_system_evidence.add_argument("--type")
     visual_system_evidence.add_argument("--limit", type=int, default=50)
+    visual_system_evidence.add_argument("--summary", action="store_true")
     visual_system_evidence.set_defaults(func=cmd_visual_system_evidence)
     visual_system_revisions = visual_system_sub.add_parser("revisions")
     visual_system_revisions.add_argument("system_id")
     visual_system_revisions.add_argument("--limit", type=int, default=50)
+    visual_system_revisions.add_argument("--summary", action="store_true")
     visual_system_revisions.set_defaults(func=cmd_visual_system_revisions)
     visual_system_candidates = visual_system_sub.add_parser("candidates")
     visual_system_candidates_sub = visual_system_candidates.add_subparsers(required=True)
@@ -975,6 +1043,10 @@ def build_parser() -> argparse.ArgumentParser:
     visual_system_candidates_cleanup.add_argument("--status", choices=["ignored"], default="ignored")
     visual_system_candidates_cleanup.add_argument("--batch-id")
     visual_system_candidates_cleanup.set_defaults(func=cmd_visual_system_candidates_cleanup)
+    visual_system_candidates_compact = visual_system_candidates_sub.add_parser("compact")
+    visual_system_candidates_compact.add_argument("--status", choices=["pending", "confirmed", "ignored"])
+    visual_system_candidates_compact.add_argument("--batch-id")
+    visual_system_candidates_compact.set_defaults(func=cmd_visual_system_candidates_compact)
 
     recipe = sub.add_parser("recipe", help="Manage reusable visual recipes that combine memories.")
     recipe_sub = recipe.add_subparsers(required=True)
@@ -1010,10 +1082,12 @@ def build_parser() -> argparse.ArgumentParser:
     recipe_evidence.add_argument("recipe_id")
     recipe_evidence.add_argument("--type")
     recipe_evidence.add_argument("--limit", type=int, default=50)
+    recipe_evidence.add_argument("--summary", action="store_true")
     recipe_evidence.set_defaults(func=cmd_recipe_evidence)
     recipe_revisions = recipe_sub.add_parser("revisions")
     recipe_revisions.add_argument("recipe_id")
     recipe_revisions.add_argument("--limit", type=int, default=50)
+    recipe_revisions.add_argument("--summary", action="store_true")
     recipe_revisions.set_defaults(func=cmd_recipe_revisions)
     recipe_candidates = recipe_sub.add_parser("candidates")
     recipe_candidates_sub = recipe_candidates.add_subparsers(required=True)
@@ -1048,6 +1122,10 @@ def build_parser() -> argparse.ArgumentParser:
     recipe_candidates_cleanup.add_argument("--status", choices=["ignored"], default="ignored")
     recipe_candidates_cleanup.add_argument("--batch-id")
     recipe_candidates_cleanup.set_defaults(func=cmd_recipe_candidates_cleanup)
+    recipe_candidates_compact = recipe_candidates_sub.add_parser("compact")
+    recipe_candidates_compact.add_argument("--status", choices=["pending", "confirmed", "ignored"])
+    recipe_candidates_compact.add_argument("--batch-id")
+    recipe_candidates_compact.set_defaults(func=cmd_recipe_candidates_compact)
 
     asset = sub.add_parser("asset", help="Inspect local reference and generated image files.")
     asset_sub = asset.add_subparsers(required=True)
@@ -1089,6 +1167,7 @@ def build_parser() -> argparse.ArgumentParser:
     prompt_compose.add_argument("--aspect-ratio", help="Preferred image aspect ratio, such as 1:1, 3:4, or 16:9.")
     prompt_compose.add_argument("--target-generation-skill", help="Generation skill name to target.")
     prompt_compose.add_argument("--save", action="store_true", help="Save the composed prompt record.")
+    prompt_compose.add_argument("--debug-recall", action="store_true", help="Include uncollapsed raw recall candidates for debugging.")
     prompt_compose.set_defaults(func=cmd_prompt_compose)
 
     generation = sub.add_parser("generation", help="Record and inspect image-generation history.")
@@ -1108,6 +1187,7 @@ def build_parser() -> argparse.ArgumentParser:
     generation_list.set_defaults(func=cmd_generation_list)
     generation_get = generation_sub.add_parser("get")
     generation_get.add_argument("run_id")
+    generation_get.add_argument("--summary", action="store_true")
     generation_get.set_defaults(func=cmd_generation_get)
     generation_stats = generation_sub.add_parser("stats")
     generation_stats.add_argument("--asset-id")

@@ -116,6 +116,9 @@ aether recipe candidates confirm <recipe_candidate_id> --action inherit_variant 
 aether recipe candidates ignore <recipe_candidate_id>
 aether recipe candidates ignore <recipe_candidate_id> --cleanup
 aether recipe candidates cleanup --status ignored
+aether visual-asset candidates compact --status confirmed
+aether recipe candidates compact --status confirmed
+aether visual-system candidates compact --status confirmed
 aether visual-system candidates list --status pending --summary
 aether visual-system candidates list --batch-id <batch_id> --summary
 aether visual-system candidates get <visual_system_candidate_id>
@@ -188,10 +191,13 @@ When the user asks for generation quality or review trends, use:
 ```bash
 python skills/visual-memory/scripts/memory_report.py --recent-generations 10
 python skills/visual-memory/scripts/memory_report.py --pending --quality
+python skills/visual-memory/scripts/memory_report.py --all
 aether generation stats
 aether generation stats --asset-id <visual_asset_id>
 aether generation suggest <generation_run_id>
 ```
+
+`memory_report.py` returns compact context-safe summaries by default. Use `--full` only for debugging or export work where full records are explicitly needed.
 
 Summarize:
 

@@ -51,6 +51,7 @@ def main() -> None:
     parser.add_argument("--overlay-json", help="Optional prompt-record JSON overrides, or '-' for stdin.")
     parser.add_argument("--save", action="store_true")
     parser.add_argument("--emit-confirmation", action="store_true")
+    parser.add_argument("--debug-recall", action="store_true", help="Include raw uncollapsed recall candidates in the output.")
     args = parser.parse_args()
 
     config = load_config()
@@ -69,6 +70,7 @@ def main() -> None:
         target_generation_skill=target_generation_skill,
         default_generation_params=config.data.get("generation", {}).get("defaultParams", {}),
         config=config.data,
+        include_debug_recall=args.debug_recall,
     )
     record = merge_prompt_record(record, read_overlay(args.overlay_json))
     record = apply_prompt_generation_params(record, config)

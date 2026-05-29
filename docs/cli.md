@@ -23,7 +23,7 @@ Inspect one memory when you need exact stored details:
 
 ```bash
 aether visual-asset get <visual_asset_id>
-aether visual-asset evidence <visual_asset_id>
+aether visual-asset evidence <visual_asset_id> --summary
 aether visual-asset quality <visual_asset_id>
 ```
 
@@ -49,6 +49,7 @@ aether visual-asset candidates decide <candidate_id> create_new
 aether visual-asset candidates decide <candidate_id> attach_evidence --target-asset-id <visual_asset_id>
 aether visual-asset candidates decide <candidate_id> inherit_variant --target-asset-id <visual_asset_id>
 aether visual-asset candidates decide <candidate_id> ignore --cleanup
+aether visual-asset candidates compact --status confirmed
 ```
 
 ## Visual Systems And Recipes
@@ -67,6 +68,7 @@ Compose a prompt with existing visual memory:
 ```bash
 aether prompt compose --source-prompt "a lonely girl in a future city" --query "rain neon" --save
 aether prompt compose --source-prompt "a quiet character portrait" --system-id <visual_system_id> --recipe-id <recipe_id>
+aether prompt compose --source-prompt "debug recall" --debug-recall
 ```
 
 Save a complete prompt record:
@@ -88,7 +90,7 @@ Review history and feedback:
 
 ```bash
 aether generation list
-aether generation get <generation_run_id>
+aether generation get <generation_run_id> --summary
 aether generation stats
 aether generation suggest <generation_run_id>
 aether generation feedback <generation_run_id> --liked true --notes "usable style match"

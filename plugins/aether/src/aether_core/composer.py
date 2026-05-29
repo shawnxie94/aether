@@ -283,6 +283,7 @@ def compose_prompt(
     target_generation_skill: str | None = None,
     default_generation_params: dict[str, Any] | None = None,
     config: dict[str, Any] | None = None,
+    include_debug_recall: bool = False,
 ) -> dict[str, Any]:
     explicit_asset_ids = explicit_asset_ids or []
     system_ids = system_ids or []
@@ -601,7 +602,17 @@ def compose_prompt(
     if conflicts:
         assumptions.append("Conflicts were detected; preserve explicit user constraints and core style before optional assets.")
 
-    return {
+    recall_candidates = {
+        "visual_systems": recalled_systems,
+        "recipes": recalled_recipes,
+        "visual_assets": collapsed_recalled_assets,
+    }
+    if include_debug_recall:
+        recall_candidates["visual_assets_raw"] = recalled_assets
+    elif len(recalled_assets) != len(collapsed_recalled_assets):
+        recall_candidates["visual_assets_raw_count"] = len(recalled_assets)
+
+    record = {
         "source_prompt": source_prompt,
         "target_generation_skill": target_generation_skill,
         "selected_assets": selected_assets,
@@ -613,12 +624,7 @@ def compose_prompt(
             "conflicts": conflicts,
         },
         "intent_sketch": intent_sketch,
-        "recall_candidates": {
-            "visual_systems": recalled_systems,
-            "recipes": recalled_recipes,
-            "visual_assets": collapsed_recalled_assets,
-            "visual_assets_raw": recalled_assets,
-        },
+        "recall_candidates": recall_candidates,
         "recall_strategy": {
             "mode": "hybrid" if config and config.get("embedding", {}).get("provider") not in (None, "", "disabled") else "lexical_relation",
             "semantic_enabled": bool(config and config.get("embedding", {}).get("provider") not in (None, "", "disabled")),
@@ -639,3 +645,4 @@ def compose_prompt(
         "assumptions": assumptions,
         "conflicts": conflicts,
     }
+    return store.compact_prompt_record_payload(record, include_debug_recall=include_debug_recall)

@@ -103,6 +103,21 @@ class CliTests(unittest.TestCase):
         parsed = parser.parse_args(["visual-asset", "candidates", "decide", "candidate_style", "inherit_variant"])
         self.assertEqual(parsed.action, "inherit_variant")
 
+    def test_context_compaction_entrypoints_parse(self):
+        parser = build_parser()
+
+        parsed = parser.parse_args(["prompt", "compose", "--source-prompt", "mist", "--debug-recall"])
+        self.assertTrue(parsed.debug_recall)
+
+        parsed = parser.parse_args(["visual-asset", "candidates", "compact", "--status", "confirmed"])
+        self.assertEqual(parsed.status, "confirmed")
+
+        parsed = parser.parse_args(["visual-asset", "evidence", "visual_asset_style", "--summary"])
+        self.assertTrue(parsed.summary)
+
+        parsed = parser.parse_args(["generation", "get", "generation_123", "--summary"])
+        self.assertTrue(parsed.summary)
+
 
 if __name__ == "__main__":
     unittest.main()

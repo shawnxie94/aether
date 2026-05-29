@@ -27,6 +27,7 @@ from .validation import (
 
 class AetherStore:
     NON_RECALLABLE_STATUSES = {"archived", "deprecated", "merged"}
+    COMPACT_TEXT_LIMIT = 520
 
     def __init__(self, database_path: Path):
         self.database_path = database_path
@@ -36,6 +37,182 @@ class AetherStore:
         conn = sqlite3.connect(self.database_path)
         conn.row_factory = sqlite3.Row
         return conn
+
+    def _truncate_text(self, value: str, limit: int | None = None) -> str:
+        limit = limit or self.COMPACT_TEXT_LIMIT
+        normalized = " ".join(value.split())
+        if len(normalized) <= limit:
+            return normalized
+        return normalized[: max(0, limit - 3)].rstrip() + "..."
+
+    def _compact_json_value(self, value: Any, *, depth: int = 0, list_limit: int = 8) -> Any:
+        if isinstance(value, str):
+            return self._truncate_text(value)
+        if isinstance(value, (int, float, bool)) or value is None:
+            return value
+        if depth >= 4:
+            return self._truncate_text(json_dumps(value), limit=240)
+        if isinstance(value, list):
+            compacted = [self._compact_json_value(item, depth=depth + 1, list_limit=list_limit) for item in value[:list_limit]]
+            if len(value) > list_limit:
+                compacted.append({"omitted_count": len(value) - list_limit})
+            return compacted
+        if isinstance(value, dict):
+            return {
+                str(key): self._compact_json_value(item, depth=depth + 1, list_limit=list_limit)
+                for key, item in value.items()
+                if item not in (None, "", [], {})
+            }
+        return self._truncate_text(str(value))
+
+    def _compact_recall_item(self, item: dict[str, Any]) -> dict[str, Any]:
+        keys = (
+            "entity_type",
+            "entity_id",
+            "asset_id",
+            "system_id",
+            "recipe_id",
+            "type",
+            "kind",
+            "name",
+            "score",
+            "semantic_score",
+            "lexical_score",
+            "relation_score",
+            "quality_score",
+            "matched_terms",
+            "parent_system_ids",
+            "family_key",
+        )
+        compacted = {key: item[key] for key in keys if key in item and item[key] not in (None, "", [], {})}
+        if "matched_terms" in compacted and isinstance(compacted["matched_terms"], list):
+            compacted["matched_terms"] = compacted["matched_terms"][:8]
+        if item.get("provider_error"):
+            compacted["provider_error"] = self._truncate_text(str(item["provider_error"]), limit=160)
+        return compacted
+
+    def compact_recall_candidates(self, recall: dict[str, Any], *, include_raw: bool = False) -> dict[str, Any]:
+        if not isinstance(recall, dict):
+            return {}
+        compacted: dict[str, Any] = {}
+        for key in ("visual_systems", "recipes", "visual_assets"):
+            values = recall.get(key, [])
+            if isinstance(values, list):
+                compacted[key] = [self._compact_recall_item(item) for item in values[:5] if isinstance(item, dict)]
+                if len(values) > 5:
+                    compacted[f"{key}_omitted_count"] = len(values) - 5
+        raw = recall.get("visual_assets_raw", [])
+        if include_raw and isinstance(raw, list):
+            compacted["visual_assets_raw"] = [self._compact_recall_item(item) for item in raw[:8] if isinstance(item, dict)]
+            if len(raw) > 8:
+                compacted["visual_assets_raw_omitted_count"] = len(raw) - 8
+        elif isinstance(raw, list) and raw:
+            compacted["visual_assets_raw_count"] = len(raw)
+        elif recall.get("visual_assets_raw_count"):
+            compacted["visual_assets_raw_count"] = recall["visual_assets_raw_count"]
+        return {key: value for key, value in compacted.items() if value not in (None, "", [], {})}
+
+    def _compact_selected_asset(self, asset: Any) -> Any:
+        if not isinstance(asset, dict):
+            return asset
+        keys = ("type", "asset_id", "id", "name", "reason")
+        return {key: self._compact_json_value(asset[key]) for key in keys if key in asset and asset[key] not in (None, "", [], {})}
+
+    def _compact_selected_system(self, system: Any) -> Any:
+        if not isinstance(system, dict):
+            return system
+        keys = ("system_id", "kind", "name", "reason", "recall")
+        compacted = {key: self._compact_json_value(system[key]) for key in keys if key in system and system[key] not in (None, "", [], {})}
+        if "visual_rules" in system:
+            compacted["visual_rule_count"] = len(system.get("visual_rules") or [])
+        if "avoid_rules" in system:
+            compacted["avoid_rule_count"] = len(system.get("avoid_rules") or [])
+        return compacted
+
+    def _compact_selected_recipe(self, recipe: Any) -> Any:
+        if not isinstance(recipe, dict):
+            return recipe
+        keys = ("recipe_id", "name", "reason", "recommended_aspect_ratios", "recall")
+        compacted = {key: self._compact_json_value(recipe[key]) for key in keys if key in recipe and recipe[key] not in (None, "", [], {})}
+        if "composition_rules" in recipe:
+            compacted["composition_rule_count"] = len(recipe.get("composition_rules") or [])
+        return compacted
+
+    def _compact_composition_plan(self, plan: Any) -> Any:
+        if not isinstance(plan, dict):
+            return self._compact_json_value(plan)
+        compacted = dict(plan)
+        if isinstance(compacted.get("visual_systems"), list):
+            compacted["visual_systems"] = [self._compact_selected_system(item) for item in compacted["visual_systems"]]
+        if isinstance(compacted.get("recipes"), list):
+            compacted["recipes"] = [self._compact_selected_recipe(item) for item in compacted["recipes"]]
+        return self._compact_json_value(compacted)
+
+    def compact_prompt_record_payload(self, payload: dict[str, Any], *, include_debug_recall: bool = False) -> dict[str, Any]:
+        compacted = dict(payload)
+        selected_assets = compacted.get("selected_assets")
+        if isinstance(selected_assets, list):
+            compacted["selected_assets"] = [self._compact_selected_asset(asset) for asset in selected_assets]
+        constraints = compacted.get("constraints")
+        if isinstance(constraints, dict):
+            compact_constraints = dict(constraints)
+            for key, compact_func in (
+                ("selected_assets", self._compact_selected_asset),
+                ("selected_systems", self._compact_selected_system),
+                ("selected_recipes", self._compact_selected_recipe),
+            ):
+                if isinstance(compact_constraints.get(key), list):
+                    compact_constraints[key] = [compact_func(item) for item in compact_constraints[key]]
+            if isinstance(compact_constraints.get("conflicts"), list):
+                compact_constraints["conflicts"] = self._compact_json_value(compact_constraints["conflicts"], list_limit=6)
+            compacted["constraints"] = compact_constraints
+        if isinstance(compacted.get("intent_analysis"), dict):
+            intent = dict(compacted["intent_analysis"])
+            for key in ("prompt_terms", "query_terms"):
+                if isinstance(intent.get(key), list):
+                    terms = intent[key]
+                    intent[key] = terms[:32]
+                    if len(terms) > 32:
+                        intent[f"{key}_omitted_count"] = len(terms) - 32
+            compacted["intent_analysis"] = intent
+        if isinstance(compacted.get("recall_candidates"), dict):
+            compacted["recall_candidates"] = self.compact_recall_candidates(
+                compacted["recall_candidates"],
+                include_raw=include_debug_recall,
+            )
+        for key in ("intent_sketch", "generation_params", "assumptions", "conflicts"):
+            if key in compacted:
+                compacted[key] = self._compact_json_value(compacted[key])
+        if "composition_plan" in compacted:
+            compacted["composition_plan"] = self._compact_composition_plan(compacted["composition_plan"])
+        if isinstance(compacted.get("variants"), list):
+            variants = []
+            for variant in compacted["variants"]:
+                if not isinstance(variant, dict):
+                    variants.append(self._compact_json_value(variant))
+                    continue
+                compact_variant = dict(variant)
+                for key in ("composition_plan", "selected_assets", "notes"):
+                    if key in compact_variant:
+                        compact_variant[key] = self._compact_json_value(compact_variant[key])
+                variants.append(compact_variant)
+            compacted["variants"] = variants
+        return compacted
+
+    def prompt_context_summary(self, record: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "id": record.get("id"),
+            "source_prompt": record.get("source_prompt", ""),
+            "target_generation_skill": record.get("target_generation_skill"),
+            "selected_assets": record.get("selected_assets", []),
+            "refined_prompt": record.get("refined_prompt", ""),
+            "negative_prompt": record.get("negative_prompt", ""),
+            "generation_params": record.get("generation_params", {}),
+            "variant_count": len(record.get("variants", [])),
+            "assumptions": record.get("assumptions", []),
+            "conflict_count": len(record.get("conflicts", [])),
+            "created_at": record.get("created_at"),
+        }
 
     def init(self) -> None:
         with self.connect() as conn:
@@ -1668,7 +1845,7 @@ class AetherStore:
                         "candidate_id": candidate_id,
                         "decision": action,
                         "evolution_action": action,
-                        "candidate": candidate["payload"],
+                        "candidate": self.compact_candidate_payload(candidate["payload"]),
                     },
                 },
             )
@@ -1776,6 +1953,123 @@ class AetherStore:
             "recommended_aspect_ratios": payload.get("recommended_aspect_ratios", []),
             "status": payload.get("asset_status", "active"),
         }
+
+    def compact_candidate_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
+        metadata = payload.get("metadata", {})
+        compacted = {
+            key: self._compact_json_value(payload[key])
+            for key in (
+                "id",
+                "type",
+                "name",
+                "summary",
+                "tags",
+                "profile",
+                "prompt_fragments",
+                "negative_fragments",
+                "compatible_with",
+                "avoid_with",
+                "recommended_aspect_ratios",
+                "source_reference_ids",
+                "source_references",
+                "parent_system_ids",
+                "use_cases",
+                "required_asset_types",
+                "composition_rules",
+                "visual_rules",
+                "avoid_rules",
+                "confidence",
+                "source",
+                "reason",
+            )
+            if key in payload and payload[key] not in (None, "", [], {})
+        }
+        for key in ("decision", "evolution_action", "variant_delta", "asset_status"):
+            if payload.get(key) not in (None, "", [], {}):
+                compacted[key] = self._compact_json_value(payload[key])
+        suggestion = payload.get("evolution_suggestion")
+        if isinstance(suggestion, dict):
+            compacted["evolution_suggestion"] = {
+                key: self._compact_json_value(suggestion[key])
+                for key in ("action", "target_id", "confidence", "scores", "reason", "requires_user_confirmation")
+                if key in suggestion and suggestion[key] not in (None, "", [], {})
+            }
+        if isinstance(metadata, dict) and metadata:
+            compacted["metadata"] = {
+                key: self._compact_json_value(metadata[key])
+                for key in (
+                    "recommendation",
+                    "evolution_action",
+                    "target_system_id",
+                    "target_recipe_id",
+                    "dedupe_score",
+                    "evolution_suggestion",
+                    "source_generation_id",
+                    "reason",
+                )
+                if key in metadata and metadata[key] not in (None, "", [], {})
+            }
+        for key in ("related_existing_assets", "related_existing_systems", "related_existing_recipes", "similar_candidates"):
+            values = payload.get(key)
+            if isinstance(values, list) and values:
+                compacted[key] = [self._compact_json_value(item) for item in values[:3]]
+                if len(values) > 3:
+                    compacted[f"{key}_omitted_count"] = len(values) - 3
+        return compacted
+
+    def _compact_candidate_row_payloads(
+        self,
+        table: str,
+        rows: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        compacted = []
+        with self.connect() as conn:
+            for row in rows:
+                payload = row.get("payload", {})
+                next_payload = self.compact_candidate_payload(payload) if isinstance(payload, dict) else {}
+                conn.execute(
+                    f"update {table} set payload_json = ? where id = ?",
+                    (json_dumps(next_payload), row["id"]),
+                )
+                compacted.append(
+                    {
+                        "id": row["id"],
+                        "status": row.get("status"),
+                        "before_bytes": len(json_dumps(payload)),
+                        "after_bytes": len(json_dumps(next_payload)),
+                    }
+                )
+        return {
+            "table": table,
+            "compacted_count": len(compacted),
+            "bytes_before": sum(item["before_bytes"] for item in compacted),
+            "bytes_after": sum(item["after_bytes"] for item in compacted),
+            "items": compacted,
+        }
+
+    def compact_visual_asset_candidates(
+        self,
+        status: str | None = None,
+        batch_id: str | None = None,
+    ) -> dict[str, Any]:
+        candidates = self.list_visual_asset_candidates(status=status, batch_id=batch_id, limit=None)
+        return self._compact_candidate_row_payloads("visual_asset_candidates", candidates)
+
+    def compact_visual_system_candidates(
+        self,
+        status: str | None = None,
+        batch_id: str | None = None,
+    ) -> dict[str, Any]:
+        candidates = self.list_visual_system_candidates(status=status, batch_id=batch_id, limit=None)
+        return self._compact_candidate_row_payloads("visual_system_candidates", candidates)
+
+    def compact_recipe_candidates(
+        self,
+        status: str | None = None,
+        batch_id: str | None = None,
+    ) -> dict[str, Any]:
+        candidates = self.list_recipe_candidates(status=status, batch_id=batch_id, limit=None)
+        return self._compact_candidate_row_payloads("recipe_candidates", candidates)
 
     def create_visual_asset_evidence(self, asset_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         timestamp = now_iso()
@@ -2629,7 +2923,7 @@ class AetherStore:
                     "payload": {
                         "candidate_id": candidate_id,
                         "evolution_action": evolution_action,
-                        "candidate": payload,
+                        "candidate": self.compact_candidate_payload(payload),
                     },
                 },
             )
@@ -2694,7 +2988,7 @@ class AetherStore:
                 "payload": {
                     "candidate_id": candidate_id,
                     "evolution_action": evolution_action,
-                    "candidate": payload,
+                    "candidate": self.compact_candidate_payload(payload),
                 },
             },
         )
@@ -3334,7 +3628,7 @@ class AetherStore:
                     "payload": {
                         "candidate_id": candidate_id,
                         "evolution_action": evolution_action,
-                        "candidate": payload,
+                        "candidate": self.compact_candidate_payload(payload),
                     },
                 },
             )
@@ -3387,7 +3681,7 @@ class AetherStore:
                 "payload": {
                     "candidate_id": candidate_id,
                     "evolution_action": evolution_action,
-                    "candidate": payload,
+                    "candidate": self.compact_candidate_payload(payload),
                 },
             },
         )
@@ -3478,6 +3772,8 @@ class AetherStore:
             "size_bytes": total_size,
             "missing_files": missing_files,
             "by_kind": by_kind,
+            "duplicate_group_count": len(self.duplicate_assets()),
+            "unreferenced_count": len(self.unreferenced_assets()),
         }
 
     def duplicate_assets(self, kind: str | None = None) -> list[dict[str, Any]]:
@@ -3546,6 +3842,7 @@ class AetherStore:
 
     def save_prompt_record(self, payload: dict[str, Any]) -> dict[str, Any]:
         validate_prompt_record(payload)
+        payload = self.compact_prompt_record_payload(payload)
         constraints = payload.get("constraints", {})
         selected_assets = payload.get("selected_assets")
         if selected_assets is None and isinstance(constraints, dict):

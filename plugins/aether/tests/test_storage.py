@@ -45,6 +45,22 @@ class StorageTests(unittest.TestCase):
             self.assertTrue(prompt["id"].startswith("prompt_"))
             self.assertEqual(prompt["selected_assets"][0]["asset_id"], visual_asset["id"])
             self.assertEqual(prompt["generation_params"]["aspectRatio"], "16:9")
+            raw_prompt = store.save_prompt_record(
+                {
+                    "source_prompt": "raw recall test",
+                    "selected_assets": [{"asset_id": visual_asset["id"], "type": "style"}],
+                    "refined_prompt": "raw recall test refined",
+                    "recall_candidates": {
+                        "visual_assets": [{"asset_id": visual_asset["id"], "name": "Neon Melancholy", "score": 0.9}],
+                        "visual_assets_raw": [
+                            {"asset_id": f"visual_asset_{index}", "name": "x" * 800, "score": 0.1}
+                            for index in range(12)
+                        ],
+                    },
+                }
+            )
+            self.assertNotIn("visual_assets_raw", raw_prompt["recall_candidates"])
+            self.assertEqual(raw_prompt["recall_candidates"]["visual_assets_raw_count"], 12)
 
             generation = store.create_generation_run(
                 {
@@ -83,6 +99,41 @@ class StorageTests(unittest.TestCase):
                 }
             )
             self.assertTrue(asset["id"].startswith("asset_"))
+
+    def test_compact_candidate_payloads_trim_context_heavy_fields(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = AetherStore(Path(temp_dir) / "aether.sqlite")
+            store.init()
+            saved = store.create_visual_asset_candidate_batch(
+                {
+                    "candidate_assets": [
+                        {
+                            "id": "candidate_big",
+                            "type": "style",
+                            "name": "Large Candidate",
+                            "summary": "summary",
+                            "tags": ["large"],
+                            "profile": {"medium": ["x" * 700 for _ in range(4)]},
+                            "prompt_fragments": ["fragment " + ("x" * 700)],
+                            "related_existing_assets": [
+                                {"asset_id": f"visual_asset_{index}", "name": "related"}
+                                for index in range(8)
+                            ],
+                        }
+                    ]
+                }
+            )
+            candidate_id = saved["candidate_assets"][0]["id"]
+            before = store.get_visual_asset_candidate(candidate_id)
+            before_size = len(str(before["payload"]))
+
+            result = store.compact_visual_asset_candidates(status="pending")
+            after = store.get_visual_asset_candidate(candidate_id)
+
+            self.assertEqual(result["compacted_count"], 1)
+            self.assertLess(len(str(after["payload"])), before_size)
+            if "related_existing_assets" in after["payload"]:
+                self.assertLessEqual(len(after["payload"]["related_existing_assets"]), 3)
 
     def test_generation_list_get_and_stats(self):
         with tempfile.TemporaryDirectory() as temp_dir:
