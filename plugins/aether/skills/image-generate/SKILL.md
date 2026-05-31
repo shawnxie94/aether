@@ -1,11 +1,22 @@
 ---
 name: image-generate
-description: Use when the user explicitly asks Aether to create, generate, render, or output a new image from a refined prompt, or to edit/fix/adjust an existing generated image. Call the configured underlying Codex image skill and record the run. Do not use for uploaded/reference images, screenshots, visual asset extraction, visual asset sedimentation, or image plus source-prompt inputs unless the user explicitly asks to generate or edit an image; those should otherwise use visual-asset-capture.
+description: Use when the user explicitly asks Aether to create, generate, render, or output a new image from an already refined and user-confirmed prompt, or to edit/fix/adjust an existing generated image. Call the configured underlying Codex image skill and record the run. Do not use for raw/fuzzy text prompts before prompt-refine confirmation, and do not treat the original request to "generate" as confirmation. Do not use for uploaded/reference images, screenshots, visual asset extraction, visual asset sedimentation, or image plus source-prompt inputs unless the user explicitly asks to generate or edit an image; those should otherwise use visual-asset-capture.
 ---
 
 # Aether Image Generate
 
 Use this skill after a prompt has been refined and the user explicitly wants image output recorded in Aether.
+
+## Required Preconditions
+
+Before any provider call, confirm one of these is true:
+
+- The user approved the refined prompt or prompt record in a later message.
+- The user provided an already refined/final model-ready prompt and explicitly asked to generate from it.
+- The user explicitly said to auto-generate after refinement.
+- The request is an edit of an existing generated image and includes or implies a concrete edit instruction.
+
+If the current turn just created a prompt record from a raw, fuzzy, short, or newly composed text prompt, do not generate yet. Return to `prompt-refine` confirmation instead. The user's original "generate/create/render" wording is not approval to skip this gate.
 
 This skill supports two modes:
 
@@ -181,7 +192,7 @@ When presenting results to the user, show the generated image, a short quality/s
 - Treat visual review as advisory. Do not automatically discard, overwrite, edit, or regenerate an image without user confirmation.
 - Do not record successful generations with unarchived output images. Archive first, then save the generation run.
 - Do not use this skill directly for a raw, fuzzy, or short text prompt; switch to `prompt-refine` first and come back with a refined prompt or saved prompt record.
-- For a prompt record created in the same conversation turn, confirm that the user approved the refined prompt before making a paid or external generation call, unless they explicitly opted into auto-generation after refinement.
+- For a prompt record created in the same conversation turn, do not make a paid, external, provider-backed, or irreversible generation call unless the user explicitly opted into auto-generation after refinement before the record was created. Otherwise, stop and ask for confirmation.
 - If the user provided image(s) as references and did not explicitly ask for a new generated image or an edit to an existing generated image, switch to `visual-asset-capture` instead.
 - If the user only asks to analyze, remember, store, deduplicate, or extract reusable visual assets from image(s), switch to `visual-asset-capture` instead.
 - Do not store provider secrets in Aether config.

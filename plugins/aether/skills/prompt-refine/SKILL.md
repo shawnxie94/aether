@@ -10,6 +10,10 @@ Use this skill to turn fuzzy image prompts into visual-asset-aware generation pr
 Load `references/refinement-rules.md` when deciding how far to expand or reinterpret a prompt.
 Use `references/prompt-record-template.json` as the output shape.
 
+## Confirmation Gate
+
+When this skill is used because the user asked Aether to generate from a raw, fuzzy, short, or newly composed text prompt, this skill must stop at confirmation. Save the prompt record, present the complete confirmation message, and ask the user to confirm or revise. Do not call `image-generate`, `imagegen`, `rightcodes-imagegen`, or any image provider in the same turn unless the user explicitly said to auto-generate after refinement. A phrase like "generate an image" starts the workflow; it is not refined-prompt approval.
+
 ## Workflow
 
 1. Resolve config and inspect available visual assets:
@@ -133,7 +137,7 @@ The JSON should include:
 - If no visual asset is provided, recommend a small coherent set of active visual assets and ask before applying them when the choice is not obvious.
 - Do not over-compose with too many visual assets; prefer a small coherent set over a long keyword stack.
 - Do not use a visual asset if it conflicts with explicit user constraints.
-- If the user explicitly asked to generate image(s), save the prompt record first, relay the script's complete `confirmation_message` in natural language, including every prompt variant, shared/full negative prompt, suggested image params, and assumptions, then ask the user to confirm or revise before handing off to `image-generate`.
+- If the user explicitly asked to generate image(s), save the prompt record first, relay the script's complete `confirmation_message` in natural language, including every prompt variant, shared/full negative prompt, suggested image params, and assumptions, then stop and ask the user to confirm or revise. Do not hand off to `image-generate` until a later user message approves the refined prompt.
 - Do not show raw prompt-record JSON, selected asset IDs, `composition_plan`, `generation_params`, or `conflicts` objects to non-technical users unless they ask for low-level details.
-- Skip the confirmation checkpoint only when the user explicitly says to auto-generate after refinement.
+- Skip the confirmation checkpoint only when the user explicitly says to auto-generate after refinement. Do not infer this from ordinary generation wording such as "生成一张", "create an image", "render this", or "make it".
 - Do not use this as the default for reference image plus source-prompt inputs; use `visual-asset-capture` for visual asset sedimentation.
