@@ -1368,6 +1368,45 @@ class StorageTests(unittest.TestCase):
             recipe_ids = {item["recipe_id"] for item in store.hybrid_recall("recipe", "festival recall recipe", limit=10)}
             self.assertEqual(recipe_ids, {active_recipe["id"]})
 
+    def test_recall_include_unavailable_returns_admin_debug_matches(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = AetherStore(Path(temp_dir) / "aether.sqlite")
+            store.init()
+
+            active_asset = store.create_visual_asset(
+                {"type": "style", "name": "Recallable Festival Style", "summary": "festival recall anchor", "status": "active"}
+            )
+            merged_asset = store.create_visual_asset(
+                {
+                    "type": "style",
+                    "name": "Merged Festival Style",
+                    "summary": "festival recall anchor",
+                    "status": "merged",
+                    "merged_into_asset_id": active_asset["id"],
+                }
+            )
+            archived_asset = store.create_visual_asset(
+                {"type": "style", "name": "Archived Festival Style", "summary": "festival recall anchor", "status": "archived"}
+            )
+
+            default_ids = {
+                item["asset_id"]
+                for item in store.hybrid_recall("visual_asset", "festival recall anchor", limit=10)
+            }
+            self.assertEqual(default_ids, {active_asset["id"]})
+
+            admin_results = store.hybrid_recall(
+                "visual_asset",
+                "festival recall anchor",
+                limit=10,
+                include_unavailable=True,
+            )
+            admin_by_id = {item["asset_id"]: item for item in admin_results}
+            self.assertEqual(set(admin_by_id), {active_asset["id"], merged_asset["id"], archived_asset["id"]})
+            self.assertEqual(admin_by_id[merged_asset["id"]]["status"], "merged")
+            self.assertEqual(admin_by_id[merged_asset["id"]]["merged_into_asset_id"], active_asset["id"])
+            self.assertEqual(admin_by_id[archived_asset["id"]]["status"], "archived")
+
     def test_liked_feedback_triggers_generation_reuse_suggestion(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             store = AetherStore(Path(temp_dir) / "aether.sqlite")

@@ -118,6 +118,20 @@ class CliTests(unittest.TestCase):
         parsed = parser.parse_args(["generation", "get", "generation_123", "--summary"])
         self.assertTrue(parsed.summary)
 
+    def test_recall_status_is_active_only_with_explicit_admin_escape_hatch(self):
+        parser = build_parser()
+
+        parsed = parser.parse_args(["recall", "visual_asset", "--query", "mist", "--status", "active"])
+        self.assertEqual(parsed.status, "active")
+        self.assertFalse(parsed.include_unavailable)
+
+        parsed = parser.parse_args(["recall", "visual_asset", "--query", "mist", "--include-unavailable"])
+        self.assertTrue(parsed.include_unavailable)
+
+        with contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit):
+                parser.parse_args(["recall", "visual_asset", "--query", "mist", "--status", "archived"])
+
 
 if __name__ == "__main__":
     unittest.main()

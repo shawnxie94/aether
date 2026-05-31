@@ -1030,6 +1030,7 @@ class AetherStore:
         related_asset_ids: list[str] | None = None,
         parent_system_ids: list[str] | None = None,
         min_score: float = 0.0,
+        include_unavailable: bool = False,
     ) -> list[dict[str, Any]]:
         provider = None
         query_vector: list[float] | None = None
@@ -1043,7 +1044,12 @@ class AetherStore:
             provider = None
 
         results: list[dict[str, Any]] = []
-        for entity in self._entities_for_recall(entity_type, status=status):
+        recall_status = None if include_unavailable else status
+        for entity in self._entities_for_recall(
+            entity_type,
+            status=recall_status,
+            include_unavailable=include_unavailable,
+        ):
             entity_id = self._entity_id(entity_type, entity)
             text = self.canonical_entity_text(entity_type, entity)
             lexical_score, matched_terms = lexical_similarity(query_text, text)
@@ -1085,15 +1091,23 @@ class AetherStore:
                 "matched_terms": matched_terms,
                 "provider_error": provider_error,
             }
+            if include_unavailable:
+                result["status"] = entity.get("status")
             if entity_type == "visual_asset":
                 result["asset_id"] = entity_id
                 result["type"] = entity.get("type")
+                if include_unavailable:
+                    result["merged_into_asset_id"] = entity.get("merged_into_asset_id")
             elif entity_type == "visual_system":
                 result["system_id"] = entity_id
                 result["kind"] = entity.get("kind")
+                if include_unavailable:
+                    result["merged_into_system_id"] = entity.get("merged_into_system_id")
             elif entity_type == "recipe":
                 result["recipe_id"] = entity_id
                 result["parent_system_ids"] = entity.get("parent_system_ids", [])
+                if include_unavailable:
+                    result["merged_into_recipe_id"] = entity.get("merged_into_recipe_id")
             results.append(result)
         results.sort(key=lambda item: item["score"], reverse=True)
         return results[:limit]

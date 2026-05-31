@@ -116,6 +116,7 @@ def cmd_recall(args: argparse.Namespace) -> None:
                 config=config.data,
                 limit=args.limit,
                 status=args.status,
+                include_unavailable=args.include_unavailable,
             )
         )
         return
@@ -127,6 +128,7 @@ def cmd_recall(args: argparse.Namespace) -> None:
                 config=config.data,
                 limit=args.limit,
                 status=args.status,
+                include_unavailable=args.include_unavailable,
             )
             for current_type in ("visual_asset", "visual_system", "recipe")
         }
@@ -857,7 +859,12 @@ def build_parser() -> argparse.ArgumentParser:
     recall = sub.add_parser("recall", help="Search visual memory with lexical and optional embedding recall.")
     recall.add_argument("entity_type", choices=["visual_asset", "visual_system", "recipe", "all"])
     recall.add_argument("--query", required=True)
-    recall.add_argument("--status", default="active")
+    recall.add_argument("--status", choices=["active"], default="active", help="Recall only active visual memory by default.")
+    recall.add_argument(
+        "--include-unavailable",
+        action="store_true",
+        help="Admin/debug mode: include archived, deprecated, merged, and merged-into records in recall results.",
+    )
     recall.add_argument("--limit", type=int, default=5)
     recall.set_defaults(func=cmd_recall)
 
