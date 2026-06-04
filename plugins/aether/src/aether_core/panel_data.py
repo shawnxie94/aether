@@ -30,6 +30,7 @@ def _image_from_asset(asset: dict[str, Any]) -> dict[str, Any]:
         "kind": asset["kind"],
         "src": f"/asset/{asset['id']}",
         "label": path.name or asset["id"],
+        "sha256": asset.get("sha256", ""),
         "size_bytes": asset.get("size_bytes", 0),
         "exists": path.exists(),
     }
@@ -43,19 +44,32 @@ def _compact_text(value: str, limit: int = 180) -> str:
 
 
 def _resolve_images(asset_ids: list[str], asset_map: dict[str, dict[str, Any]], kind: str | None = None) -> list[dict[str, Any]]:
-    seen: set[str] = set()
+    seen_ids: set[str] = set()
+    seen_fingerprints: set[str] = set()
     images: list[dict[str, Any]] = []
     for asset_id in asset_ids:
-        if asset_id in seen:
+        if asset_id in seen_ids:
             continue
-        seen.add(asset_id)
+        seen_ids.add(asset_id)
         asset = asset_map.get(asset_id)
         if not asset:
             continue
         if kind and asset.get("kind") != kind:
             continue
-        images.append(_image_from_asset(asset))
+        image = _image_from_asset(asset)
+        fingerprint = _image_fingerprint(image)
+        if fingerprint in seen_fingerprints:
+            continue
+        seen_fingerprints.add(fingerprint)
+        images.append(image)
     return images
+
+
+def _image_fingerprint(image: dict[str, Any]) -> str:
+    sha256 = image.get("sha256")
+    if isinstance(sha256, str) and sha256:
+        return f"sha256:{sha256}"
+    return f"fallback:{image.get('kind', '')}:{image.get('label', '')}:{image.get('size_bytes', 0)}"
 
 
 def _merge_images(*image_groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -63,10 +77,10 @@ def _merge_images(*image_groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
     images: list[dict[str, Any]] = []
     for group in image_groups:
         for image in group:
-            image_id = image.get("id")
-            if not image_id or image_id in seen:
+            fingerprint = _image_fingerprint(image)
+            if fingerprint in seen:
                 continue
-            seen.add(image_id)
+            seen.add(fingerprint)
             images.append(image)
     return images
 

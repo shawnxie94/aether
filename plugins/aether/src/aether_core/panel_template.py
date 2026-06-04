@@ -120,7 +120,19 @@ PANEL_HTML = r"""<!doctype html>
       gap: 10px;
       margin-top: 18px;
     }
-    .controls label {
+    .bundle-actions {
+      border-top: 1px solid var(--line);
+      display: grid;
+      gap: 10px;
+      margin-top: 16px;
+      padding-top: 16px;
+    }
+    .action-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+    .controls label, .bundle-actions label {
       display: grid;
       gap: 5px;
       color: var(--muted);
@@ -137,6 +149,37 @@ PANEL_HTML = r"""<!doctype html>
       color: var(--ink);
       min-height: 39px;
     }
+    .action-button {
+      align-items: center;
+      background: #2f5f5b;
+      border: 1px solid rgba(18, 77, 72, .35);
+      border-radius: 8px;
+      color: #fffaf0;
+      cursor: pointer;
+      display: inline-flex;
+      justify-content: center;
+      min-height: 39px;
+      padding: 9px 10px;
+      text-align: center;
+      text-decoration: none;
+    }
+    .action-button.secondary {
+      background: var(--panel);
+      color: var(--ink);
+      border-color: var(--line);
+    }
+    .action-button:disabled {
+      cursor: wait;
+      opacity: .62;
+    }
+    .bundle-status {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+      min-height: 18px;
+    }
+    .bundle-status.error { color: var(--red); }
+    .hidden-file { display: none; }
     .topline {
       display: flex;
       justify-content: space-between;
@@ -452,8 +495,8 @@ PANEL_HTML = r"""<!doctype html>
       <p class="sub">Local visual memory panel</p>
       <div class="stats" id="stats"></div>
       <div class="tabs">
-        <button class="tab" data-view="favorites">Favorites</button>
-        <button class="tab active" data-view="recipes">Recipes</button>
+        <button class="tab active" data-view="favorites">Favorites</button>
+        <button class="tab" data-view="recipes">Recipes</button>
         <button class="tab" data-view="visual_systems">Systems</button>
         <button class="tab" data-view="visual_assets">Assets</button>
       </div>
@@ -462,6 +505,20 @@ PANEL_HTML = r"""<!doctype html>
         <label>Type <select id="type"></select></label>
         <label>Status <select id="status"></select></label>
       </div>
+      <div class="bundle-actions">
+        <div class="action-row">
+          <a class="action-button" id="exportBundle" href="/api/export" download>Export</a>
+          <button class="action-button secondary" id="chooseImport" type="button">Import</button>
+        </div>
+        <label>Import Mode
+          <select id="importMode">
+            <option value="merge">Merge</option>
+            <option value="replace">Replace</option>
+          </select>
+        </label>
+        <input class="hidden-file" id="importFile" type="file" accept=".zip,application/zip">
+        <div class="bundle-status" id="bundleStatus"></div>
+      </div>
     </aside>
     <main>
       <div id="content"></div>
@@ -469,7 +526,7 @@ PANEL_HTML = r"""<!doctype html>
   </div>
   <div class="lightbox" id="lightbox" aria-hidden="true"></div>
   <script>
-    const state = { data: null, view: "recipes", q: "", type: "", status: "active", detail: null };
+    const state = { data: null, view: "favorites", q: "", type: "", status: "active", detail: null };
     const labels = { favorites: "Favorites", recipes: "Recipes", visual_systems: "Systems", visual_assets: "Assets" };
     const badgeClasses = { favorites: "generated", recipes: "recipe", visual_systems: "system", visual_assets: "type" };
 
@@ -774,6 +831,44 @@ PANEL_HTML = r"""<!doctype html>
       renderFilters();
     }
 
+    function setBundleStatus(message, isError = false) {
+      const node = document.getElementById("bundleStatus");
+      node.textContent = message || "";
+      node.classList.toggle("error", isError);
+    }
+
+    async function importBundle(file) {
+      if (!file) return;
+      const button = document.getElementById("chooseImport");
+      const mode = document.getElementById("importMode").value;
+      if (mode === "replace" && !window.confirm("Replace current Aether library with this bundle?")) return;
+      button.disabled = true;
+      setBundleStatus("Importing...");
+      try {
+        const response = await fetch(`/api/import?mode=${encodeURIComponent(mode)}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/zip" },
+          body: file
+        });
+        if (!response.ok) {
+          const message = (await response.text()).replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+          throw new Error(message || `Import failed: ${response.status}`);
+        }
+        const result = await response.json();
+        await refreshData();
+        state.detail = null;
+        render();
+        const counts = result.counts || {};
+        setBundleStatus(`Imported ${counts.visual_assets || 0} assets, ${counts.recipes || 0} recipes, ${counts.visual_systems || 0} systems.`);
+      } catch (error) {
+        console.error(error);
+        setBundleStatus(error.message, true);
+      } finally {
+        button.disabled = false;
+        document.getElementById("importFile").value = "";
+      }
+    }
+
     async function toggleFavorite(button) {
       const entityType = button.dataset.entityType;
       const entityId = button.dataset.entityId;
@@ -842,6 +937,12 @@ PANEL_HTML = r"""<!doctype html>
       state.status = event.target.value;
       state.detail = null;
       render();
+    });
+    document.getElementById("chooseImport").addEventListener("click", () => {
+      document.getElementById("importFile").click();
+    });
+    document.getElementById("importFile").addEventListener("change", event => {
+      importBundle(event.target.files && event.target.files[0]);
     });
     document.addEventListener("keydown", event => {
       if (event.key === "Escape") {

@@ -12,6 +12,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from .config import LoadedConfig
+from .panel_bundle import export_panel_bundle, import_panel_bundle
 from .panel_data import collect_panel_data
 from .panel_template import PANEL_HTML
 from .storage import AetherStore
@@ -58,6 +59,9 @@ class PanelRequestHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/panel-data":
             self._send_json(collect_panel_data(self.server.config, self.server.store))
             return
+        if parsed.path == "/api/export":
+            self._export_bundle()
+            return
         if parsed.path.startswith("/asset/"):
             self._send_asset(parsed.path.removeprefix("/asset/"))
             return
@@ -74,6 +78,9 @@ class PanelRequestHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         if parsed.path == "/api/favorite":
             self._set_favorite()
+            return
+        if parsed.path == "/api/import":
+            self._import_bundle(parsed.query)
             return
         self.send_error(HTTPStatus.NOT_FOUND)
 
@@ -93,11 +100,26 @@ class PanelRequestHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(encoded)
 
+    def _send_binary(self, payload: bytes, content_type: str, filename: str) -> None:
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(payload)))
+        self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(payload)
+
     def _read_json_body(self) -> dict[str, Any]:
         length = int(self.headers.get("Content-Length") or "0")
         if length <= 0:
             return {}
         return json.loads(self.rfile.read(length).decode("utf-8"))
+
+    def _read_body(self) -> bytes:
+        length = int(self.headers.get("Content-Length") or "0")
+        if length <= 0:
+            return b""
+        return self.rfile.read(length)
 
     def _set_favorite(self) -> None:
         try:
@@ -122,6 +144,30 @@ class PanelRequestHandler(BaseHTTPRequestHandler):
             self.send_error(HTTPStatus.NOT_FOUND, "Entity not found")
             return
         self._send_json(self.server.store.set_panel_favorite(entity_type, entity_id, favorite))
+
+    def _export_bundle(self) -> None:
+        try:
+            payload, filename = export_panel_bundle(self.server.config, self.server.store)
+        except OSError as error:
+            self.send_error(HTTPStatus.INTERNAL_SERVER_ERROR, str(error))
+            return
+        self._send_binary(payload, "application/zip", filename)
+
+    def _import_bundle(self, query_string: str) -> None:
+        mode = parse_qs(query_string).get("mode", ["merge"])[0]
+        payload = self._read_body()
+        if not payload:
+            self.send_error(HTTPStatus.BAD_REQUEST, "Import bundle is required")
+            return
+        try:
+            result = import_panel_bundle(self.server.config, self.server.store, payload, mode=mode)
+        except ValueError as error:
+            self.send_error(HTTPStatus.BAD_REQUEST, str(error))
+            return
+        except OSError as error:
+            self.send_error(HTTPStatus.INTERNAL_SERVER_ERROR, str(error))
+            return
+        self._send_json(result)
 
     def _send_asset(self, asset_id: str) -> None:
         asset = next((item for item in self.server.store.list_assets(limit=None) if item["id"] == asset_id), None)
