@@ -109,6 +109,11 @@ class CliTests(unittest.TestCase):
         parsed = parser.parse_args(["prompt", "compose", "--source-prompt", "mist", "--debug-recall"])
         self.assertTrue(parsed.debug_recall)
 
+        parsed = parser.parse_args(["panel", "--host", "127.0.0.1", "--port", "0", "--quiet"])
+        self.assertEqual(parsed.host, "127.0.0.1")
+        self.assertEqual(parsed.port, 0)
+        self.assertTrue(parsed.quiet)
+
         parsed = parser.parse_args(["visual-asset", "candidates", "compact", "--status", "confirmed"])
         self.assertEqual(parsed.status, "confirmed")
 

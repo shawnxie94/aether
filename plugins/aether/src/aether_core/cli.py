@@ -11,6 +11,7 @@ from .config import ensure_configured_dirs, load_config
 from .generation_params import apply_generation_skill_params, apply_prompt_generation_params
 from .jsonio import dump_json, read_json_arg
 from .output_archiving import archive_generation_outputs
+from .panel import run_panel
 from .storage import AetherStore
 from .validation import validate_payload
 
@@ -799,14 +800,15 @@ def cmd_validate(args: argparse.Namespace) -> None:
 
 
 def cmd_serve(args: argparse.Namespace) -> None:
-    config, _ = _store()
-    dump_json(
-        {
-            "ok": False,
-            "reason": "The phase-one implementation is CLI-first. A local HTTP service is intentionally deferred.",
-            "suggested_command_shape": f"aether serve --host {args.host or config.data['backend']['host']} --port {args.port or config.data['backend']['port']}",
-        }
-    )
+    cmd_panel(args)
+
+
+def cmd_panel(args: argparse.Namespace) -> None:
+    config, store = _store()
+    backend = config.data.get("backend", {})
+    host = args.host or backend.get("host") or "127.0.0.1"
+    port = args.port if args.port is not None else int(backend.get("port") or 3850)
+    run_panel(config, store, host=host, port=port, open_browser=args.open)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -1210,9 +1212,25 @@ def build_parser() -> argparse.ArgumentParser:
     generation_feedback.add_argument("--notes")
     generation_feedback.set_defaults(func=cmd_generation_feedback)
 
-    serve = sub.add_parser("serve", help="Reserved for a future local HTTP service.")
-    serve.add_argument("--host", help="Future service host override.")
-    serve.add_argument("--port", type=int, help="Future service port override.")
+    panel = sub.add_parser(
+        "panel",
+        help="Launch the local read-only visual memory panel.",
+        description=(
+            "Start a local read-only web panel for browsing saved visual assets, recipes, visual systems, "
+            "reference images, and generated images."
+        ),
+    )
+    panel.add_argument("--host", help="Panel host. Defaults to backend.host in config.")
+    panel.add_argument("--port", type=int, help="Panel port. Defaults to backend.port in config.")
+    panel.add_argument("--open", action="store_true", help="Open the panel URL in the default browser.")
+    panel.add_argument("--quiet", action="store_true", help="Suppress HTTP request logs.")
+    panel.set_defaults(func=cmd_panel)
+
+    serve = sub.add_parser("serve", help="Alias for panel.")
+    serve.add_argument("--host", help="Panel host override.")
+    serve.add_argument("--port", type=int, help="Panel port override.")
+    serve.add_argument("--open", action="store_true", help="Open the panel URL in the default browser.")
+    serve.add_argument("--quiet", action="store_true", help="Suppress HTTP request logs.")
     serve.set_defaults(func=cmd_serve)
 
     validate = sub.add_parser("validate")

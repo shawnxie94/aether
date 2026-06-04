@@ -354,6 +354,13 @@ class AetherStore:
                   unique(recipe_id, asset_id, role)
                 );
 
+                create table if not exists panel_favorites (
+                  entity_type text not null,
+                  entity_id text not null,
+                  created_at text not null,
+                  primary key(entity_type, entity_id)
+                );
+
                 create table if not exists recipe_candidates (
                   id text primary key,
                   batch_id text not null,
@@ -515,6 +522,46 @@ class AetherStore:
             self._ensure_column(conn, "visual_asset_evidence", "source_candidate_id", "text")
             self._ensure_column(conn, "visual_asset_evidence", "source_reference_id", "text")
             record_schema_version(conn)
+
+    def list_panel_favorites(self, entity_type: str | None = None) -> list[dict[str, Any]]:
+        sql = "select * from panel_favorites"
+        params: list[Any] = []
+        if entity_type:
+            sql += " where entity_type = ?"
+            params.append(entity_type)
+        sql += " order by created_at desc"
+        with self.connect() as conn:
+            rows = conn.execute(sql, tuple(params)).fetchall()
+        return [dict(row) for row in rows]
+
+    def is_panel_favorite(self, entity_type: str, entity_id: str) -> bool:
+        with self.connect() as conn:
+            row = conn.execute(
+                "select 1 from panel_favorites where entity_type = ? and entity_id = ?",
+                (entity_type, entity_id),
+            ).fetchone()
+        return row is not None
+
+    def set_panel_favorite(self, entity_type: str, entity_id: str, favorite: bool) -> dict[str, Any]:
+        if entity_type not in {"recipe", "visual_system"}:
+            raise ValueError(f"Unsupported favorite entity type: {entity_type}")
+        timestamp = now_iso()
+        with self.connect() as conn:
+            if favorite:
+                conn.execute(
+                    """
+                    insert into panel_favorites (entity_type, entity_id, created_at)
+                    values (?, ?, ?)
+                    on conflict(entity_type, entity_id) do nothing
+                    """,
+                    (entity_type, entity_id, timestamp),
+                )
+            else:
+                conn.execute(
+                    "delete from panel_favorites where entity_type = ? and entity_id = ?",
+                    (entity_type, entity_id),
+                )
+        return {"entity_type": entity_type, "entity_id": entity_id, "favorite": favorite}
 
     def create_visual_asset(self, payload: dict[str, Any]) -> dict[str, Any]:
         validate_visual_asset(payload)

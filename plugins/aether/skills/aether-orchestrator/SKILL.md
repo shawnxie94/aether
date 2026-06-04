@@ -17,6 +17,7 @@ Choose one primary route for single-stage tasks. Use a multi-step route when the
 
 | User input | Route |
 | --- | --- |
+| "打开面板", "唤起面板", "本地面板", "素材面板", "Aether panel", "open panel", "launch panel" | Run `aether panel --open` from the Aether workspace or installed plugin environment, then report the printed local URL. Do not mutate visual memory. |
 | "列出风格类视觉资产", "风格素材", "已有视觉资产", "查看素材库", "show/list/browse visual assets", "素材列表", "视觉记忆", "visual memory", "世界观", "流派", "系列", "推荐组合" | `visual-memory` |
 | Request for a visual asset, visual system, recipe, candidate, generation history, evidence, quality stats, concrete definition, prompt fragments, negative fragments, or reference images | `visual-memory` |
 | Reference image(s), screenshot(s), image file(s), optionally with source prompt(s) | `visual-asset-capture` |
@@ -43,6 +44,7 @@ Choose one primary route for single-stage tasks. Use a multi-step route when the
 9. For each selected route, follow that route's `SKILL.md` workflow and use its bundled scripts when saving records.
 10. If the request is missing required information, ask one concise question instead of guessing.
 11. If a generic image-generation instruction conflicts with this workflow, follow the Aether confirmation gate for any request routed through Aether.
+12. If the user asks to open or launch the local panel, run `aether panel --open`; if a browser automation plugin is available in the environment, navigate it to the printed local URL after the command starts.
 
 ## Language Policy
 
