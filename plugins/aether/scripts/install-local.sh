@@ -85,3 +85,20 @@ cli=$bin_dir/aether
 
 Restart Codex to reload plugin skills.
 EOF
+
+# Post-install health check. The project layout script lives next to the
+# aether repo root; from here ($plugin_root is <project>/plugins/aether)
+# it is one level up under scripts/.
+project_root="$(cd "$plugin_root/.." >/dev/null 2>&1 && pwd)"
+verify_script="$project_root/scripts/verify_aether_layout.sh"
+if [ -x "$verify_script" ]; then
+  printf "\n=== Post-install layout verification ===\n"
+  if "$verify_script" --project-root "$project_root"; then
+    :
+  else
+    printf "warning: Aether installed but verify_aether_layout.sh reported drift.\n" >&2
+    printf "         Investigate the items above before relying on the install.\n" >&2
+  fi
+else
+  printf "note: verify_aether_layout.sh not found at %s; skipping post-install check.\n" "$verify_script" >&2
+fi
