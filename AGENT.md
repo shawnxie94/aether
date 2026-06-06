@@ -115,3 +115,48 @@ Source changes in this repo do not automatically update that cache. If the user 
 - Preserve user intent in prompt refinement; do not replace the core subject, scene, action, mood, or explicit constraints.
 - Keep provider-specific image generation details behind skill/config boundaries.
 - Avoid large unrelated refactors when editing skill instructions or scripts.
+
+## Layout Verification
+
+Run the bundled verify script whenever a config / symlink / panel / "where do my
+images live" question comes up. It checks:
+
+- The global symlink `~/.config/aether/config.json` points to `~/.aether/codex-plugin/config.json`
+- The global config has absolute storage paths (not the dev template)
+- The runtime data directory and SQLite DB exist
+- The running panel process is reading the global DB
+- No stale `plugins/aether/.aether/` (project-local data) is left behind
+
+```bash
+bash scripts/verify_aether_layout.sh
+```
+
+If a future bug of the "panel does not see my new images" family recurs, run this
+script first. The most common root cause is the global symlink having been
+(re)pointed at `plugins/aether/config.json` (the dev template, with relative
+paths) instead of the install-rewritten global config. Re-run
+`plugins/aether/scripts/install-local.sh` to restore the canonical layout.
+
+## Symlink Safety Check
+
+`aether_core.config.find_config` now refuses to silently use a dev template
+when the global symlink exists. The check fires when the resolved symlink
+target has relative `storage.databasePath` (the dev template signature). The
+runtime raises a clear error recommending `install-local.sh`, and dev users
+can opt out with `AETHER_ALLOW_PROJECT_CONFIG=1`.
+
+## Cache Sync Reminder
+
+Source changes in `plugins/aether/src/aether_core/` are not auto-propagated to
+the Codex plugin cache at `~/.codex/plugins/cache/aether/aether/<version>/`.
+After editing source, run:
+
+```bash
+cp plugins/aether/src/aether_core/config.py \
+   ~/.codex/plugins/cache/aether/aether/0.1.0/src/aether_core/config.py
+rm -rf ~/.codex/plugins/cache/aether/aether/0.1.0/src/aether_core/__pycache__
+```
+
+…or the equivalent for any other source file. Then restart the panel from a
+directory that does not itself contain a `config.json` (e.g. `/tmp`) so the
+global symlink is the discovery path actually used.

@@ -33,8 +33,10 @@ def find_config(start: Path | None = None) -> Path:
         return Path(env_candidate).expanduser().resolve()
 
     global_candidate = GLOBAL_CONFIG_PATH.expanduser()
-    if global_candidate.exists():
-        return global_candidate.resolve()
+    if global_candidate.exists() or global_candidate.is_symlink():
+        resolved = global_candidate.resolve()
+        _validate_canonical_symlink_target(global_candidate, resolved)
+        return resolved
 
     current = (start or Path.cwd()).resolve()
     for candidate_root in [current, *current.parents]:
@@ -47,6 +49,37 @@ def find_config(start: Path | None = None) -> Path:
         return workspace_candidate.resolve()
 
     raise FileNotFoundError("Could not find config.json for Aether.")
+
+
+def _validate_canonical_symlink_target(link: Path, target: Path) -> None:
+    """Refuse to silently use a project dev template when a global symlink is present.
+
+    The global discovery entry point is ``~/.config/aether/config.json``. When this
+    file is a symlink but the resolved target is a dev template with relative
+    storage paths, treat the layout as broken and require an explicit opt-out via
+    ``AETHER_ALLOW_PROJECT_CONFIG=1``. This catches the common case where the
+    symlink has been (re)pointed at a repo-local ``config.json`` by mistake.
+    """
+    if os.environ.get("AETHER_ALLOW_PROJECT_CONFIG") == "1":
+        return
+    if not target.is_absolute():
+        return
+    try:
+        with target.open("r", encoding="utf-8") as handle:
+            data = json.load(handle)
+    except (OSError, json.JSONDecodeError):
+        return
+    storage = data.get("storage") or {}
+    db_path = storage.get("databasePath") or storage.get("database_path")
+    if not db_path or Path(db_path).is_absolute():
+        return
+    raise RuntimeError(
+        "Aether global config symlink "
+        f"({link}) resolves to a dev template ({target}) "
+        "with relative storage paths. Re-run "
+        "plugins/aether/scripts/install-local.sh to restore the canonical layout, "
+        "or set AETHER_ALLOW_PROJECT_CONFIG=1 to silence this check."
+    )
 
 
 def load_config(path: str | Path | None = None) -> LoadedConfig:
