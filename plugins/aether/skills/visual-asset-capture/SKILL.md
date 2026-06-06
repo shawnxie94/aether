@@ -126,6 +126,8 @@ For whole-batch confirmation:
 aether visual-asset candidates confirm-batch <batch-id>
 ```
 
+> **Idempotency warning:** `confirm-batch` persists asset candidates **and** the recipe / visual_system candidates in the same batch. After running it, every recipe candidate and visual_system candidate linked to `<batch-id>` will already be `confirmed` with a confirmed id. Do **not** run `aether recipe candidates confirm` or `aether visual-system candidates confirm` for those same candidate ids afterwards, or you will create duplicate recipes / systems (e.g. `recipe-name` and `recipe-name-2`). If a higher-level candidate was intentionally left out of the batch, or you need to re-decide one, run the per-id idempotency check in step 7 first.
+
 For one-by-one decisions:
 
 ```bash
@@ -137,7 +139,15 @@ aether visual-asset candidates decide <candidate-id> ignore --cleanup
 aether visual-asset candidates cleanup --status ignored
 ```
 
-7. Confirm higher-level candidates only after their asset candidates have been confirmed or mapped:
+7. Confirm higher-level recipe / visual_system candidates **only when** they were not already persisted by `confirm-batch`, or when the user explicitly wants a different decision (e.g. attach_evidence / inherit_variant / force_new). Before any separate confirm, run the idempotency check and skip the confirm if the candidate is already confirmed:
+
+```bash
+# Idempotency check — do this first for every recipe/system candidate id
+aether recipe candidates get <recipe-candidate-id>
+aether visual-system candidates get <visual-system-candidate-id>
+```
+
+If `status` is already `confirmed` and the linked `confirmed_recipe_id` / `confirmed_system_id` matches the desired target, do **not** call `confirm` again. The original target record (e.g. `recipe-quiet-sakura-youth-illustration-recipe`, not the `-2` copy) is the canonical survivor; a duplicate created by re-confirming can be cleaned up with `aether recipe merge <duplicate-id> <canonical-id>` / `aether visual-system merge <duplicate-id> <canonical-id>`.
 
 ```bash
 aether recipe candidates confirm <recipe-candidate-id>

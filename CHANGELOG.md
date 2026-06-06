@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Document an idempotency check in `visual-asset-capture`: `aether visual-asset candidates confirm-batch` already persists recipe / visual_system candidates in the same batch, so a follow-up `aether recipe candidates confirm` or `aether visual-system candidates confirm` against the same candidate ids would create `-2` duplicates. The skill now warns explicitly and tells Codex to re-check `candidates get` before re-confirming, and to use `recipe merge` / `visual-system merge` to clean up a duplicate if one was already created.
+
 ## 0.1.0
 
 - Publish Aether's public README experience with bilingual documentation and visual examples.
