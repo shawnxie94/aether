@@ -94,3 +94,108 @@ class EmbeddingProviderTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class EmbeddingRetryTests(unittest.TestCase):
+    """Retry and chunking helpers for the embedding provider."""
+
+    def test_retry_then_succeed(self):
+        from aether_core.embeddings import embed_with_retry
+        calls = {"n": 0}
+        sleeps = []
+
+        def fake_fn(texts):
+            calls["n"] += 1
+            if calls["n"] < 3:
+                raise ConnectionError("flaky")
+            return [[float(len(t))] for t in texts]
+
+        def fake_sleep(d):
+            sleeps.append(d)
+
+        result = embed_with_retry(
+            fake_fn, ["ab", "c"], max_attempts=3, base_delay=0.1, sleep=fake_sleep
+        )
+        self.assertEqual(calls["n"], 3)
+        self.assertEqual(result, [[2.0], [1.0]])
+        self.assertEqual(len(sleeps), 2)
+        # Second sleep should be at least the doubled first delay.
+        self.assertGreater(sleeps[1], sleeps[0])
+
+    def test_retry_propagates_non_retryable_immediately(self):
+        from aether_core.embeddings import embed_with_retry
+        calls = {"n": 0}
+
+        def fake_fn(texts):
+            calls["n"] += 1
+            raise ValueError("invalid input")
+
+        with self.assertRaises(ValueError):
+            embed_with_retry(fake_fn, ["x"], max_attempts=5, base_delay=0.01, sleep=lambda d: None)
+        self.assertEqual(calls["n"], 1)
+
+    def test_retry_exhausts_then_raises(self):
+        from aether_core.embeddings import embed_with_retry
+        calls = {"n": 0}
+
+        def fake_fn(texts):
+            calls["n"] += 1
+            raise ConnectionError("never recovers")
+
+        with self.assertRaises(ConnectionError):
+            embed_with_retry(fake_fn, ["x"], max_attempts=3, base_delay=0.01, sleep=lambda d: None)
+        self.assertEqual(calls["n"], 3)
+
+    def test_retryable_http_status_5xx_is_retried(self):
+        import urllib.error
+        from aether_core.embeddings import embed_with_retry
+        calls = {"n": 0}
+
+        def fake_fn(texts):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise urllib.error.HTTPError(
+                    "https://api.example.com/embeddings",
+                    503,
+                    "Service Unavailable",
+                    {},
+                    __import__("io").BytesIO(b"try again"),
+                )
+            return [[0.0]]
+
+        result = embed_with_retry(
+            fake_fn, ["a"], max_attempts=2, base_delay=0.01, sleep=lambda d: None
+        )
+        self.assertEqual(result, [[0.0]])
+        self.assertEqual(calls["n"], 2)
+
+    def test_non_retryable_http_status_not_retried(self):
+        import io
+        import urllib.error
+        from aether_core.embeddings import embed_with_retry
+        calls = {"n": 0}
+
+        def fake_fn(texts):
+            calls["n"] += 1
+            raise urllib.error.HTTPError(
+                "https://api.example.com/embeddings",
+                400,
+                "Bad Request",
+                {},
+                io.BytesIO(b"bad"),
+            )
+
+        with self.assertRaises(urllib.error.HTTPError):
+            embed_with_retry(fake_fn, ["a"], max_attempts=5, base_delay=0.01, sleep=lambda d: None)
+        self.assertEqual(calls["n"], 1)
+
+    def test_chunk_texts_splits_and_handles_empty(self):
+        from aether_core.embeddings import chunk_texts
+        self.assertEqual(chunk_texts([], batch_size=2), [])
+        self.assertEqual(chunk_texts(["a"], batch_size=2), [["a"]])
+        self.assertEqual(
+            chunk_texts(["a", "b", "c", "d", "e"], batch_size=2),
+            [["a", "b"], ["c", "d"], ["e"]],
+        )
+        with self.assertRaises(ValueError):
+            chunk_texts(["a"], batch_size=0)

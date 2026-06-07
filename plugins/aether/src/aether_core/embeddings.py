@@ -4,11 +4,19 @@ import hashlib
 import json
 import math
 import os
+import random
 import subprocess
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any, Callable, Protocol
+
+
+# HTTP status codes that are safe to retry on a remote embedding provider.
+# Mirrors the list used by skills/image-generate so the embedding path is
+# consistent with the generation path.
+RETRYABLE_HTTP_STATUSES = frozenset({408, 409, 425, 429, 500, 502, 503, 504, 520, 522, 524})
 
 
 class EmbeddingProvider(Protocol):
@@ -18,6 +26,59 @@ class EmbeddingProvider(Protocol):
 
     def embed_texts(self, texts: list[str]) -> list[list[float]]:
         ...
+
+
+def _is_retryable_error(exc: BaseException) -> bool:
+    """Return True for transient network / provider errors that should be retried."""
+    if isinstance(exc, urllib.error.HTTPError):
+        return exc.code in RETRYABLE_HTTP_STATUSES
+    if isinstance(exc, (urllib.error.URLError, TimeoutError, ConnectionError, OSError)):
+        return True
+    return False
+
+
+def embed_with_retry(
+    fn: Callable[[list[str]], list[list[float]]],
+    texts: list[str],
+    *,
+    max_attempts: int = 3,
+    base_delay: float = 0.4,
+    max_delay: float = 4.0,
+    sleep: Callable[[float], None] = time.sleep,
+    is_retryable: Callable[[BaseException], bool] = _is_retryable_error,
+) -> list[list[float]]:
+    """Call ``fn(texts)`` with exponential backoff on transient failures.
+
+    The first failure waits ``base_delay`` seconds, the second ``2 * base_delay``
+    (capped at ``max_delay``), with a small random jitter to avoid synchronised
+    retries. Non-retryable errors propagate immediately so a malformed prompt
+    still fails fast.
+    """
+    if max_attempts < 1:
+        raise ValueError("max_attempts must be >= 1")
+    attempt = 1
+    delay = base_delay
+    while True:
+        try:
+            return fn(texts)
+        except Exception as exc:  # noqa: BLE001 — we re-raise below
+            if attempt >= max_attempts or not is_retryable(exc):
+                raise
+            sleep(delay + random.uniform(0, delay * 0.25))
+            attempt += 1
+            delay = min(delay * 2, max_delay)
+
+
+def chunk_texts(texts: list[str], *, batch_size: int) -> list[list[str]]:
+    """Split ``texts`` into chunks of at most ``batch_size`` items.
+
+    An empty input returns an empty list so callers can short-circuit.
+    """
+    if batch_size < 1:
+        raise ValueError("batch_size must be >= 1")
+    if not texts:
+        return []
+    return [texts[i : i + batch_size] for i in range(0, len(texts), batch_size)]
 
 
 @dataclass(frozen=True)
@@ -37,11 +98,9 @@ class OpenAIEmbeddingProvider:
     base_url: str = "https://api.openai.com/v1"
     dimensions: int = 0
     provider_name: str = "openai"
+    timeout: float = 60.0
 
-    def embed_texts(self, texts: list[str]) -> list[list[float]]:
-        payload: dict[str, Any] = {"model": self.model, "input": texts}
-        if self.dimensions:
-            payload["dimensions"] = self.dimensions
+    def _post(self, payload: dict[str, Any]) -> dict[str, Any]:
         request = urllib.request.Request(
             f"{self.base_url.rstrip('/')}/embeddings",
             data=json.dumps(payload).encode("utf-8"),
@@ -51,13 +110,18 @@ class OpenAIEmbeddingProvider:
             },
             method="POST",
         )
-        try:
-            with urllib.request.urlopen(request, timeout=60) as response:
-                body = json.loads(response.read().decode("utf-8"))
-        except urllib.error.HTTPError as exc:
-            detail = exc.read().decode("utf-8", errors="replace")
-            raise RuntimeError(f"OpenAI embedding request failed: {exc.code} {detail}") from exc
-        vectors = [item["embedding"] for item in sorted(body.get("data", []), key=lambda item: item["index"])]
+        with urllib.request.urlopen(request, timeout=self.timeout) as response:
+            return json.loads(response.read().decode("utf-8"))
+
+    def embed_texts(self, texts: list[str]) -> list[list[float]]:
+        payload: dict[str, Any] = {"model": self.model, "input": texts}
+        if self.dimensions:
+            payload["dimensions"] = self.dimensions
+        body = self._post(payload)
+        vectors = [
+            item["embedding"]
+            for item in sorted(body.get("data", []), key=lambda item: item["index"])
+        ]
         if len(vectors) != len(texts):
             raise RuntimeError("OpenAI embedding response count does not match input count")
         return vectors

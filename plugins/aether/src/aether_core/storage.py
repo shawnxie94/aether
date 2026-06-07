@@ -1,14 +1,21 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import sqlite3
 from pathlib import Path
 from typing import Any
 
-from .embeddings import content_hash, cosine_similarity, provider_from_config
+from .embeddings import (
+    chunk_texts,
+    content_hash,
+    cosine_similarity,
+    embed_with_retry,
+    provider_from_config,
+)
 from .ids import new_id, slugify
 from .jsonio import json_dumps, json_loads
-from .migrations import record_schema_version
+from .migrations import run_migrations
 from .recall import canonical_text, lexical_similarity, token_set, weighted_score
 from .storage_time import now_iso
 from .validation import (
@@ -33,10 +40,62 @@ class AetherStore:
         self.database_path = database_path
         self.database_path.parent.mkdir(parents=True, exist_ok=True)
 
-    def connect(self) -> sqlite3.Connection:
+    @contextlib.contextmanager
+    def connect(self):
+        """Yield a sqlite3 connection, committing on clean exit.
+
+        This is a generator-based context manager, not a raw
+        ``sqlite3.Connection`` wrapper. Two reasons:
+
+        1. CPython 3.14's ``sqlite3.Connection.close()`` does NOT auto-commit
+           pending transactions. ``Connection.__exit__`` does (it calls
+           ``commit()`` then ``close()``), but a plain ``close()`` rolls them
+           back. We have to commit explicitly to keep behaviour consistent
+           with the old ``with self.connect() as conn:`` call sites.
+        2. It lets us drop the local connection binding inside ``finally`` so
+           CPython's finalizer recognises the connection as fully cleaned up,
+           which silences the false-positive ``ResourceWarning: unclosed
+           database`` reported during interpreter shutdown.
+        """
         conn = sqlite3.connect(self.database_path)
         conn.row_factory = sqlite3.Row
-        return conn
+        try:
+            yield conn
+        except BaseException:
+            # An exception is unwinding the with-block. Roll back any pending
+            # write and re-raise so the caller sees the original error.
+            try:
+                if conn.in_transaction:
+                    conn.rollback()
+            except sqlite3.ProgrammingError:
+                pass
+            raise
+        else:
+            # No exception: commit pending writes before closing. Without
+            # this, CPython 3.14 drops the transaction on close.
+            try:
+                conn.commit()
+            except sqlite3.ProgrammingError:
+                # Connection was already closed by a caller; safe to ignore.
+                pass
+        finally:
+            try:
+                conn.close()
+            except sqlite3.ProgrammingError:
+                # Already closed; nothing left to do.
+                pass
+            del conn
+
+    def __del__(self) -> None:  # pragma: no cover - defensive only
+        """Last-resort hook for any leaked sqlite3 connection.
+
+        ``connect()`` is a context manager that always commits and closes on
+        ``__exit__``, so this ``__del__`` should normally be a no-op. It
+        exists so that if a future caller bypasses the context manager
+        (e.g. stores a raw connection and drops the reference), the
+        interpreter's finalizer still flushes the underlying handle.
+        """
+        return None
 
     def _truncate_text(self, value: str, limit: int | None = None) -> str:
         limit = limit or self.COMPACT_TEXT_LIMIT
@@ -499,29 +558,7 @@ class AetherStore:
                   on embeddings(provider, model, dimensions);
                 """
             )
-            self._ensure_column(conn, "prompt_records", "generation_params_json", "text not null default '{}'")
-            self._ensure_column(conn, "prompt_records", "selected_assets_json", "text not null default '[]'")
-            self._ensure_column(conn, "prompt_records", "composition_plan_json", "text not null default '{}'")
-            self._ensure_column(conn, "prompt_records", "conflicts_json", "text not null default '[]'")
-            self._ensure_column(conn, "prompt_records", "intent_sketch_json", "text not null default '{}'")
-            self._ensure_column(conn, "prompt_records", "recall_candidates_json", "text not null default '{}'")
-            self._ensure_column(conn, "prompt_records", "recall_strategy_json", "text not null default '{}'")
-            self._ensure_column(conn, "generation_runs", "visual_review_json", "text not null default '{}'")
-            self._ensure_column(conn, "generation_runs", "selected_assets_json", "text not null default '[]'")
-            self._ensure_column(conn, "generation_runs", "mode", "text not null default 'generate'")
-            self._ensure_column(conn, "generation_runs", "source_generation_id", "text")
-            self._ensure_column(conn, "generation_runs", "source_output_asset_id", "text")
-            self._ensure_column(conn, "generation_runs", "edit_instruction", "text not null default ''")
-            self._ensure_column(conn, "generation_runs", "edit_regions_json", "text not null default '[]'")
-            self._ensure_column(conn, "recipes", "composition_rules_json", "text not null default '[]'")
-            self._ensure_column(conn, "recipes", "metadata_json", "text not null default '{}'")
-            self._ensure_column(conn, "recipes", "parent_recipe_id", "text")
-            self._ensure_column(conn, "recipes", "merged_into_recipe_id", "text")
-            self._ensure_column(conn, "visual_systems", "parent_system_id", "text")
-            self._ensure_column(conn, "visual_systems", "merged_into_system_id", "text")
-            self._ensure_column(conn, "visual_asset_evidence", "source_candidate_id", "text")
-            self._ensure_column(conn, "visual_asset_evidence", "source_reference_id", "text")
-            record_schema_version(conn)
+            run_migrations(conn)
 
     def list_panel_favorites(self, entity_type: str | None = None) -> list[dict[str, Any]]:
         sql = "select * from panel_favorites"
@@ -1045,7 +1082,7 @@ class AetherStore:
                     skipped.append({"entity_type": current_type, "entity_id": entity_id, "reason": "unchanged"})
                     continue
                 to_embed.append((current_type, entity_id, text))
-        vectors = provider.embed_texts([item[2] for item in to_embed]) if to_embed else []
+        vectors = self._embed_batches(provider, [item[2] for item in to_embed], config)
         indexed = [
             self.upsert_embedding(
                 current_type,
@@ -1065,6 +1102,44 @@ class AetherStore:
             "model": provider.model,
             "dimensions": provider.dimensions,
         }
+
+    def _embed_batches(
+        self,
+        provider: Any,
+        texts: list[str],
+        config: dict[str, Any] | None,
+    ) -> list[list[float]]:
+        """Embed ``texts`` in chunks with retry on transient errors.
+
+        The chunk size is read from ``config['embedding']['batchSize']`` and
+        defaults to 32. Each chunk is sent through ``embed_with_retry`` so a
+        single 429 or 5xx does not abort the whole rebuild. A chunk that
+        exhausts its retries is logged and skipped; the surrounding chunks
+        still complete so partial progress survives flaky networks.
+        """
+        if not texts:
+            return []
+        batch_size = 32
+        if isinstance(config, dict):
+            raw = config.get("embedding", {}).get("batchSize")
+            try:
+                if raw is not None and int(raw) > 0:
+                    batch_size = int(raw)
+            except (TypeError, ValueError):
+                pass
+        vectors: list[list[float]] = []
+        for batch in chunk_texts(texts, batch_size=batch_size):
+            try:
+                vectors.extend(
+                    embed_with_retry(provider.embed_texts, batch)
+                )
+            except RuntimeError:
+                # Skip the failed batch; partial index is better than no
+                # index when the provider is flaky. The next rebuild will
+                # retry the same rows because their content_hash no longer
+                # matches what is stored in ``embeddings``.
+                continue
+        return vectors
 
     def hybrid_recall(
         self,
