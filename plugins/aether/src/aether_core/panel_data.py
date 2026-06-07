@@ -458,18 +458,20 @@ def collect_panel_visual_assets(config: LoadedConfig, store: AetherStore) -> lis
     return items
 
 
-def collect_panel_visual_systems(
-    config: LoadedConfig, store: AetherStore
-) -> list[dict[str, Any]]:
-    """Return just the visual system items from :func:`collect_panel_data`."""
-    assets = store.list_assets(limit=None)
-    asset_map = {asset["id"]: asset for asset in assets}
-    systems = store.list_visual_systems(limit=None)
+def _generated_outputs_by_visual_asset(
+    store: AetherStore,
+) -> tuple[dict[str, list[str]], dict[str, Any]]:
+    """Build a ``visual_asset_id -> [generated_output_asset_id]`` map.
+
+    Used by the visual_system and recipe item builders to attach the
+    ``generated_images`` array without re-walking the full generation
+    table per entity. Returns ``(map, visual_asset_by_id)`` because
+    every caller also needs the visual asset lookup table.
+    """
     visual_assets = store.list_visual_assets(limit=None)
-    generations = store.list_generation_runs(limit=None)
     visual_asset_by_id = {asset["id"]: asset for asset in visual_assets}
     generated_by_visual_asset: dict[str, list[str]] = {}
-    for run in generations:
+    for run in store.list_generation_runs(limit=None):
         output_ids = [
             (output.get("asset_id") or output.get("id"))
             for output in run.get("outputs", [])
@@ -483,180 +485,274 @@ def collect_panel_visual_systems(
             if not selected_id:
                 continue
             generated_by_visual_asset.setdefault(selected_id, []).extend(output_ids)
-    items: list[dict[str, Any]] = []
-    for system in systems:
-        reference_ids = [
-            asset_id
-            for asset_id in system.get("source_reference_ids", [])
-            if isinstance(asset_id, str)
-        ]
-        direct_images = _resolve_images(reference_ids, asset_map)
-        system_assets = store.list_visual_system_assets(system_id=system["id"])
-        related_assets = [
-            {
-                "id": relation["asset_id"],
-                "role": relation.get("role", "optional"),
-                "weight": relation.get("weight", 0),
-                "reason": relation.get("reason", ""),
-                "name": visual_asset_by_id.get(relation["asset_id"], {}).get("name", relation["asset_id"]),
-                "type": visual_asset_by_id.get(relation["asset_id"], {}).get("type", ""),
-                "summary": visual_asset_by_id.get(relation["asset_id"], {}).get("summary", ""),
-                "status": visual_asset_by_id.get(relation["asset_id"], {}).get("status", ""),
-            }
-            for relation in system_assets
-        ]
-        related_generated_ids: list[str] = []
-        for relation in system_assets:
-            related_generated_ids.extend(generated_by_visual_asset.get(relation["asset_id"], []))
-        direct_reference_images = [image for image in direct_images if image["kind"] == "reference"]
-        direct_generated_images = [image for image in direct_images if image["kind"] == "generated"]
-        related_generated_images = _resolve_images(related_generated_ids, asset_map, kind="generated")
-        items.append(
-            {
-                "id": system["id"],
-                "kind": system["kind"],
-                "name": system["name"],
-                "summary": _compact_text(system.get("summary", "")),
-                "definition": system.get("summary", ""),
-                "tags": system.get("tags", []),
-                "visual_rules": system.get("visual_rules", []),
-                "avoid_rules": system.get("avoid_rules", []),
-                "status": system["status"],
-                "updated_at": system["updated_at"],
-                "entity_type": "visual_system",
-                "source_view": "visual_systems",
-                "is_favorite": False,
-                "favorite_at": None,
-                "related_assets": related_assets,
-                "reference_images": direct_reference_images,
-                "generated_images": _merge_images(direct_generated_images, related_generated_images),
-            }
-        )
-    return items
+    return generated_by_visual_asset, visual_asset_by_id
 
 
-def collect_panel_recipes(config: LoadedConfig, store: AetherStore) -> list[dict[str, Any]]:
-    """Return just the recipe items from :func:`collect_panel_data`."""
+def _load_panel_lookup_tables(store: AetherStore) -> dict[str, Any]:
+    """Load the lookup tables shared by the visual_system / recipe / favorites collectors.
+
+    Each section endpoint needs the full asset / system / visual_asset
+    tables so it can resolve ``reference_images`` and ``related_assets``
+    by id. Loading them once and threading them through the per-entity
+    builder keeps the section endpoints O(assets) rather than O(assets * entities).
+    """
     assets = store.list_assets(limit=None)
     asset_map = {asset["id"]: asset for asset in assets}
     systems = store.list_visual_systems(limit=None)
     system_by_id = {system["id"]: system for system in systems}
-    visual_assets = store.list_visual_assets(limit=None)
-    visual_asset_by_id = {asset["id"]: asset for asset in visual_assets}
-    recipes = store.list_recipes(limit=None)
-    generations = store.list_generation_runs(limit=None)
-    generated_by_visual_asset: dict[str, list[str]] = {}
-    for run in generations:
-        output_ids = [
-            (output.get("asset_id") or output.get("id"))
-            for output in run.get("outputs", [])
-            if isinstance(output, dict)
-            and (output.get("asset_id") or output.get("id"))
-        ]
-        if not output_ids:
-            continue
-        for selected in run.get("selected_assets", []):
-            selected_id = _selected_asset_id(selected)
-            if not selected_id:
-                continue
-            generated_by_visual_asset.setdefault(selected_id, []).extend(output_ids)
-    items: list[dict[str, Any]] = []
-    for recipe in recipes:
-        reference_ids = [
-            asset_id
-            for asset_id in recipe.get("source_reference_ids", [])
-            if isinstance(asset_id, str)
-        ]
-        direct_images = _resolve_images(reference_ids, asset_map)
-        recipe_assets = store.list_recipe_assets(recipe_id=recipe["id"])
-        related_assets = [
-            {
-                "id": relation["asset_id"],
-                "role": relation.get("role", "optional"),
-                "weight": relation.get("weight", 0),
-                "reason": relation.get("reason", ""),
-                "name": visual_asset_by_id.get(relation["asset_id"], {}).get("name", relation["asset_id"]),
-                "type": visual_asset_by_id.get(relation["asset_id"], {}).get("type", ""),
-                "summary": visual_asset_by_id.get(relation["asset_id"], {}).get("summary", ""),
-                "status": visual_asset_by_id.get(relation["asset_id"], {}).get("status", ""),
-            }
-            for relation in recipe_assets
-        ]
-        related_generated_ids: list[str] = []
-        for relation in recipe_assets:
-            related_generated_ids.extend(generated_by_visual_asset.get(relation["asset_id"], []))
-        parent_systems = [
-            {
-                "id": system_id,
-                "name": system_by_id.get(system_id, {}).get("name", system_id),
-                "kind": system_by_id.get(system_id, {}).get("kind", ""),
-                "status": system_by_id.get(system_id, {}).get("status", ""),
-            }
-            for system_id in recipe.get("parent_system_ids", [])
-            if isinstance(system_id, str)
-        ]
-        direct_reference_images = [image for image in direct_images if image["kind"] == "reference"]
-        direct_generated_images = [image for image in direct_images if image["kind"] == "generated"]
-        related_generated_images = _resolve_images(related_generated_ids, asset_map, kind="generated")
-        items.append(
-            {
-                "id": recipe["id"],
-                "name": recipe["name"],
-                "summary": _compact_text(recipe.get("summary", "")),
-                "definition": recipe.get("summary", ""),
-                "status": recipe["status"],
-                "source": recipe.get("source", ""),
-                "reason": recipe.get("reason", ""),
-                "updated_at": recipe["updated_at"],
-                "entity_type": "recipe",
-                "source_view": "recipes",
-                "is_favorite": False,
-                "favorite_at": None,
-                "parent_systems": parent_systems,
-                "use_cases": recipe.get("use_cases", []),
-                "required_asset_types": recipe.get("required_asset_types", []),
-                "composition_rules": recipe.get("composition_rules", []),
-                "recommended_aspect_ratios": recipe.get("recommended_aspect_ratios", []),
-                "confidence": recipe.get("confidence"),
-                "related_assets": related_assets,
-                "reference_images": direct_reference_images,
-                "generated_images": _merge_images(direct_generated_images, related_generated_images),
-            }
+    generated_by_visual_asset, visual_asset_by_id = _generated_outputs_by_visual_asset(store)
+    return {
+        "asset_map": asset_map,
+        "system_by_id": system_by_id,
+        "visual_asset_by_id": visual_asset_by_id,
+        "generated_by_visual_asset": generated_by_visual_asset,
+    }
+
+
+def _related_assets_from_relations(
+    relations: list[dict[str, Any]],
+    visual_asset_by_id: dict[str, dict[str, Any]],
+    generated_by_visual_asset: dict[str, list[str]],
+    asset_map: dict[str, dict[str, Any]],
+    *,
+    kind: str,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Build the ``related_assets`` and ``related_generated_images`` arrays for one entity.
+
+    Returns ``(related_assets, related_generated_images)`` where each
+    element is shaped the way the panel renderer expects.
+    ``kind`` is ``"visual_system"`` or ``"recipe"`` and is reserved
+    for any future per-kind divergence; both shapes are identical today.
+    """
+    del kind  # placeholder for future per-kind divergence
+    related_assets = [
+        {
+            "id": relation["asset_id"],
+            "role": relation.get("role", "optional"),
+            "weight": relation.get("weight", 0),
+            "reason": relation.get("reason", ""),
+            "name": visual_asset_by_id.get(relation["asset_id"], {}).get("name", relation["asset_id"]),
+            "type": visual_asset_by_id.get(relation["asset_id"], {}).get("type", ""),
+            "summary": visual_asset_by_id.get(relation["asset_id"], {}).get("summary", ""),
+            "status": visual_asset_by_id.get(relation["asset_id"], {}).get("status", ""),
+        }
+        for relation in relations
+    ]
+    related_generated_ids: list[str] = []
+    for relation in relations:
+        related_generated_ids.extend(generated_by_visual_asset.get(relation["asset_id"], []))
+    related_generated_images = _resolve_images(related_generated_ids, asset_map, kind="generated")
+    return related_assets, related_generated_images
+
+
+def _build_visual_system_item(
+    system: dict[str, Any],
+    *,
+    asset_map: dict[str, dict[str, Any]],
+    visual_asset_by_id: dict[str, dict[str, Any]],
+    generated_by_visual_asset: dict[str, list[str]],
+    system_assets: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Assemble the panel item dict for a single visual system.
+
+    Lookups (``asset_map`` / ``visual_asset_by_id`` /
+    ``generated_by_visual_asset``) must be pre-loaded by the caller via
+    :func:`_load_panel_lookup_tables` so the cost is amortised across
+    every system in the list. ``system_assets`` is the per-system
+    join row set returned by ``store.list_visual_system_assets``.
+    """
+    reference_ids = [
+        asset_id
+        for asset_id in system.get("source_reference_ids", [])
+        if isinstance(asset_id, str)
+    ]
+    direct_images = _resolve_images(reference_ids, asset_map)
+    direct_reference_images = [image for image in direct_images if image["kind"] == "reference"]
+    direct_generated_images = [image for image in direct_images if image["kind"] == "generated"]
+    related_assets, related_generated_images = _related_assets_from_relations(
+        system_assets,
+        visual_asset_by_id,
+        generated_by_visual_asset,
+        asset_map,
+        kind="visual_system",
+    )
+    return {
+        "id": system["id"],
+        "kind": system["kind"],
+        "name": system["name"],
+        "summary": _compact_text(system.get("summary", "")),
+        "definition": system.get("summary", ""),
+        "tags": system.get("tags", []),
+        "visual_rules": system.get("visual_rules", []),
+        "avoid_rules": system.get("avoid_rules", []),
+        "status": system["status"],
+        "updated_at": system["updated_at"],
+        "entity_type": "visual_system",
+        "source_view": "visual_systems",
+        "is_favorite": False,
+        "favorite_at": None,
+        "related_assets": related_assets,
+        "reference_images": direct_reference_images,
+        "generated_images": _merge_images(direct_generated_images, related_generated_images),
+    }
+
+
+def _build_recipe_item(
+    recipe: dict[str, Any],
+    *,
+    asset_map: dict[str, dict[str, Any]],
+    system_by_id: dict[str, dict[str, Any]],
+    visual_asset_by_id: dict[str, dict[str, Any]],
+    generated_by_visual_asset: dict[str, list[str]],
+    recipe_assets: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Assemble the panel item dict for a single recipe.
+
+    Lookups (``asset_map`` / ``system_by_id`` / ``visual_asset_by_id`` /
+    ``generated_by_visual_asset``) must be pre-loaded by the caller via
+    :func:`_load_panel_lookup_tables`. ``recipe_assets`` is the
+    per-recipe join row set returned by ``store.list_recipe_assets``.
+    """
+    reference_ids = [
+        asset_id
+        for asset_id in recipe.get("source_reference_ids", [])
+        if isinstance(asset_id, str)
+    ]
+    direct_images = _resolve_images(reference_ids, asset_map)
+    direct_reference_images = [image for image in direct_images if image["kind"] == "reference"]
+    direct_generated_images = [image for image in direct_images if image["kind"] == "generated"]
+    related_assets, related_generated_images = _related_assets_from_relations(
+        recipe_assets,
+        visual_asset_by_id,
+        generated_by_visual_asset,
+        asset_map,
+        kind="recipe",
+    )
+    parent_systems = [
+        {
+            "id": system_id,
+            "name": system_by_id.get(system_id, {}).get("name", system_id),
+            "kind": system_by_id.get(system_id, {}).get("kind", ""),
+            "status": system_by_id.get(system_id, {}).get("status", ""),
+        }
+        for system_id in recipe.get("parent_system_ids", [])
+        if isinstance(system_id, str)
+    ]
+    return {
+        "id": recipe["id"],
+        "name": recipe["name"],
+        "summary": _compact_text(recipe.get("summary", "")),
+        "definition": recipe.get("summary", ""),
+        "status": recipe["status"],
+        "source": recipe.get("source", ""),
+        "reason": recipe.get("reason", ""),
+        "updated_at": recipe["updated_at"],
+        "entity_type": "recipe",
+        "source_view": "recipes",
+        "is_favorite": False,
+        "favorite_at": None,
+        "parent_systems": parent_systems,
+        "use_cases": recipe.get("use_cases", []),
+        "required_asset_types": recipe.get("required_asset_types", []),
+        "composition_rules": recipe.get("composition_rules", []),
+        "recommended_aspect_ratios": recipe.get("recommended_aspect_ratios", []),
+        "confidence": recipe.get("confidence"),
+        "related_assets": related_assets,
+        "reference_images": direct_reference_images,
+        "generated_images": _merge_images(direct_generated_images, related_generated_images),
+    }
+
+
+def collect_panel_visual_systems(
+    config: LoadedConfig, store: AetherStore
+) -> list[dict[str, Any]]:
+    """Return just the visual system items from :func:`collect_panel_data`."""
+    lookups = _load_panel_lookup_tables(store)
+    systems = store.list_visual_systems(limit=None)
+    return [
+        _build_visual_system_item(
+            system,
+            asset_map=lookups["asset_map"],
+            visual_asset_by_id=lookups["visual_asset_by_id"],
+            generated_by_visual_asset=lookups["generated_by_visual_asset"],
+            system_assets=store.list_visual_system_assets(system_id=system["id"]),
         )
-    return items
+        for system in systems
+    ]
+
+
+def collect_panel_recipes(config: LoadedConfig, store: AetherStore) -> list[dict[str, Any]]:
+    """Return just the recipe items from :func:`collect_panel_data`."""
+    lookups = _load_panel_lookup_tables(store)
+    recipes = store.list_recipes(limit=None)
+    return [
+        _build_recipe_item(
+            recipe,
+            asset_map=lookups["asset_map"],
+            system_by_id=lookups["system_by_id"],
+            visual_asset_by_id=lookups["visual_asset_by_id"],
+            generated_by_visual_asset=lookups["generated_by_visual_asset"],
+            recipe_assets=store.list_recipe_assets(recipe_id=recipe["id"]),
+        )
+        for recipe in recipes
+    ]
 
 
 def collect_panel_favorites(config: LoadedConfig, store: AetherStore) -> list[dict[str, Any]]:
     """Return the panel ``favorites`` block from :func:`collect_panel_data`.
 
-    The favorite row only carries the entity id, so we re-run the
-    system and recipe collectors to get the fully-shaped panel item
-    (with ``reference_images`` / ``generated_images`` /
-    ``related_assets`` / ``parent_systems`` / ...). Without that
-    enrichment the list and detail renderers fall back to ``No
-    linked image`` placeholders, which is a regression from the
-    legacy full-payload endpoint.
+    Each favorite row is just ``(entity_type, entity_id)``. The
+    renderer needs the full item shape (with ``reference_images`` /
+    ``generated_images`` / ``related_assets`` / ``parent_systems``),
+    so we share the per-entity item builders with the section
+    collectors. The expensive asset / system / visual_asset /
+    generation walks happen once, and the per-entity join queries
+    (``list_recipe_assets`` / ``list_visual_system_assets``) only
+    run for the few entities that are actually favorited.
     """
     favorite_rows = store.list_panel_favorites()
-    favorite_at = {
-        (row["entity_type"], row["entity_id"]): row["created_at"]
-        for row in favorite_rows
-    }
-    candidate_items: list[dict[str, Any]] = [
-        *collect_panel_recipes(config, store),
-        *collect_panel_visual_systems(config, store),
-    ]
+    if not favorite_rows:
+        return []
+    lookups = _load_panel_lookup_tables(store)
+    asset_map = lookups["asset_map"]
+    system_by_id = lookups["system_by_id"]
+    visual_asset_by_id = lookups["visual_asset_by_id"]
+    generated_by_visual_asset = lookups["generated_by_visual_asset"]
+    # Pre-index entities by id so we can fetch only the favorited ones
+    # rather than re-walking the full entity tables per favorite row.
+    recipes_by_id = {recipe["id"]: recipe for recipe in store.list_recipes(limit=None)}
+    systems_by_id = {system["id"]: system for system in system_by_id.values()}
     favorites: list[dict[str, Any]] = []
-    for item in candidate_items:
-        key = (item.get("entity_type"), item.get("id"))
-        if key not in favorite_at:
+    for row in favorite_rows:
+        entity_type = row["entity_type"]
+        entity_id = row["entity_id"]
+        if entity_type == "recipe":
+            recipe = recipes_by_id.get(entity_id)
+            if recipe is None:
+                continue
+            item = _build_recipe_item(
+                recipe,
+                asset_map=asset_map,
+                system_by_id=system_by_id,
+                visual_asset_by_id=visual_asset_by_id,
+                generated_by_visual_asset=generated_by_visual_asset,
+                recipe_assets=store.list_recipe_assets(recipe_id=entity_id),
+            )
+        elif entity_type == "visual_system":
+            system = systems_by_id.get(entity_id)
+            if system is None:
+                continue
+            item = _build_visual_system_item(
+                system,
+                asset_map=asset_map,
+                visual_asset_by_id=visual_asset_by_id,
+                generated_by_visual_asset=generated_by_visual_asset,
+                system_assets=store.list_visual_system_assets(system_id=entity_id),
+            )
+        else:
             continue
         item["is_favorite"] = True
-        item["favorite_at"] = favorite_at[key]
-        # The per-section collectors tag items with their owning tab so
-        # the detail view can re-locate them. Favorites lives on its
-        # own tab, so we keep ``source_view`` for the in-tab Back
-        # navigation to land on the originating list.
+        item["favorite_at"] = row["created_at"]
         favorites.append(item)
     favorites.sort(
         key=lambda item: item.get("favorite_at") or item.get("updated_at") or "",

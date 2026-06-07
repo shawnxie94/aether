@@ -145,6 +145,84 @@ class PanelTests(unittest.TestCase):
             self.assertEqual(panel_asset["reference_images"][0]["id"], reference["id"])
             self.assertEqual(panel_asset["generated_images"][0]["id"], generated["id"])
 
+    def test_panel_favorites_only_joins_favorited_entities(self):
+        """collect_panel_favorites must not pay the per-entity join cost
+        for entities that are not favorited. We seed many recipes + one
+        favorite and assert that ``list_recipe_assets`` is only called
+        for the favorited recipe. This pins the perf boundary introduced
+        when the per-entity item builders were extracted.
+        """
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            config_path = root / "config.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "storage": {
+                            "databasePath": "aether.sqlite",
+                            "assetRoot": "assets",
+                            "referenceImageDir": "assets/references",
+                            "generatedImageDir": "assets/generated",
+                            "cacheDir": "cache",
+                            "runDir": "runs",
+                        },
+                        "backend": {"host": "127.0.0.1", "port": 3850},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            config = load_config(config_path)
+            store = AetherStore(config.database_path)
+            store.init()
+
+            # Create many recipes; only the last one is favorited.
+            recipe_count = 12
+            favorited = None
+            for i in range(recipe_count):
+                recipe = store.create_recipe({
+                    "name": f"Recipe {i}",
+                    "summary": f"body {i}",
+                    "status": "active",
+                })
+                if i == recipe_count - 1:
+                    favorited = recipe
+            assert favorited is not None
+            store.set_panel_favorite("recipe", favorited["id"], True)
+
+            # Count per-entity join calls during the favorites call only.
+            from aether_core import panel_data as panel_data_mod
+            original_list_recipe_assets = store.list_recipe_assets
+            original_list_system_assets = store.list_visual_system_assets
+            call_log: list[tuple[str, str]] = []
+
+            def counting_list_recipe_assets(*args, **kwargs):
+                call_log.append(("recipe", kwargs.get("recipe_id") or (args[0] if args else "")))
+                return original_list_recipe_assets(*args, **kwargs)
+
+            def counting_list_system_assets(*args, **kwargs):
+                call_log.append(("system", kwargs.get("system_id") or (args[0] if args else "")))
+                return original_list_system_assets(*args, **kwargs)
+
+            store.list_recipe_assets = counting_list_recipe_assets
+            store.list_visual_system_assets = counting_list_system_assets
+            try:
+                items = panel_data_mod.collect_panel_favorites(config, store)
+            finally:
+                store.list_recipe_assets = original_list_recipe_assets
+                store.list_visual_system_assets = original_list_system_assets
+
+            self.assertEqual(len(items), 1)
+            self.assertEqual(items[0]["id"], favorited["id"])
+            self.assertTrue(items[0]["is_favorite"])
+            # The favorites path should only call list_recipe_assets once
+            # (for the single favorited recipe) and never call
+            # list_visual_system_assets (we have no favorited systems).
+            recipe_calls = [c for c in call_log if c[0] == "recipe"]
+            system_calls = [c for c in call_log if c[0] == "system"]
+            self.assertEqual(len(recipe_calls), 1, f"unexpected recipe joins: {recipe_calls}")
+            self.assertEqual(recipe_calls[0][1], favorited["id"])
+            self.assertEqual(system_calls, [])
+
     def test_panel_data_deduplicates_images_by_content_hash(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
