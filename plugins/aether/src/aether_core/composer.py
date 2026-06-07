@@ -99,19 +99,26 @@ def _selected_asset_id(selected: Any) -> str:
 
 
 def _intent_sketch(source_prompt: str, query: str = "") -> dict[str, Any]:
+    """Produce the deterministic half of the prompt intent sketch.
+
+    The :mod:`prompt-refine` skill instructs Codex to emit the structured
+    half (``scene`` / ``action`` / ``mood`` / ``style_intent`` / etc.) in
+    the same model pass that produces the final ``refined_prompt``. Those
+    fields are owned by the model; Python has no business filling them
+    with empty placeholders that would just pollute the persisted
+    ``prompt_records.intent_sketch_json`` audit log.
+
+    What Python *can* reliably produce is the subject (the raw user
+    prompt) and the token set used to bias lexical recall. Those are
+    stable across calls and useful as a deterministic scaffold. The
+    composer's recall query is built from the token set below; the rest
+    of the fields appear in the saved record only when the model
+    populates them.
+    """
     terms = sorted(_tokens(" ".join([source_prompt, query])))
     return {
         "subject": source_prompt,
-        "scene": "",
-        "action": "",
-        "mood": [],
-        "style_intent": [],
-        "composition_intent": [],
-        "color_lighting_intent": [],
-        "negative_intent": [],
         "query_terms": terms,
-        "user_constraints": [],
-        "assumptions": [],
     }
 
 

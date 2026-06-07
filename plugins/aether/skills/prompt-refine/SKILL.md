@@ -63,18 +63,32 @@ aether prompt compose --source-prompt "<prompt>" --recipe-id <recipe_id>
 
 The composed output now includes an `intent_sketch`, compact `recall_candidates`, and `recall_strategy`. Treat `intent_sketch` as the first-stage structured interpretation of the user's prompt, then use recalled visual systems, recipes, and folded visual assets as controlled context for the final wording. `recall_candidates.visual_assets` is the default family-deduped list. Only use `--debug-recall` during troubleshooting, because it includes the uncollapsed raw recall list. Use the composed output as the first draft, then let Codex improve wording while preserving `intent_sketch`, `selected_assets`, `constraints.selected_systems`, `constraints.selected_recipes`, `composition_plan`, `generation_params`, and `conflicts`.
 
-4. Use Codex current model to analyze the source prompt:
+4. Use Codex current model to analyze the source prompt into a structured
+   `intent_sketch` object. This runs in the same model pass as the final
+   wording, so the analysis is not lost. Emit the following fields (use
+   empty string / empty list for any field that the user did not specify,
+   do not guess to fill the slots):
 
-- subject
-- scene
-- action
-- mood
-- composition and likely output format
-- requested image count or sequence structure
-- constraints
-- missing assumptions
+   - `subject`: the concrete thing the user wants to see
+   - `scene`: where it takes place (or "" if the user did not specify)
+   - `action`: what is happening (or "")
+   - `mood`: 1-3 emotional or atmospheric keywords
+   - `style_intent`: 1-3 style or medium keywords the user named
+   - `composition_intent`: 1-3 framing or camera keywords (shot, angle, layout)
+   - `color_lighting_intent`: 1-3 color or lighting keywords
+   - `negative_intent`: things the user explicitly excluded
+   - `user_constraints`: explicit constraints (aspect ratio, count, format)
+   - `assumptions`: details Codex inferred that the user did not specify
+   - `output_format`: "single" or "sequence"
+   - `requested_count`: integer for sequence requests, 1 for single
 
-5. Refine the prompt by combining the user intent with selected visual assets. Preserve the user's subject, scene, action, emotion, and explicit constraints.
+5. Refine the prompt by combining the user's `intent_sketch` with the
+   selected visual assets. Preserve the user's subject, scene, action,
+   emotion, and explicit constraints. Keep the `intent_sketch` produced
+   in step 4 verbatim on the saved prompt record so future audits and
+   preference learning can see how the user's request was first
+   interpreted. Do not regenerate or paraphrase the sketch when writing
+   the final `refined_prompt`.
 
 For single-image requests, write the final prompt in top-level `refined_prompt`, with `variants: []` unless a useful alternate wording is explicitly requested.
 
