@@ -10,3 +10,4 @@ build/
 .codex/
 outputs/
 .playwright-mcp/
+.playwright-cli/

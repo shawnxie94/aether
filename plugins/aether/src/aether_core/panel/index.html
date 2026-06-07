@@ -526,6 +526,12 @@
     const state = { data: null, etags: {}, view: "favorites", q: "", type: "", status: "active", detail: null };
     const labels = { favorites: "Favorites", recipes: "Recipes", visual_systems: "Systems", visual_assets: "Assets" };
     const badgeClasses = { favorites: "generated", recipes: "recipe", visual_systems: "system", visual_assets: "type" };
+    // Views that the side bar tabs can switch into and the collections the
+    // panel server exposes as detail sources. Used to validate the URL
+    // hash on boot and to keep popstate restores honest when a stale or
+    // hand-edited hash points somewhere we do not recognise.
+    const KNOWN_VIEWS = ["favorites", "recipes", "visual_systems", "visual_assets"];
+    const DETAIL_COLLECTIONS = ["recipes", "visual_systems", "visual_assets", "favorites"];
 
     function esc(value) {
       return String(value ?? "").replace(/[&<>"']/g, char => ({
@@ -583,6 +589,12 @@
         if (item.status) statusValues.add(item.status);
         for (const type of item.required_asset_types || []) typeValues.add(type);
       }
+      // Preserve any filter values that were restored from the URL even
+      // if the current data has no rows matching them yet. The select
+      // would otherwise silently snap back to the first option and the
+      // restored filter would appear to do nothing.
+      if (state.type) typeValues.add(state.type);
+      if (state.status) statusValues.add(state.status);
       const type = document.getElementById("type");
       const status = document.getElementById("status");
       type.innerHTML = `<option value="">All</option>` + [...typeValues].sort().map(v => `<option>${esc(v)}</option>`).join("");
@@ -716,14 +728,90 @@
       return `<button class="favorite-button ${item.is_favorite ? "active" : ""}" data-entity-type="${attr(item.entity_type)}" data-entity-id="${attr(item.id)}" aria-label="${item.is_favorite ? "Remove from favorites" : "Add to favorites"}">${item.is_favorite ? "&#9733;" : "&#9734;"}</button>`;
     }
 
+    function findItemById(id) {
+      if (!state.data) return null;
+      for (const view of DETAIL_COLLECTIONS) {
+        const items = state.data[view] || [];
+        const found = items.find(candidate => candidate && candidate.id === id);
+        if (found) return { item: found, view };
+      }
+      return null;
+    }
+
+    function buildHashFromState() {
+      let hash = "#/" + encodeURIComponent(state.view);
+      if (state.detail && state.detail.id) {
+        hash += "/detail/" + encodeURIComponent(state.detail.id);
+      }
+      const params = new URLSearchParams();
+      if (state.q) params.set("q", state.q);
+      if (state.type) params.set("type", state.type);
+      if (state.status) params.set("status", state.status);
+      const query = params.toString();
+      return query ? hash + "?" + query : hash;
+    }
+
+    function syncUrlFromState({ push = false } = {}) {
+      const next = buildHashFromState();
+      if (window.location.hash === next) return;
+      // ``pushState`` is used for navigations the user would reasonably
+      // want to undo with the browser back button (tab change, opening
+      // or closing a detail). Filter changes use ``replaceState`` so
+      // typing in the search box does not flood the history stack.
+      if (push) history.pushState(null, "", next);
+      else history.replaceState(null, "", next);
+    }
+
+    function parseStateFromUrl() {
+      const raw = window.location.hash || "";
+      const hashContent = raw.startsWith("#") ? raw.slice(1) : raw;
+      if (!hashContent) return;
+      const queryIndex = hashContent.indexOf("?");
+      const pathPart = queryIndex >= 0 ? hashContent.slice(0, queryIndex) : hashContent;
+      const queryPart = queryIndex >= 0 ? hashContent.slice(queryIndex + 1) : "";
+      // Accept either "/view" or "/view/detail/<id>". The view segment is
+      // restricted to KNOWN_VIEWS so a hand-edited hash can never bounce
+      // the panel into a state the rest of the code does not understand.
+      const match = pathPart.match(/^\/([^/]+)(?:\/detail\/([^/?]+))?$/);
+      if (match) {
+        const view = decodeURIComponent(match[1]);
+        if (KNOWN_VIEWS.includes(view)) state.view = view;
+        if (match[2]) {
+          state.detail = { view: state.view, id: decodeURIComponent(match[2]) };
+        } else {
+          state.detail = null;
+        }
+      }
+      if (queryPart) {
+        const params = new URLSearchParams(queryPart);
+        if (params.has("q")) state.q = params.get("q") || "";
+        if (params.has("type")) state.type = params.get("type") || "";
+        if (params.has("status")) state.status = params.get("status") || "";
+      }
+    }
+
+    function applyStateToInputs() {
+      // The type and status selects are repopulated by renderFilters()
+      // once the data is in; the search input is the one widget the
+      // render path does not touch, so we set it here.
+      const search = document.getElementById("search");
+      if (search) search.value = state.q;
+    }
+
     function openDetail(id, view = state.view) {
-      state.detail = { view, id };
-      render();
+      // The caller passes the card's source view. Always re-resolve it
+      // through findItemById so the URL hash we emit matches the actual
+      // collection that owns the row, not the side-bar tab the user
+      // happened to be on.
+      const found = findItemById(id);
+      const sourceView = (found && found.view) || view || state.view;
+      state.detail = { view: sourceView, id };
+      render({ push: true });
     }
 
     function closeDetail() {
       state.detail = null;
-      render();
+      render({ push: true });
     }
 
     function renderList() {
@@ -746,12 +834,21 @@
     }
 
     function renderDetail() {
-      const item = (state.data[state.detail.view] || []).find(candidate => candidate.id === state.detail.id);
-      if (!item) {
+      // The URL hash only stores the row id, so look the item up across
+      // every collection the panel server exposes. This keeps a refresh
+      // honest even when the card was originally opened from a tab
+      // (e.g. favorites) whose name is not a real collection on disk.
+      const found = findItemById(state.detail.id);
+      if (!found) {
         state.detail = null;
+        // Use replace here: this is a stale-id fallback, not a user
+        // navigation, so the URL should not add a new history entry.
+        syncUrlFromState();
         renderList();
         return;
       }
+      state.detail.view = found.view;
+      const item = found.item;
       const type = item.type || item.kind || "recipe";
       const references = existingImages(item.reference_images);
       const generated = existingImages(item.generated_images);
@@ -978,13 +1075,24 @@
       });
     }
 
-    function render() {
+    function render(options = {}) {
       document.querySelectorAll(".tab").forEach(button => button.classList.toggle("active", button.dataset.view === state.view));
       if (state.detail) renderDetail();
       else renderList();
+      // Keep the URL hash in step with the current view, filters, and
+      // open detail so a manual refresh lands the user back on the
+      // same screen rather than the panel's default landing page.
+      // ``push`` is opted in by the navigation helpers (tab / detail
+      // open / detail close); filter inputs keep the default replace.
+      syncUrlFromState({ push: !!options.push });
     }
 
     async function boot() {
+      // Restore any view / filter / detail state that the URL already
+      // encodes before we touch the network, so the first paint after
+      // ``refreshData`` is already on the right tab.
+      parseStateFromUrl();
+      applyStateToInputs();
       try {
         await refreshData();
         render();
@@ -994,9 +1102,11 @@
     }
 
     document.querySelectorAll(".tab").forEach(button => button.addEventListener("click", () => {
-      state.view = button.dataset.view;
+      const target = button.dataset.view;
+      if (state.view === target && !state.detail) return;
+      state.view = target;
       state.detail = null;
-      render();
+      render({ push: true });
     }));
     document.getElementById("search").addEventListener("input", event => {
       state.q = event.target.value;
@@ -1027,6 +1137,13 @@
         if (document.getElementById("lightbox").classList.contains("active")) closeLightbox();
         else if (state.detail) closeDetail();
       }
+    });
+    // Browser back / forward should rehydrate the view, filters, and
+    // detail from the URL rather than re-running the boot sequence.
+    window.addEventListener("popstate", () => {
+      parseStateFromUrl();
+      applyStateToInputs();
+      render();
     });
     boot();
   </script>

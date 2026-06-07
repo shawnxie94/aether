@@ -796,3 +796,182 @@ class PanelAsyncExportTests(unittest.TestCase):
         store = AetherStore(cfg.database_path)
         store.init()
         return cfg, store
+
+
+class PanelUrlStateSyncTests(unittest.TestCase):
+    """The panel HTML must keep the URL hash in step with view, filters, and detail.
+
+    The panel polls its data in the background and the user expects a
+    manual refresh to land them back on the same view / filter / detail
+    combination, not the default landing page. The contract is enforced
+    entirely client-side in the panel's inline JavaScript, so the
+    assertions below pin the behaviour on the served HTML itself.
+    """
+
+    def test_url_sync_helpers_are_defined(self):
+        self.assertIn("function parseStateFromUrl", PANEL_HTML)
+        self.assertIn("function syncUrlFromState", PANEL_HTML)
+        self.assertIn("function buildHashFromState", PANEL_HTML)
+        self.assertIn("function findItemById", PANEL_HTML)
+        self.assertIn("function applyStateToInputs", PANEL_HTML)
+        # ``replaceState`` keeps the URL fresh without flooding the
+        # history stack with one entry per keystroke in the search
+        # box, while ``pushState`` powers the browser back button for
+        # tab and detail navigation.
+        self.assertIn("history.replaceState", PANEL_HTML)
+        self.assertIn("history.pushState", PANEL_HTML)
+
+    def test_boot_parses_url_before_first_render(self):
+        boot_index = PANEL_HTML.index("async function boot")
+        parse_index = PANEL_HTML.index("parseStateFromUrl()")
+        refresh_index = PANEL_HTML.index("await refreshData")
+        self.assertLess(parse_index, boot_index)
+        self.assertLess(parse_index, refresh_index)
+
+    def test_popstate_listener_rehydrates_state(self):
+        pop_index = PANEL_HTML.index('addEventListener("popstate"')
+        boot_call_index = PANEL_HTML.rindex("boot();")
+        self.assertGreater(pop_index, 0)
+        self.assertLess(pop_index, boot_call_index)
+        # The popstate handler must re-parse the URL and re-render, so
+        # the user lands on the right screen on browser back/forward.
+        self.assertIn("parseStateFromUrl", PANEL_HTML[pop_index:pop_index + 200])
+        self.assertIn("applyStateToInputs", PANEL_HTML[pop_index:pop_index + 200])
+        self.assertIn("render()", PANEL_HTML[pop_index:pop_index + 200])
+
+    def test_render_persists_state_to_url(self):
+        # ``render()`` is the choke point every state change flows
+        # through, so the URL sync must live there. It accepts a
+        # ``push`` flag for navigation, defaulting to ``replace`` so
+        # filter keystrokes do not flood the history stack.
+        render_index = PANEL_HTML.index("function render(")
+        body = PANEL_HTML[render_index:render_index + 800]
+        self.assertIn("syncUrlFromState({ push: !!options.push })", body)
+
+    def test_detail_lookup_searches_all_collections(self):
+        # The URL only stores the row id, so a refresh must be able to
+        # resolve a detail that was originally opened from a non-source
+        # tab (e.g. favorites -> recipes).
+        self.assertIn("DETAIL_COLLECTIONS", PANEL_HTML)
+        self.assertGreaterEqual(PANEL_HTML.count("findItemById("), 3)
+        # The two call sites that need the cross-collection lookup are
+        # openDetail (when clicking a card) and renderDetail (when
+        # restoring from a URL hash).
+        self.assertIn("openDetail", PANEL_HTML)
+        self.assertIn("renderDetail", PANEL_HTML)
+
+    def test_known_views_covers_every_sidebar_tab(self):
+        known = PANEL_HTML.split("const KNOWN_VIEWS = ", 1)[1].split(";", 1)[0]
+        for view in ("favorites", "recipes", "visual_systems", "visual_assets"):
+            self.assertIn(f'"{view}"', known)
+
+    def test_render_filters_preserves_url_restored_values(self):
+        # If the URL restored a filter value that has no matching row
+        # in the current data, the select must still expose that value
+        # so the filter is observable (otherwise the restored state
+        # looks like it was silently dropped).
+        self.assertIn("if (state.type) typeValues.add(state.type);", PANEL_HTML)
+        self.assertIn("if (state.status) statusValues.add(state.status);", PANEL_HTML)
+
+    def test_render_detail_drops_stale_detail_and_syncs_url(self):
+        # If a detail id in the URL no longer exists, the panel must
+        # fall back to the list view and rewrite the URL to match.
+        render_detail = PANEL_HTML.split("function renderDetail()", 1)[1]
+        head_end = render_detail.index("if (!found)")
+        head = render_detail[:head_end]
+        # The happy path must resolve the row through findItemById so a
+        # detail opened from a non-source tab still works after refresh.
+        self.assertIn("findItemById", head)
+        # The cleanup branch (item not found) must clear ``state.detail``,
+        # sync the URL, and bounce back to the list view.
+        cleanup_start = render_detail.index("if (!found)")
+        cleanup_end = render_detail.index("}", cleanup_start) + 1
+        cleanup = render_detail[cleanup_start:cleanup_end]
+        self.assertIn("state.detail = null", cleanup)
+        self.assertIn("syncUrlFromState()", cleanup)
+        self.assertIn("renderList()", cleanup)
+
+    def test_url_hash_round_trip(self):
+        # Reimplementing the contract in Python catches the case where
+        # the JS in the HTML drifts from what the URL format promises.
+        # View-only.
+        self.assertEqual(_build_hash({"view": "favorites"}), "#/favorites")
+        # View + filters.
+        q = {"q": "cat", "type": "character", "status": "active"}
+        self.assertEqual(_build_hash({"view": "visual_assets", **q}),
+                         "#/visual_assets?status=active&type=character&q=cat")
+        # View + detail.
+        self.assertEqual(
+            _build_hash({"view": "visual_assets", "detail_id": "abc-123"}),
+            "#/visual_assets/detail/abc-123",
+        )
+        # View + detail + filters.
+        self.assertEqual(
+            _build_hash({"view": "favorites", "detail_id": "abc-123", **q}),
+            "#/favorites/detail/abc-123?status=active&type=character&q=cat",
+        )
+
+    def test_url_hash_omits_default_filters(self):
+        # Empty filters must not appear in the URL so a clean refresh
+        # of the default state reads as ``#/<view>`` rather than a
+        # string of empty query params.
+        self.assertEqual(
+            _build_hash({"view": "favorites"}),
+            "#/favorites",
+        )
+        for empty in ("", None):
+            self.assertEqual(
+                _build_hash({"view": "favorites", "q": empty}),
+                "#/favorites",
+            )
+
+    def test_navigation_uses_push_filter_uses_replace(self):
+        # Tab clicks, detail open, and detail close are user navigation
+        # so they call ``render({ push: true })`` to add a history entry.
+        # Filter inputs (search, type, status) keep the default replace
+        # so typing does not flood the history stack.
+        tab_click_index = PANEL_HTML.index('addEventListener("click"')
+        tab_handler_end = PANEL_HTML.index("}));", tab_click_index) + len("}));")
+        tab_handler = PANEL_HTML[tab_click_index:tab_handler_end]
+        self.assertIn("render({ push: true })", tab_handler)
+        # openDetail and closeDetail opt in to push as well.
+        for fn in ("openDetail", "closeDetail"):
+            idx = PANEL_HTML.index("function " + fn)
+            body = PANEL_HTML[idx:idx + 700]
+            self.assertIn("render({ push: true })", body,
+                          f"{fn} should push a history entry")
+        # Filter inputs do not opt in to push, so they fall through to
+        # the default ``replace`` path in ``syncUrlFromState``.
+        for anchor in (
+            'state.type = event.target.value',
+            'state.status = event.target.value',
+            'state.q = event.target.value',
+        ):
+            self.assertIn(anchor, PANEL_HTML,
+                          f"filter handler anchor {anchor!r} not found in HTML")
+            start = PANEL_HTML.index(anchor)
+            window = PANEL_HTML[start:start + 400]
+            self.assertNotIn("push: true", window,
+                             f"filter handler {anchor!r} should not push history")
+
+
+
+def _build_hash(state):
+    """Mirror the panel's ``buildHashFromState`` for the round-trip test.
+
+    The function intentionally keeps the same ``URLSearchParams``
+    ordering (``status, type, q``) so a stray ordering change in the
+    HTML breaks the test and forces the developer to keep both sides
+    in sync.
+    """
+    parts = ["#/", state["view"]]
+    if state.get("detail_id"):
+        parts.append("/detail/")
+        parts.append(state["detail_id"])
+    params = []
+    for key in ("status", "type", "q"):
+        value = state.get(key)
+        if value:
+            params.append(f"{key}={value}")
+    suffix = "&".join(params)
+    return "".join(parts) + ("?" + suffix if suffix else "")

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Sync the panel URL hash with the active view, search / type / status filters, and any open detail. Refreshing the page now lands the user on the same screen instead of bouncing back to the default landing page, and tab / detail navigation becomes undoable with the browser back button while filter keystrokes still use ``replaceState`` to keep the history stack clean.
 - Document an idempotency check in `visual-asset-capture`: `aether visual-asset candidates confirm-batch` already persists recipe / visual_system candidates in the same batch, so a follow-up `aether recipe candidates confirm` or `aether visual-system candidates confirm` against the same candidate ids would create `-2` duplicates. The skill now warns explicitly and tells Codex to re-check `candidates get` before re-confirming, and to use `recipe merge` / `visual-system merge` to clean up a duplicate if one was already created.
 
 ## 0.1.0
