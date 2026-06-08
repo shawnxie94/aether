@@ -893,6 +893,64 @@ class StorageTests(unittest.TestCase):
             result = store.index_embeddings({"embedding": {"provider": "disabled"}}, entity_type="visual_asset")
             self.assertEqual(result["skipped"][0]["reason"], "embedding provider disabled")
 
+    def test_hybrid_recall_indexes_missing_embeddings_on_demand(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            embed_script = root / "fake_embed.py"
+            embed_script.write_text(
+                "\n".join(
+                    [
+                        "import json, sys",
+                        "body = json.load(sys.stdin)",
+                        "vectors = []",
+                        "for text in body.get('texts', []):",
+                        "    lowered = text.lower()",
+                        "    if any(term in lowered for term in ['glitch', 'neon', 'anime']):",
+                        "        vectors.append([1.0, 0.0])",
+                        "    else:",
+                        "        vectors.append([0.0, 1.0])",
+                        "json.dump({'vectors': vectors}, sys.stdout)",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            config = {
+                "embedding": {
+                    "provider": "local",
+                    "model": "fake-semantic",
+                    "providers": {
+                        "local": {
+                            "command": f"{sys.executable} {embed_script}",
+                            "model": "fake-semantic",
+                            "dimensions": 2,
+                        }
+                    },
+                }
+            }
+            store = AetherStore(root / "aether.sqlite")
+            store.init()
+            store.create_recipe(
+                {
+                    "name": "Glitch Anime Portrait Recipe",
+                    "summary": "neon digital corruption anime portrait",
+                    "composition_rules": [{"key": "style_application", "value": ["glitch overlay"]}],
+                    "status": "active",
+                }
+            )
+            self.assertEqual(store.embedding_status(config)["index_health"]["recipe"]["missing"], 1)
+
+            results = store.hybrid_recall(
+                "recipe",
+                "glitch neon anime portrait with digital corruption",
+                config=config,
+            )
+
+            self.assertEqual(results[0]["name"], "Glitch Anime Portrait Recipe")
+            self.assertEqual(results[0]["semantic_score"], 1.0)
+            status = store.embedding_status(config)
+            self.assertEqual(status["index_health"]["recipe"]["current"], 1)
+            self.assertFalse(status["needs_rebuild"])
+
     def test_candidate_dedupe_uses_configured_semantic_embedding(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

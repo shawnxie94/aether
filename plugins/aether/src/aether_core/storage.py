@@ -1093,7 +1093,6 @@ class AetherStore:
                     skipped.append({"entity_type": current_type, "entity_id": entity_id, "reason": "unchanged"})
                     continue
                 to_embed.append((current_type, entity_id, text))
-        vectors = self._embed_batches(provider, [item[2] for item in to_embed], config)
         indexed = [
             self.upsert_embedding(
                 current_type,
@@ -1104,7 +1103,7 @@ class AetherStore:
                 provider.model,
                 provider.dimensions or len(vector),
             )
-            for (current_type, entity_id, text), vector in zip(to_embed, vectors)
+            for (current_type, entity_id, text), vector in self._embed_text_items(provider, to_embed, config)
         ]
         return {
             "indexed": indexed,
@@ -1114,22 +1113,7 @@ class AetherStore:
             "dimensions": provider.dimensions,
         }
 
-    def _embed_batches(
-        self,
-        provider: Any,
-        texts: list[str],
-        config: dict[str, Any] | None,
-    ) -> list[list[float]]:
-        """Embed ``texts`` in chunks with retry on transient errors.
-
-        The chunk size is read from ``config['embedding']['batchSize']`` and
-        defaults to 32. Each chunk is sent through ``embed_with_retry`` so a
-        single 429 or 5xx does not abort the whole rebuild. A chunk that
-        exhausts its retries is logged and skipped; the surrounding chunks
-        still complete so partial progress survives flaky networks.
-        """
-        if not texts:
-            return []
+    def _embedding_batch_size(self, config: dict[str, Any] | None) -> int:
         batch_size = 32
         if isinstance(config, dict):
             raw = config.get("embedding", {}).get("batchSize")
@@ -1138,19 +1122,65 @@ class AetherStore:
                     batch_size = int(raw)
             except (TypeError, ValueError):
                 pass
-        vectors: list[list[float]] = []
-        for batch in chunk_texts(texts, batch_size=batch_size):
+        return batch_size
+
+    def _embed_text_items(
+        self,
+        provider: Any,
+        items: list[tuple[str, str, str]],
+        config: dict[str, Any] | None,
+    ) -> list[tuple[tuple[str, str, str], list[float]]]:
+        """Embed keyed entity text chunks while preserving entity/vector mapping.
+
+        The chunk size is read from ``config['embedding']['batchSize']`` and
+        defaults to 32. A chunk that exhausts retries is skipped; successful
+        chunks still return their original entity keys so a partial indexing
+        run cannot assign vectors to the wrong rows.
+        """
+        if not items:
+            return []
+        embedded: list[tuple[tuple[str, str, str], list[float]]] = []
+        for batch in chunk_texts(items, batch_size=self._embedding_batch_size(config)):
+            texts = [item[2] for item in batch]
             try:
-                vectors.extend(
-                    embed_with_retry(provider.embed_texts, batch)
-                )
+                vectors = embed_with_retry(provider.embed_texts, texts)
             except RuntimeError:
-                # Skip the failed batch; partial index is better than no
-                # index when the provider is flaky. The next rebuild will
-                # retry the same rows because their content_hash no longer
-                # matches what is stored in ``embeddings``.
                 continue
-        return vectors
+            embedded.extend((item, vector) for item, vector in zip(batch, vectors))
+        return embedded
+
+    def _ensure_entity_embeddings(
+        self,
+        entity_type: str,
+        entity_texts: list[tuple[str, str]],
+        provider: Any,
+        config: dict[str, Any] | None,
+    ) -> dict[str, dict[str, Any]]:
+        rows: dict[str, dict[str, Any]] = {}
+        to_embed: list[tuple[str, str, str]] = []
+        for entity_id, text in entity_texts:
+            existing = self._embedding_row(
+                entity_type,
+                entity_id,
+                provider.provider_name,
+                provider.model,
+                provider.dimensions,
+            )
+            if existing and existing["content_hash"] == content_hash(text):
+                rows[entity_id] = existing
+                continue
+            to_embed.append((entity_type, entity_id, text))
+        for (current_type, entity_id, text), vector in self._embed_text_items(provider, to_embed, config):
+            rows[entity_id] = self.upsert_embedding(
+                current_type,
+                entity_id,
+                text,
+                vector,
+                provider.provider_name,
+                provider.model,
+                provider.dimensions or len(vector),
+            )
+        return rows
 
     def hybrid_recall(
         self,
@@ -1178,24 +1208,26 @@ class AetherStore:
 
         results: list[dict[str, Any]] = []
         recall_status = None if include_unavailable else status
-        for entity in self._entities_for_recall(
+        entities = self._entities_for_recall(
             entity_type,
             status=recall_status,
             include_unavailable=include_unavailable,
-        ):
+        )
+        entity_texts = [
+            (self._entity_id(entity_type, entity), self.canonical_entity_text(entity_type, entity))
+            for entity in entities
+        ]
+        embedding_rows: dict[str, dict[str, Any]] = {}
+        if provider and query_vector is not None:
+            embedding_rows = self._ensure_entity_embeddings(entity_type, entity_texts, provider, config)
+
+        for entity, (entity_id, text) in zip(entities, entity_texts):
             entity_id = self._entity_id(entity_type, entity)
-            text = self.canonical_entity_text(entity_type, entity)
             lexical_score, matched_terms = lexical_similarity(query_text, text)
             semantic_score = 0.0
             if provider and query_vector is not None:
-                existing = self._embedding_row(
-                    entity_type,
-                    entity_id,
-                    provider.provider_name,
-                    provider.model,
-                    provider.dimensions,
-                )
-                if existing and existing["content_hash"] == content_hash(text):
+                existing = embedding_rows.get(entity_id)
+                if existing:
                     semantic_score = max(0.0, cosine_similarity(query_vector, existing["vector"]))
             relation_score = self._entity_relation_score(
                 entity_type,
