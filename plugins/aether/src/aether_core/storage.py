@@ -688,6 +688,17 @@ class AetherStore:
             row = conn.execute("select * from visual_assets where id = ?", (asset_id,)).fetchone()
         return self._visual_asset_from_row(row) if row else None
 
+    def find_asset_by_sha256(self, sha256: str, kind: str | None = None) -> dict[str, Any] | None:
+        sql = "select * from assets where sha256 = ?"
+        params: list[Any] = [sha256]
+        if kind:
+            sql += " and kind = ?"
+            params.append(kind)
+        sql += " order by created_at asc limit 1"
+        with self.connect() as conn:
+            row = conn.execute(sql, tuple(params)).fetchone()
+        return dict(row) if row else None
+
     def list_visual_assets(
         self,
         asset_type: str | None = None,

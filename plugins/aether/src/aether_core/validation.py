@@ -253,6 +253,18 @@ def validate_visual_asset(payload: dict[str, Any]) -> None:
     ]:
         if field in payload and not isinstance(payload[field], list):
             raise ValidationError(f"Field {field} must be a list")
+    if payload.get("status", "draft") == "active":
+        for reference in payload.get("source_references", []):
+            if not isinstance(reference, dict):
+                continue
+            original_path = str(reference.get("original_image_path", ""))
+            if original_path.startswith("chat_attachment:") and not (
+                reference.get("image_path") and reference.get("asset_id")
+            ):
+                raise ValidationError(
+                    "Active visual assets cannot store unresolved chat_attachment source references; "
+                    "run create/branch with --ingest-assets or provide source_references[].image_path."
+                )
 
 
 def validate_visual_asset_candidate(payload: dict[str, Any]) -> None:
@@ -405,6 +417,13 @@ def validate_recipe(payload: dict[str, Any]) -> None:
     for field in ["parent_recipe_id", "merged_into_recipe_id"]:
         if field in payload and payload[field] is not None and not isinstance(payload[field], str):
             raise ValidationError(f"Field {field} must be a string")
+    if payload.get("status", "draft") == "active":
+        for source_reference_id in payload.get("source_reference_ids", []):
+            if str(source_reference_id).startswith("chat_attachment:"):
+                raise ValidationError(
+                    "Active recipes cannot store chat_attachment source_reference_ids; "
+                    "ingest the chat attachment as an Aether reference asset and use the asset_id."
+                )
     for asset_type in payload.get("required_asset_types", []):
         if asset_type not in VISUAL_ASSET_TYPES:
             raise ValidationError(f"Field required_asset_types contains unsupported type: {asset_type}")

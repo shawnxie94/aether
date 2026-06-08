@@ -6,6 +6,13 @@ from pathlib import Path
 from typing import Any
 
 from .assets import ingest_asset
+from .chat_attachments import (
+    chat_reference_name,
+    find_input_images_by_indices,
+    find_recent_input_images,
+    ingest_chat_attachment,
+    is_unresolved_chat_reference,
+)
 from .composer import compose_prompt
 from .config import ensure_configured_dirs, load_config
 from .generation_params import apply_generation_skill_params, apply_prompt_generation_params
@@ -26,9 +33,58 @@ def _store() -> tuple[Any, AetherStore]:
 
 def _ingest_source_references(config: Any, store: AetherStore, payload: dict[str, Any]) -> dict[str, Any]:
     references = payload.get("source_references", [])
+    unresolved_chat_references = [
+        (index, reference) for index, reference in enumerate(references) if is_unresolved_chat_reference(reference)
+    ]
+    chat_images: dict[int, dict[str, Any]] = {}
+    if unresolved_chat_references:
+        try:
+            explicit_indices = [
+                reference.get("input_image_index")
+                for _, reference in unresolved_chat_references
+                if isinstance(reference.get("input_image_index"), int)
+            ]
+            if explicit_indices and len(explicit_indices) != len(unresolved_chat_references):
+                raise ValueError("Either provide input_image_index for every chat_attachment reference or for none.")
+            images = (
+                find_input_images_by_indices(explicit_indices)
+                if explicit_indices
+                else find_recent_input_images(len(unresolved_chat_references))
+            )
+        except (FileNotFoundError, ValueError) as exc:
+            raise SystemExit(
+                "Could not resolve chat_attachment source reference(s). "
+                "Pass source_references[].image_path or ensure the current Codex session contains "
+                f"at least {len(unresolved_chat_references)} input_image attachment(s). {exc}"
+            ) from exc
+        chat_images = {index: images[position] for position, (index, _) in enumerate(unresolved_chat_references)}
+
     updated_references = []
-    for reference in references:
-        if not isinstance(reference, dict) or not reference.get("image_path"):
+    for index, reference in enumerate(references):
+        if not isinstance(reference, dict):
+            updated_references.append(reference)
+            continue
+        if is_unresolved_chat_reference(reference):
+            result = ingest_chat_attachment(
+                config,
+                store,
+                chat_images[index]["image_url"],
+                chat_reference_name(reference, index),
+                "reference",
+            )
+            asset = result["asset"]
+            updated_references.append(
+                {
+                    **reference,
+                    "image_path": asset["asset_path"],
+                    "asset_id": asset["id"],
+                    "sha256": asset["sha256"],
+                    "mime_type": asset.get("mime_type", result["mime_type"]),
+                    "size_bytes": asset.get("size_bytes", 0),
+                }
+            )
+            continue
+        if not reference.get("image_path"):
             updated_references.append(reference)
             continue
         image_path = Path(reference["image_path"]).expanduser()

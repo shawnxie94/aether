@@ -3,6 +3,7 @@ import unittest
 from aether_core.validation import (
     ValidationError,
     validate_recipe_candidate,
+    validate_recipe,
     validate_visual_system_candidate,
     validate_generation_run,
     validate_prompt_record,
@@ -86,6 +87,32 @@ class ValidationTests(unittest.TestCase):
                 ],
             }
         )
+
+    def test_active_visual_asset_rejects_unresolved_chat_attachment_reference(self):
+        with self.assertRaisesRegex(ValidationError, "unresolved chat_attachment"):
+            validate_visual_asset(
+                {
+                    "type": "style",
+                    "name": "Soft Pencil Portrait",
+                    "status": "active",
+                    "source_references": [
+                        {
+                            "original_image_path": "chat_attachment:soft-pencil-reference",
+                            "role": "positive_reference",
+                        }
+                    ],
+                }
+            )
+
+    def test_active_recipe_rejects_chat_attachment_source_reference_ids(self):
+        with self.assertRaisesRegex(ValidationError, "chat_attachment source_reference_ids"):
+            validate_recipe(
+                {
+                    "name": "Soft Pencil Portrait Recipe",
+                    "status": "active",
+                    "source_reference_ids": ["chat_attachment:soft-pencil-reference"],
+                }
+            )
 
     def test_prompt_generation_params_must_be_object(self):
         with self.assertRaises(ValidationError):
