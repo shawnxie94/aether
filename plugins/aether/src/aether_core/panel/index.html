@@ -810,6 +810,13 @@
     }
 
     function closeDetail() {
+      // We deliberately ``push`` here rather than calling
+      // ``history.back()``: when the detail was restored from the
+      // URL on boot there is no "list view" entry in the history
+      // stack to pop back to, so ``history.back()`` would take the
+      // user out of the panel. ``push`` keeps the open / close flow
+      // symmetric (browser back from the list re-opens the detail)
+      // in both the card-click and URL-restore cases.
       state.detail = null;
       render({ push: true });
     }
@@ -1103,6 +1110,9 @@
 
     document.querySelectorAll(".tab").forEach(button => button.addEventListener("click", () => {
       const target = button.dataset.view;
+      // Clicking the already-active tab (with no detail open) is a
+      // no-op; early-return so we do not push a redundant history
+      // entry that the browser back button would have to walk over.
       if (state.view === target && !state.detail) return;
       state.view = target;
       state.detail = null;

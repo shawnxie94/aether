@@ -930,18 +930,34 @@ class PanelUrlStateSyncTests(unittest.TestCase):
         # so they call ``render({ push: true })`` to add a history entry.
         # Filter inputs (search, type, status) keep the default replace
         # so typing does not flood the history stack.
-        tab_click_index = PANEL_HTML.index('addEventListener("click"')
-        tab_handler_end = PANEL_HTML.index("}));", tab_click_index) + len("}));")
-        tab_handler = PANEL_HTML[tab_click_index:tab_handler_end]
-        self.assertIn("render({ push: true })", tab_handler)
-        # openDetail and closeDetail opt in to push as well.
+        # Count occurrences instead of slicing function bodies: a single
+        # extra or missing push is the regression we want to catch, and
+        # the call sites are the only three places that opt in to push.
+        push_call_count = PANEL_HTML.count("render({ push: true })")
+        self.assertEqual(
+            push_call_count, 3,
+            "render({ push: true }) should appear exactly 3 times: "
+            "openDetail, closeDetail, and the tab click handler",
+        )
+        # Sanity-check that each of the three call sites has the push
+        # option. Using a small fixed window per site is safe because
+        # the helper function is always the last statement of the
+        # enclosing scope and we are only checking for the literal
+        # ``render({ push: true })`` token, not parsing the JS.
         for fn in ("openDetail", "closeDetail"):
             idx = PANEL_HTML.index("function " + fn)
-            body = PANEL_HTML[idx:idx + 700]
-            self.assertIn("render({ push: true })", body,
-                          f"{fn} should push a history entry")
+            self.assertIn(
+                "render({ push: true })", PANEL_HTML[idx:idx + 800],
+                f"{fn} should push a history entry",
+            )
+        tab_click_idx = PANEL_HTML.index('.tab").forEach(button => button.addEventListener("click"')
+        self.assertIn(
+            "render({ push: true })", PANEL_HTML[tab_click_idx:tab_click_idx + 800],
+            "tab click handler should push a history entry",
+        )
         # Filter inputs do not opt in to push, so they fall through to
-        # the default ``replace`` path in ``syncUrlFromState``.
+        # the default ``replace`` path in ``syncUrlFromState``. Each
+        # filter handler is short, so a small window is enough.
         for anchor in (
             'state.type = event.target.value',
             'state.status = event.target.value',
@@ -950,9 +966,10 @@ class PanelUrlStateSyncTests(unittest.TestCase):
             self.assertIn(anchor, PANEL_HTML,
                           f"filter handler anchor {anchor!r} not found in HTML")
             start = PANEL_HTML.index(anchor)
-            window = PANEL_HTML[start:start + 400]
-            self.assertNotIn("push: true", window,
-                             f"filter handler {anchor!r} should not push history")
+            self.assertNotIn(
+                "push: true", PANEL_HTML[start:start + 200],
+                f"filter handler {anchor!r} should not push history",
+            )
 
 
 
