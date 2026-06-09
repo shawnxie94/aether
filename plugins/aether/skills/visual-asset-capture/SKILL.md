@@ -47,7 +47,13 @@ Use `--session <rollout-jsonl>` when the current session is not the newest file 
 
 3. Draft the candidate batch.
 
-Use Codex vision to analyze the reference images. Treat source prompts as clues, not ground truth. If a clean starting shape helps, generate a valid template:
+Use Codex vision to analyze the reference images. Treat source prompts as clues, not ground truth. First separate visible observations from reusable visual memory:
+
+- `analysis_observations`: visible or explicitly inferred evidence for the reusable candidate. Include the trait, visible evidence, approximate image region, source reference id when available, `source`, `confidence`, and `reusable`.
+- `excluded_observations`: visible one-off details that should not become reusable memory.
+- `consensus`: for multiple references, record how many references support the trait, common traits, stable variants, and outliers.
+
+Prefer `source: "visual_observation"` for traits directly seen in the image. Use `source: "source_prompt_hint"` only when a source prompt suggests a trait that is not visually certain, and lower the confidence. If a clean starting shape helps, generate a valid template:
 
 ```bash
 python skills/visual-asset-capture/scripts/generate_candidate_template.py --asset-type <type> --name "<name>"

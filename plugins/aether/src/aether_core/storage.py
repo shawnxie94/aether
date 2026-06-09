@@ -1285,11 +1285,112 @@ class AetherStore:
         new_tokens = query_tokens - target_tokens
         return round(len(new_tokens) / len(query_tokens), 4)
 
+    def _reusable_observation_texts(self, payload: dict[str, Any]) -> list[Any]:
+        observations = []
+        for observation in payload.get("analysis_observations", []):
+            if isinstance(observation, dict) and observation.get("reusable") is False:
+                continue
+            observations.append(observation)
+        consensus = payload.get("consensus", {})
+        if isinstance(consensus, dict):
+            observations.extend(
+                consensus.get(key, [])
+                for key in ("common_traits", "variant_traits")
+                if consensus.get(key)
+            )
+        return observations
+
+    def _positive_candidate_text(self, payload: dict[str, Any]) -> str:
+        return canonical_text(
+            [
+                payload.get("type"),
+                payload.get("kind"),
+                payload.get("name"),
+                payload.get("summary"),
+                payload.get("tags"),
+                payload.get("use_cases"),
+                payload.get("required_asset_types"),
+                payload.get("prompt_fragments"),
+                payload.get("profile"),
+                payload.get("composition_rules"),
+                payload.get("visual_rules"),
+                self._reusable_observation_texts(payload),
+            ]
+        )
+
+    def _negative_candidate_text(self, payload: dict[str, Any]) -> str:
+        return canonical_text(
+            [
+                payload.get("negative_fragments"),
+                payload.get("avoid_with"),
+                payload.get("avoid_rules"),
+                payload.get("excluded_observations"),
+            ]
+        )
+
+    def _token_overlap_ratio(self, left: Any, right: Any) -> float:
+        left_tokens = token_set(left)
+        right_tokens = token_set(right)
+        if not left_tokens or not right_tokens:
+            return 0.0
+        return round(len(left_tokens & right_tokens) / min(len(left_tokens), len(right_tokens)), 4)
+
+    def _candidate_conflict_score(
+        self,
+        entity_type: str,
+        candidate_payload: dict[str, Any] | None,
+        target: dict[str, Any] | None,
+    ) -> float:
+        if not candidate_payload or not target:
+            return 0.0
+        target_negative = ""
+        if entity_type == "visual_asset":
+            target_negative = canonical_text([target.get("negative_fragments"), target.get("avoid_with")])
+        elif entity_type == "visual_system":
+            target_negative = canonical_text([target.get("avoid_rules")])
+        elif entity_type == "recipe":
+            target_negative = canonical_text(
+                [
+                    rule
+                    for rule in target.get("composition_rules", [])
+                    if isinstance(rule, dict) and rule.get("key") == "negative_constraints"
+                ]
+            )
+        candidate_positive = self._positive_candidate_text(candidate_payload)
+        candidate_negative = self._negative_candidate_text(candidate_payload)
+        target_positive = self.canonical_entity_text(entity_type, target)
+        return max(
+            self._token_overlap_ratio(candidate_positive, target_negative),
+            self._token_overlap_ratio(target_positive, candidate_negative),
+        )
+
+    def _candidate_scope_match(
+        self,
+        entity_type: str,
+        candidate_payload: dict[str, Any] | None,
+        target: dict[str, Any] | None,
+    ) -> bool:
+        if not candidate_payload or not target:
+            return bool(target)
+        if entity_type == "visual_asset":
+            return candidate_payload.get("type") == target.get("type")
+        if entity_type == "visual_system":
+            return candidate_payload.get("kind") == target.get("kind")
+        if entity_type == "recipe":
+            candidate_types = set(candidate_payload.get("required_asset_types", []))
+            target_types = set(target.get("required_asset_types", []))
+            if candidate_types and target_types:
+                return bool(candidate_types & target_types)
+            return True
+        return bool(target)
+
     def _evolution_scores(
         self,
         entity_type: str,
         query_text: str,
         top: dict[str, Any] | None,
+        *,
+        candidate_payload: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         if not top:
             return {
@@ -1311,15 +1412,16 @@ class AetherStore:
         elif entity_type == "recipe" and entity_id:
             target = self.get_recipe(entity_id)
         target_text = self.canonical_entity_text(entity_type, target) if target else ""
+        novelty_text = self._positive_candidate_text(candidate_payload) if candidate_payload else query_text
         return {
             "hybrid_similarity": round(float(top.get("score", top.get("similarity_score", 0.0))), 4),
             "semantic_score": round(float(top.get("semantic_score", 0.0)), 4),
             "lexical_score": round(float(top.get("lexical_score", 0.0)), 4),
             "relation_score": round(float(top.get("relation_score", 0.0)), 4),
             "quality_score": round(float(top.get("quality_score", 0.0)), 4),
-            "novelty_score": self._candidate_novelty_score(query_text, target_text),
-            "conflict_score": 0.0,
-            "scope_match": bool(target),
+            "novelty_score": self._candidate_novelty_score(novelty_text, target_text),
+            "conflict_score": self._candidate_conflict_score(entity_type, candidate_payload, target),
+            "scope_match": self._candidate_scope_match(entity_type, candidate_payload, target),
         }
 
     def _evolution_action(self, entity_type: str, scores: dict[str, Any]) -> str:
@@ -1328,7 +1430,10 @@ class AetherStore:
         lexical = float(scores.get("lexical_score", 0.0))
         relation = float(scores.get("relation_score", 0.0))
         novelty = float(scores.get("novelty_score", 1.0))
+        conflict = float(scores.get("conflict_score", 0.0))
         comparable_score = max(similarity, semantic, lexical, relation)
+        if conflict >= 0.45:
+            return "inherit_variant" if comparable_score >= 0.72 else "create_new"
         if entity_type == "visual_asset":
             if semantic >= 0.95:
                 return "attach_evidence"
@@ -1367,9 +1472,10 @@ class AetherStore:
         query_text: str,
         top: dict[str, Any] | None,
         *,
+        candidate_payload: dict[str, Any] | None = None,
         reason: str = "",
     ) -> dict[str, Any]:
-        scores = self._evolution_scores(entity_type, query_text, top)
+        scores = self._evolution_scores(entity_type, query_text, top, candidate_payload=candidate_payload)
         action = self._evolution_action(entity_type, scores)
         target_id = None
         if top:
@@ -1781,6 +1887,7 @@ class AetherStore:
             "visual_asset",
             query_text,
             similar_candidates[0] if similar_candidates else None,
+            candidate_payload=payload,
         )
         action = evolution_suggestion["action"]
         target_asset_id = (
@@ -1864,6 +1971,7 @@ class AetherStore:
                 payload.get("prompt_fragments"),
                 payload.get("negative_fragments"),
                 payload.get("profile"),
+                self._reusable_observation_texts(payload),
             ]
         )
 
@@ -2144,6 +2252,9 @@ class AetherStore:
                 "summary",
                 "tags",
                 "profile",
+                "analysis_observations",
+                "excluded_observations",
+                "consensus",
                 "prompt_fragments",
                 "negative_fragments",
                 "compatible_with",
@@ -2920,7 +3031,7 @@ class AetherStore:
                 float(system.get("lexical_score", 0.0)),
                 float(system.get("relation_score", 0.0)),
             )
-            scores = self._evolution_scores("visual_system", query_text, system)
+            scores = self._evolution_scores("visual_system", query_text, system, candidate_payload=payload)
             action = self._evolution_action("visual_system", scores)
             recommendation = {
                 "attach_evidence": "attach_evidence",
@@ -2932,7 +3043,7 @@ class AetherStore:
         if related_systems:
             payload["related_existing_systems"] = related_systems
             top = related_systems[0]
-            suggestion = self._evolution_suggestion("visual_system", query_text, top)
+            suggestion = self._evolution_suggestion("visual_system", query_text, top, candidate_payload=payload)
             metadata["evolution_action"] = suggestion["action"]
             metadata["evolution_suggestion"] = suggestion
             metadata["recommendation"] = top["recommendation"]
@@ -2941,7 +3052,7 @@ class AetherStore:
                 metadata["dedupe_score"] = top["dedupe_score"]
             payload["metadata"] = metadata
         else:
-            suggestion = self._evolution_suggestion("visual_system", query_text, None)
+            suggestion = self._evolution_suggestion("visual_system", query_text, None, candidate_payload=payload)
             metadata["evolution_action"] = suggestion["action"]
             metadata["evolution_suggestion"] = suggestion
             payload["metadata"] = metadata
@@ -3608,7 +3719,7 @@ class AetherStore:
                 float(recipe.get("lexical_score", 0.0)),
                 float(recipe.get("relation_score", 0.0)),
             )
-            scores = self._evolution_scores("recipe", query_text, recipe)
+            scores = self._evolution_scores("recipe", query_text, recipe, candidate_payload=payload)
             action = self._evolution_action("recipe", scores)
             recommendation = {
                 "attach_evidence": "attach_evidence",
@@ -3620,7 +3731,7 @@ class AetherStore:
         if related_recipes:
             payload["related_existing_recipes"] = related_recipes
             top = related_recipes[0]
-            suggestion = self._evolution_suggestion("recipe", query_text, top)
+            suggestion = self._evolution_suggestion("recipe", query_text, top, candidate_payload=payload)
             metadata["evolution_action"] = suggestion["action"]
             metadata["evolution_suggestion"] = suggestion
             metadata["recommendation"] = top["recommendation"]
@@ -3629,7 +3740,7 @@ class AetherStore:
                 metadata["dedupe_score"] = top["dedupe_score"]
             payload["metadata"] = metadata
         else:
-            suggestion = self._evolution_suggestion("recipe", query_text, None)
+            suggestion = self._evolution_suggestion("recipe", query_text, None, candidate_payload=payload)
             metadata["evolution_action"] = suggestion["action"]
             metadata["evolution_suggestion"] = suggestion
             payload["metadata"] = metadata

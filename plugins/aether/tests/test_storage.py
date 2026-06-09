@@ -341,6 +341,55 @@ class StorageTests(unittest.TestCase):
             self.assertIn("user_feedback", evidence_types)
             self.assertGreater(store.visual_asset_quality(existing["id"])["score"], 0.7)
 
+    def test_candidate_analysis_observations_drive_recall_and_conflict_scoring(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = AetherStore(Path(temp_dir) / "aether.sqlite")
+            store.init()
+
+            existing = store.create_visual_asset(
+                {
+                    "type": "lighting",
+                    "name": "Soft Rim Mist Light",
+                    "summary": "soft rim light in a misty scene",
+                    "negative_fragments": ["watercolor bloom artifacts"],
+                    "status": "active",
+                }
+            )
+            candidate = store.create_visual_asset_candidate(
+                {
+                    "type": "lighting",
+                    "name": "Quiet Back Edge",
+                    "summary": "subtle back edge glow",
+                    "prompt_fragments": ["soft rim light", "watercolor bloom artifacts"],
+                    "analysis_observations": [
+                        {
+                            "trait": "soft rim light on mist edges",
+                            "evidence": "thin glow separates the subject from mist",
+                            "region": "subject outline",
+                            "source": "visual_observation",
+                            "confidence": 0.86,
+                            "reusable": True,
+                        }
+                    ],
+                    "excluded_observations": [
+                        {
+                            "trait": "watercolor bloom artifacts",
+                            "evidence": "small source-specific color bleed should not be preserved",
+                            "source": "visual_observation",
+                            "confidence": 0.75,
+                            "reusable": False,
+                        }
+                    ],
+                    "status": "pending",
+                }
+            )
+
+            self.assertEqual(candidate["similar_candidates"][0]["asset_id"], existing["id"])
+            scores = candidate["payload"]["evolution_suggestion"]["scores"]
+            self.assertGreater(scores["conflict_score"], 0)
+            self.assertTrue(scores["scope_match"])
+            self.assertIn(candidate["decision"], {"create_new", "inherit_variant"})
+
     def test_visual_system_recipe_and_candidate_confirmation(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             store = AetherStore(Path(temp_dir) / "aether.sqlite")

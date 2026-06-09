@@ -103,6 +103,31 @@
         },
         "reason": {"type": "string"}
       }
+    },
+    "analysisObservation": {
+      "anyOf": [
+        {"type": "string"},
+        {
+          "type": "object",
+          "properties": {
+            "trait": {"type": "string"},
+            "evidence": {"type": "string"},
+            "region": {
+              "anyOf": [
+                {"type": "string"},
+                {"type": "object"}
+              ]
+            },
+            "source_reference_id": {"type": "string"},
+            "source": {
+              "type": "string",
+              "enum": ["visual_observation", "source_prompt_hint", "inferred"]
+            },
+            "confidence": {"type": "number"},
+            "reusable": {"type": "boolean"}
+          }
+        }
+      ]
     }
   },
   "properties": {
@@ -138,6 +163,28 @@
           "profile": {
             "type": "object",
             "description": "Structured reusable asset parameters. Keys are constrained by the candidate asset type in runtime validation."
+          },
+          "analysis_observations": {
+            "type": "array",
+            "description": "Visible or inferred evidence behind this candidate. Prefer visual_observation items for traits seen directly in the image.",
+            "items": {"$ref": "#/definitions/analysisObservation"}
+          },
+          "excluded_observations": {
+            "type": "array",
+            "description": "Observed one-off or non-reusable details that should not become reusable memory.",
+            "items": {"$ref": "#/definitions/analysisObservation"}
+          },
+          "consensus": {
+            "type": "object",
+            "description": "Multi-reference consensus and variation notes for this candidate.",
+            "properties": {
+              "reference_count": {"type": "number"},
+              "appears_in": {"type": "number"},
+              "consensus_strength": {"type": "number"},
+              "common_traits": {"type": "array", "items": {"type": "string"}},
+              "variant_traits": {"type": "array", "items": {"type": "string"}},
+              "outlier_traits": {"type": "array", "items": {"type": "string"}}
+            }
           },
           "source_references": {"type": "array"},
           "source_reference_ids": {"type": "array"},

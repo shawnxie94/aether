@@ -36,6 +36,9 @@ Candidate assets should include:
 - `summary`
 - `tags`
 - `profile`
+- `analysis_observations`
+- `excluded_observations`
+- `consensus`
 - `source_references`
 - `source_reference_ids`
 - `prompt_fragments`
@@ -64,6 +67,31 @@ Do not include storage-owned recall or decision fields in input payloads: `relat
 - `negative_rule`: `avoid_subjects`, `avoid_styles`, `avoid_colors_lighting`, `avoid_composition`, `avoid_artifacts`, `reason`
 
 Profile values may be strings, numbers, booleans, or arrays of scalar values. Put free-form notes in `summary`, `tags`, or `reason`, not in `profile`.
+
+## Analysis Evidence
+
+Use `analysis_observations` to preserve why a candidate was extracted. Prefer object items:
+
+- `trait`: concise reusable visual trait.
+- `evidence`: what is visible in the image that supports the trait.
+- `region`: visual location such as `upper background`, `foreground`, `left rim light`, or a structured bounding note when available.
+- `source_reference_id`: source reference id when known.
+- `source`: `visual_observation`, `source_prompt_hint`, or `inferred`.
+- `confidence`: approximate `0.0` to `1.0`.
+- `reusable`: `true` unless the item should not influence future memory.
+
+Use `excluded_observations` for one-off content that was visible but should not become reusable memory, such as a temporary object count, accidental text, a single non-recurring prop, or a source-prompt detail not supported by the image.
+
+Use `consensus` when analyzing multiple references:
+
+- `reference_count`: total inspected references.
+- `appears_in`: number of references showing the trait.
+- `consensus_strength`: approximate `0.0` to `1.0`.
+- `common_traits`: traits shared by the reference set.
+- `variant_traits`: stable differences that may become variants.
+- `outlier_traits`: traits seen only in outlier references.
+
+Do not put unsupported guesses into `analysis_observations` as if they were visual facts. Mark them as `source: "inferred"` or `source: "source_prompt_hint"`, lower confidence, and keep the evidence wording explicit.
 
 ## Relation Roles
 

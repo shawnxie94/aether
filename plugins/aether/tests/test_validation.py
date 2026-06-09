@@ -88,6 +88,49 @@ class ValidationTests(unittest.TestCase):
             }
         )
 
+    def test_visual_asset_candidate_analysis_evidence_validates_shape(self):
+        validate_visual_asset_candidate(
+            {
+                "type": "lighting",
+                "name": "Backlit Mist Edge",
+                "analysis_observations": [
+                    {
+                        "trait": "soft rim light on mist edges",
+                        "evidence": "bright edge glow around the foreground silhouette",
+                        "region": "foreground edge",
+                        "source": "visual_observation",
+                        "confidence": 0.82,
+                        "reusable": True,
+                    }
+                ],
+                "excluded_observations": [
+                    {
+                        "trait": "temporary object count",
+                        "evidence": "three visible lamps are source-specific",
+                        "source": "visual_observation",
+                        "confidence": 0.7,
+                        "reusable": False,
+                    }
+                ],
+                "consensus": {
+                    "reference_count": 3,
+                    "appears_in": 2,
+                    "consensus_strength": 0.67,
+                    "common_traits": ["soft rim light"],
+                    "variant_traits": ["warmer edge glow"],
+                    "outlier_traits": ["hard spotlight"],
+                },
+            }
+        )
+        with self.assertRaisesRegex(ValidationError, "source must be one of"):
+            validate_visual_asset_candidate(
+                {
+                    "type": "lighting",
+                    "name": "Bad Source",
+                    "analysis_observations": [{"trait": "rim light", "source": "guessed"}],
+                }
+            )
+
     def test_active_visual_asset_rejects_unresolved_chat_attachment_reference(self):
         with self.assertRaisesRegex(ValidationError, "unresolved chat_attachment"):
             validate_visual_asset(

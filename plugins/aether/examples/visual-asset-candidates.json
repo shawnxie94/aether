@@ -16,6 +16,33 @@
         "light_source": "neon signage",
         "surface_interaction": "wet asphalt mirror reflection"
       },
+      "analysis_observations": [
+        {
+          "trait": "neon light reflecting across wet asphalt",
+          "evidence": "magenta and cyan highlights stretch along the road surface",
+          "region": "foreground street",
+          "source": "visual_observation",
+          "confidence": 0.86,
+          "reusable": true
+        }
+      ],
+      "excluded_observations": [
+        {
+          "trait": "exact storefront text",
+          "evidence": "source-specific sign lettering should not be preserved",
+          "source": "visual_observation",
+          "confidence": 0.72,
+          "reusable": false
+        }
+      ],
+      "consensus": {
+        "reference_count": 1,
+        "appears_in": 1,
+        "consensus_strength": 1.0,
+        "common_traits": ["wet asphalt reflection", "magenta cyan neon contrast"],
+        "variant_traits": [],
+        "outlier_traits": []
+      },
       "prompt_fragments": [
         "rain-soaked asphalt reflections",
         "magenta and cyan neon rim light"

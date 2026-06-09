@@ -31,6 +31,12 @@ VISUAL_ASSET_CANDIDATE_DECISIONS = {
     "ignore",
 }
 
+OBSERVATION_SOURCES = {
+    "visual_observation",
+    "source_prompt_hint",
+    "inferred",
+}
+
 VISUAL_SYSTEM_KINDS = {
     "worldview",
     "genre",
@@ -299,6 +305,9 @@ def validate_visual_asset_candidate(payload: dict[str, Any]) -> None:
             "summary",
             "tags",
             "profile",
+            "analysis_observations",
+            "excluded_observations",
+            "consensus",
             "prompt_fragments",
             "negative_fragments",
             "compatible_with",
@@ -323,12 +332,40 @@ def validate_visual_asset_candidate(payload: dict[str, Any]) -> None:
         "avoid_with",
         "recommended_aspect_ratios",
         "similar_candidates",
+        "analysis_observations",
+        "excluded_observations",
     ]:
         if field in payload and not isinstance(payload[field], list):
             raise ValidationError(f"Field {field} must be a list")
     if "profile" in payload and not isinstance(payload["profile"], dict):
         raise ValidationError("Field profile must be a dict")
+    if "consensus" in payload and not isinstance(payload["consensus"], dict):
+        raise ValidationError("Field consensus must be a dict")
+    validate_analysis_observations(payload.get("analysis_observations", []), "analysis_observations")
+    validate_analysis_observations(payload.get("excluded_observations", []), "excluded_observations")
     validate_visual_asset_profile(payload.get("profile", {}), payload["type"])
+
+
+def validate_analysis_observations(observations: Any, field_name: str) -> None:
+    if observations in (None, ""):
+        return
+    if not isinstance(observations, list):
+        raise ValidationError(f"Field {field_name} must be a list")
+    for index, observation in enumerate(observations):
+        if isinstance(observation, str):
+            continue
+        if not isinstance(observation, dict):
+            raise ValidationError(f"Each {field_name} item must be a string or object")
+        if "source" in observation and observation["source"] not in OBSERVATION_SOURCES:
+            raise ValidationError(
+                f"Field {field_name}[{index}].source must be one of: {', '.join(sorted(OBSERVATION_SOURCES))}"
+            )
+        if "confidence" in observation and not isinstance(observation["confidence"], (int, float)):
+            raise ValidationError(f"Field {field_name}[{index}].confidence must be a number")
+        if "reusable" in observation and not isinstance(observation["reusable"], bool):
+            raise ValidationError(f"Field {field_name}[{index}].reusable must be a boolean")
+        if "region" in observation and not isinstance(observation["region"], (str, dict)):
+            raise ValidationError(f"Field {field_name}[{index}].region must be a string or object")
 
 
 def validate_visual_system(payload: dict[str, Any]) -> None:
