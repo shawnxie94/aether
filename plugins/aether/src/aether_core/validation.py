@@ -186,6 +186,13 @@ COMPOSITION_RULE_KEYS = {
     "composition_camera_binding",
     "mood_tone_binding",
     "negative_constraints",
+    # Recipe signature coverage rules. These describe quantifiable visual
+    # signal budgets and self-check anchors that the recipe must enforce
+    # in the final prompt. They are auto-recalled by compose_prompt and
+    # appended to refined_prompt so the model gets hard coverage numbers
+    # instead of relying on word-frequency heuristics.
+    "must_cover_ratios",
+    "signature_self_check",
 }
 
 RELATION_ROLES = {
@@ -544,8 +551,94 @@ def validate_generation_run(payload: dict[str, Any]) -> None:
         raise ValidationError("Field outputs must be a list")
     if "skill_params" in payload and not isinstance(payload["skill_params"], dict):
         raise ValidationError("Field skill_params must be a dict")
-    if "visual_review" in payload and not isinstance(payload["visual_review"], dict):
+    if "visual_review" in payload:
+        validate_visual_review(payload["visual_review"])
+
+
+# The new visual_review schema uses a 5-level consistency scale. The
+# historical "pass" / "minor_deviation" values are still accepted by the
+# validator so older generation runs and tests do not break, but they are
+# mapped to "high" / "moderate" inside the storage layer before being used
+# for reuse-suggestion eligibility.
+VISUAL_REVIEW_CONSISTENCY_VALUES = {
+    "high",
+    "moderate",
+    "low",
+    "major_deviation",
+    "not_reviewed",
+    "pass",
+    "minor_deviation",
+}
+
+VISUAL_REVIEW_CONSISTENCY_LEGACY_MAP = {
+    "pass": "high",
+    "minor_deviation": "moderate",
+}
+
+# visual_review now tracks two consistency scores so a generation can be
+# visually pleasing but still drift from the recipe. recipe_fidelity measures
+# whether the image kept the recipe's signature traits (palette, signature
+# motifs, signature negative space). subject_consistency measures whether the
+# fixed subject identity is preserved. style_consistency stays as the overall
+# judgement that humans and downstream code already use.
+# recipe_fidelity and subject_consistency accept the same set of buckets
+# as style_consistency (with major_deviation included) so the breakdown
+# fields can be aggregated with the same pass/major logic. The
+# not_reviewed bucket covers historical reviews that did not break the
+# score down.
+VISUAL_REVIEW_FIDELITY_VALUES = {
+    "high",
+    "moderate",
+    "low",
+    "major_deviation",
+    "not_reviewed",
+}
+
+
+def validate_visual_review(review: dict[str, Any]) -> None:
+    if not isinstance(review, dict):
         raise ValidationError("Field visual_review must be a dict")
+    if "reviewed" in review and not isinstance(review["reviewed"], bool):
+        raise ValidationError("Field visual_review.reviewed must be a boolean when present")
+    for field in ("recipe_fidelity", "subject_consistency"):
+        if field in review and review[field] is not None and not isinstance(review[field], str):
+            raise ValidationError(f"Field visual_review.{field} must be a string when present")
+    if "style_consistency" in review and review["style_consistency"] is not None:
+        if not isinstance(review["style_consistency"], str):
+            raise ValidationError("Field visual_review.style_consistency must be a string when present")
+        if review["style_consistency"] not in VISUAL_REVIEW_CONSISTENCY_VALUES:
+            raise ValidationError(
+                "Field visual_review.style_consistency must be one of: "
+                + ", ".join(sorted(VISUAL_REVIEW_CONSISTENCY_VALUES))
+            )
+    for field in ("recipe_fidelity", "subject_consistency"):
+        value = review.get(field)
+        if value is None:
+            continue
+        if value not in VISUAL_REVIEW_FIDELITY_VALUES:
+            raise ValidationError(
+                f"Field visual_review.{field} must be one of: "
+                + ", ".join(sorted(VISUAL_REVIEW_FIDELITY_VALUES))
+            )
+    for field in ("score", "recipe_fidelity_score", "subject_consistency_score"):
+        if field in review and review[field] is not None and not isinstance(review[field], (int, float)):
+            raise ValidationError(f"Field visual_review.{field} must be a number when present")
+    for list_field in (
+        "matched_traits",
+        "matched_signature_traits",
+        "matched_subject_traits",
+        "deviations",
+        "localized_deviations",
+    ):
+        if list_field in review and not isinstance(review[list_field], list):
+            raise ValidationError(f"Field visual_review.{list_field} must be a list")
+    for scalar_field in (
+        "recommendation",
+        "suggested_revision",
+        "suggested_edit_instruction",
+    ):
+        if scalar_field in review and review[scalar_field] is not None and not isinstance(review[scalar_field], str):
+            raise ValidationError(f"Field visual_review.{scalar_field} must be a string when present")
 
 
 def validate_payload(kind: str, payload: dict[str, Any]) -> None:

@@ -2631,6 +2631,17 @@ class AetherStore:
         liked = 0
         rejected = 0
         deviations: dict[str, int] = {}
+        # New fidelity breakdown. recipe_fidelity and subject_consistency
+        # bucket their own pass/major counts so consumers can tell apart
+        # "looks great but drifted from recipe" from "kept recipe but lost
+        # subject identity". The legacy "score" stays the overall signal.
+        fidelity_high = 0
+        fidelity_moderate = 0
+        fidelity_low = 0
+        fidelity_major = 0
+        subject_high = 0
+        subject_moderate = 0
+        subject_low = 0
         for run in runs:
             review = run.get("visual_review", {}).get("style_consistency")
             if review == "pass":
@@ -2639,6 +2650,22 @@ class AetherStore:
                 minor_count += 1
             elif review == "major_deviation":
                 major_count += 1
+            fidelity_value = run.get("visual_review", {}).get("recipe_fidelity")
+            if fidelity_value == "high":
+                fidelity_high += 1
+            elif fidelity_value == "moderate":
+                fidelity_moderate += 1
+            elif fidelity_value == "low":
+                fidelity_low += 1
+            elif fidelity_value == "major_deviation":
+                fidelity_major += 1
+            subject_value = run.get("visual_review", {}).get("subject_consistency")
+            if subject_value == "high":
+                subject_high += 1
+            elif subject_value == "moderate":
+                subject_moderate += 1
+            elif subject_value == "low":
+                subject_low += 1
             feedback_liked = run.get("feedback", {}).get("liked")
             if feedback_liked is True or run.get("status") == "liked":
                 liked += 1
@@ -2661,6 +2688,23 @@ class AetherStore:
         if feedback_total:
             score += 0.2 * ((liked - rejected) / feedback_total)
         score = max(0.0, min(1.0, round(score, 4)))
+
+        fidelity_total = fidelity_high + fidelity_moderate + fidelity_low + fidelity_major
+        fidelity_score = 0.5
+        if fidelity_total:
+            fidelity_score += 0.25 * (fidelity_high / fidelity_total)
+            fidelity_score += 0.1 * (fidelity_moderate / fidelity_total)
+            fidelity_score -= 0.25 * (fidelity_major / fidelity_total)
+        fidelity_score = max(0.0, min(1.0, round(fidelity_score, 4)))
+
+        subject_total = subject_high + subject_moderate + subject_low
+        subject_score = 0.5
+        if subject_total:
+            subject_score += 0.3 * (subject_high / subject_total)
+            subject_score += 0.15 * (subject_moderate / subject_total)
+            subject_score -= 0.25 * (subject_low / subject_total)
+        subject_score = max(0.0, min(1.0, round(subject_score, 4)))
+
         return {
             "asset_id": asset_id,
             "score": score,
@@ -2670,6 +2714,21 @@ class AetherStore:
             "major_deviation": major_count,
             "liked": liked,
             "rejected": rejected,
+            "fidelity": {
+                "score": fidelity_score,
+                "high": fidelity_high,
+                "moderate": fidelity_moderate,
+                "low": fidelity_low,
+                "major_deviation": fidelity_major,
+                "with_breakdown_count": fidelity_total,
+            },
+            "subject_consistency": {
+                "score": subject_score,
+                "high": subject_high,
+                "moderate": subject_moderate,
+                "low": subject_low,
+                "with_breakdown_count": subject_total,
+            },
             "common_deviations": [
                 {"deviation": key, "count": count}
                 for key, count in sorted(deviations.items(), key=lambda item: item[1], reverse=True)
@@ -4416,8 +4475,30 @@ class AetherStore:
         review = run.get("visual_review", {})
         review_score = float(review.get("score", 0) or 0)
         consistency = review.get("style_consistency")
+        # Normalize legacy style_consistency values (pass / minor_deviation)
+        # to the new high / moderate scale so the reuse-suggestion logic
+        # only ever compares against the new bucket set.
+        from aether_core.validation import VISUAL_REVIEW_CONSISTENCY_LEGACY_MAP
+        normalized_consistency = VISUAL_REVIEW_CONSISTENCY_LEGACY_MAP.get(consistency, consistency)
+        recipe_fidelity = review.get("recipe_fidelity")
+        subject_consistency = review.get("subject_consistency")
         liked = run.get("feedback", {}).get("liked") is True or run.get("status") == "liked"
-        review_passed = consistency in {"pass", "minor_deviation"} or review_score >= 0.75
+        # Old style_consistency values (pass / minor_deviation) are mapped to
+        # the new high / moderate values so historical reviews keep their
+        # meaning. Unknown values fall back to the score threshold.
+        legacy_passed = normalized_consistency in {"high", "moderate"} or review_score >= 0.75
+        recipe_fidelity_passed = (
+            recipe_fidelity in {"high", "moderate"}
+            or (recipe_fidelity is None and legacy_passed)
+        )
+        subject_passed = (
+            subject_consistency in {"high", "moderate"}
+            or (subject_consistency is None and legacy_passed)
+        )
+        # A run only counts as "passed review" for reuse suggestion if the
+        # recipe signature was preserved. A visually nice but recipe-drifted
+        # image is no longer auto-promoted into a new recipe candidate.
+        review_passed = legacy_passed and recipe_fidelity_passed
         result: dict[str, Any] = {
             "generation_run_id": run_id,
             "batch_id": batch_id,
@@ -4588,6 +4669,10 @@ class AetherStore:
                 "source_generation_status": run.get("status"),
                 "source_review_score": review.get("score"),
                 "source_style_consistency": review.get("style_consistency"),
+                "source_recipe_fidelity": review.get("recipe_fidelity"),
+                "source_recipe_fidelity_score": review.get("recipe_fidelity_score"),
+                "source_subject_consistency": review.get("subject_consistency"),
+                "source_subject_consistency_score": review.get("subject_consistency_score"),
             },
             "status": "pending",
         }
@@ -4717,6 +4802,10 @@ class AetherStore:
                 "source_generation_status": run.get("status"),
                 "source_review_score": review.get("score"),
                 "source_style_consistency": review.get("style_consistency"),
+                "source_recipe_fidelity": review.get("recipe_fidelity"),
+                "source_recipe_fidelity_score": review.get("recipe_fidelity_score"),
+                "source_subject_consistency": review.get("subject_consistency"),
+                "source_subject_consistency_score": review.get("subject_consistency_score"),
                 "reason": "liked or high-scoring generation with multiple reusable selected asset types",
             },
             "status": "pending",

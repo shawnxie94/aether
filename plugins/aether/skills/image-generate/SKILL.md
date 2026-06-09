@@ -103,14 +103,22 @@ Use Codex vision to inspect the generated output image(s) against the selected a
 Write a `visual_review` object with:
 
 - `reviewed`: `true`
-- `style_consistency`: `pass`, `minor_deviation`, or `major_deviation`
-- `score`: approximate 0-1 style consistency score
+- `style_consistency`: `high`, `moderate`, `low`, or `major_deviation`. The legacy values `pass` and `minor_deviation` are still accepted by storage and are mapped to `high` and `moderate` for reuse-suggestion eligibility.
+- `score`: approximate 0-1 overall style consistency score
+- `recipe_fidelity`: `high`, `moderate`, `low`, `major_deviation`, or `not_reviewed`. Score whether the image kept the selected recipe's signature traits (palette, signature motifs, signature negative space). Independent from `subject_consistency` so a generation can be visually pleasing but still drift from the recipe.
+- `recipe_fidelity_score`: optional 0-1 numeric breakdown for the recipe signature.
+- `subject_consistency`: `high`, `moderate`, `low`, or `not_reviewed`. Score whether the fixed subject identity (e.g. recurring character) is preserved.
+- `subject_consistency_score`: optional 0-1 numeric breakdown for the subject.
 - `matched_traits`
+- `matched_signature_traits`: recipe signature traits that survived generation. Use this list to justify `recipe_fidelity`.
+- `matched_subject_traits`: subject identity traits that survived generation. Use this list to justify `subject_consistency`.
 - `deviations`
 - `localized_deviations`: local defects that do not require replacing the whole image
 - `recommendation`: `use`, `edit`, `revise_prompt`, or `regenerate`
 - `suggested_revision`: prompt or parameter changes when needed
 - `suggested_edit_instruction`: targeted edit instruction when local fixes are enough
+
+The legacy single-bucket `style_consistency` is still honored so older generation runs and tests do not break, but new reviews should split fidelity and subject identity so downstream reuse-suggestion logic can tell apart "looks great but drifted from recipe" from "kept recipe but lost subject identity".
 
 If there is no output image, no selected visual assets, or the image cannot be inspected, set `reviewed: false`, `style_consistency: "not_reviewed"`, and explain why in `deviations`.
 

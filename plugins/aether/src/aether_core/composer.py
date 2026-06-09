@@ -66,6 +66,50 @@ def _visual_rule_text(rule: Any) -> str:
     return f"{key}: {value_text}"
 
 
+def _build_signature_coverage_paragraph(blocks: list[dict[str, Any]]) -> str:
+    """Render must_cover_ratios and signature_self_check blocks as a
+    dedicated paragraph appended to the end of refined_prompt.
+
+    The paragraph is intentionally short and structured so the model can
+    latch onto the explicit numbers and self-check anchors before the
+    prompt is diluted by word-frequency heuristics. Each block becomes
+    one bullet-like clause; the prefix "Recipe signature coverage:" makes
+    the paragraph stand out from earlier descriptive fragments.
+    """
+    if not blocks:
+        return ""
+    clauses: list[str] = []
+    ratios_blocks = [block for block in blocks if block.get("key") == "must_cover_ratios"]
+    self_check_blocks = [block for block in blocks if block.get("key") == "signature_self_check"]
+    for block in ratios_blocks:
+        items = block.get("value") or []
+        if isinstance(items, str):
+            items = [items]
+        items = [str(item) for item in items if item]
+        if not items:
+            continue
+        reason = block.get("reason") or ""
+        prefix = "Coverage budget"
+        if reason:
+            prefix = f"{prefix} ({reason})"
+        clauses.append(f"{prefix}: " + "; ".join(items) + ".")
+    for block in self_check_blocks:
+        items = block.get("value") or []
+        if isinstance(items, str):
+            items = [items]
+        items = [str(item) for item in items if item]
+        if not items:
+            continue
+        reason = block.get("reason") or ""
+        prefix = "Before rendering, ensure"
+        if reason:
+            prefix = f"{prefix} ({reason})"
+        clauses.append(f"{prefix}: " + "; ".join(items) + ".")
+    if not clauses:
+        return ""
+    return "Recipe signature coverage: " + " ".join(clauses)
+
+
 def _profile_value_texts(value: Any) -> list[str]:
     if isinstance(value, dict):
         return [text for item in value.values() for text in _profile_value_texts(item)]
@@ -342,6 +386,12 @@ def compose_prompt(
     system_avoid_rules: list[str] = []
     recipe_composition_rules: list[str] = []
     recipe_negative_rules: list[str] = []
+    # Recipe-level signature coverage rules (must_cover_ratios and
+    # signature_self_check) are accumulated here and rendered as a
+    # dedicated paragraph at the end of refined_prompt so the model gets
+    # explicit numbers and self-check anchors instead of relying on
+    # word-frequency heuristics inside the rest of the prompt.
+    recipe_signature_coverage_blocks: list[dict[str, Any]] = []
 
     for item in collapsed_recalled_assets:
         boosted_asset_reasons.setdefault(item["asset_id"], []).append(
@@ -400,6 +450,21 @@ def compose_prompt(
                 recipe_negative_rules.append(text)
             else:
                 recipe_composition_rules.append(text)
+            # Signature coverage rules carry hard numbers and self-check
+            # anchors (e.g. "powder blue must cover >=35% of the frame").
+            # They are stored separately so the composer can append a
+            # dedicated visual-weight-budget paragraph that survives prompt
+            # word-frequency dilution. Keys must match
+            # COMPOSITION_RULE_KEYS in validation.py.
+            if isinstance(rule, dict) and rule.get("key") in (
+                "must_cover_ratios",
+                "signature_self_check",
+            ):
+                recipe_signature_coverage_blocks.append({
+                    "key": rule.get("key"),
+                    "value": rule.get("value"),
+                    "reason": rule.get("reason", ""),
+                })
         for system_id in recipe.get("parent_system_ids", []):
             if system_id not in system_ids:
                 system = store.get_visual_system(system_id)
@@ -590,6 +655,16 @@ def compose_prompt(
     for fragment in recipe_composition_rules:
         if fragment not in refined_parts:
             refined_parts.append(fragment)
+    # Append a dedicated "signature coverage" paragraph for the recipe
+    # rules that carry hard numbers and self-check anchors. This block
+    # is appended last so it stays in the model's attention window even
+    # when earlier fragments are word-frequency-diluted.
+    if recipe_signature_coverage_blocks:
+        coverage_paragraph = _build_signature_coverage_paragraph(
+            recipe_signature_coverage_blocks
+        )
+        if coverage_paragraph and coverage_paragraph not in refined_parts:
+            refined_parts.append(coverage_paragraph)
     refined_parts.extend(fragment for fragment in prompt_fragments if fragment not in refined_parts)
     negative_parts = []
     for fragment in system_avoid_rules:

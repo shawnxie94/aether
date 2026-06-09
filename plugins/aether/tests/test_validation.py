@@ -193,5 +193,103 @@ class ValidationTests(unittest.TestCase):
             )
 
 
+    def test_recipe_accepts_must_cover_ratios_and_signature_self_check_keys(self):
+        from aether_core.validation import validate_recipe, COMPOSITION_RULE_KEYS
+        self.assertIn("must_cover_ratios", COMPOSITION_RULE_KEYS)
+        self.assertIn("signature_self_check", COMPOSITION_RULE_KEYS)
+        payload = {
+            "name": "Soft Blue Pencil Shoujo Portrait Recipe",
+            "summary": "Test recipe with signature coverage rules.",
+            "use_cases": ["portrait"],
+            "composition_rules": [
+                {
+                    "key": "must_cover_ratios",
+                    "value": [
+                        "powder blue covers at least 35% of the upper frame",
+                        "warm paper negative space covers at least 30%",
+                    ],
+                    "reason": "Recipe signature coverage budgets.",
+                },
+                {
+                    "key": "signature_self_check",
+                    "value": [
+                        "iris shows visible coral-red and deep-blue split, not just highlights",
+                        "sailor collar or ruffled camisole anchors the lower frame",
+                    ],
+                    "reason": "Anchors the model against word-frequency drift.",
+                },
+                {
+                    "key": "negative_constraints",
+                    "value": ["no glossy 3d render"],
+                },
+            ],
+        }
+        validate_recipe(payload)
+
+    def test_recipe_rejects_unknown_composition_rule_key(self):
+        from aether_core.validation import validate_recipe
+        payload = {
+            "name": "Bad Recipe",
+            "summary": "Has unknown key.",
+            "use_cases": ["x"],
+            "composition_rules": [
+                {"key": "made_up_key", "value": ["x"]},
+            ],
+        }
+        with self.assertRaises(Exception) as ctx:
+            validate_recipe(payload)
+        self.assertIn("composition_rules.key", str(ctx.exception))
+
+    def test_visual_review_accepts_fidelity_breakdown(self):
+        from aether_core.validation import validate_visual_review
+        review = {
+            "reviewed": True,
+            "style_consistency": "moderate",
+            "score": 0.7,
+            "recipe_fidelity": "moderate",
+            "recipe_fidelity_score": 0.65,
+            "subject_consistency": "high",
+            "subject_consistency_score": 0.9,
+            "matched_traits": ["a"],
+            "matched_signature_traits": ["powder blue iris"],
+            "matched_subject_traits": ["white cat hairclip"],
+            "deviations": ["red-blue iris lost"],
+            "recommendation": "regenerate",
+        }
+        validate_visual_review(review)
+
+    def test_visual_review_accepts_legacy_pass_value(self):
+        from aether_core.validation import validate_visual_review
+        validate_visual_review({
+            "reviewed": True,
+            "style_consistency": "pass",
+            "score": 0.9,
+        })
+
+    def test_visual_review_rejects_invalid_fidelity_value(self):
+        from aether_core.validation import validate_visual_review
+        with self.assertRaises(Exception) as ctx:
+            validate_visual_review({
+                "reviewed": True,
+                "recipe_fidelity": "some_unsupported_value",
+            })
+        self.assertIn("recipe_fidelity", str(ctx.exception))
+
+    def test_visual_review_rejects_non_bool_reviewed(self):
+        from aether_core.validation import validate_visual_review
+        with self.assertRaises(Exception) as ctx:
+            validate_visual_review({"reviewed": "yes"})
+        self.assertIn("reviewed", str(ctx.exception))
+
+    def test_visual_review_rejects_invalid_style_consistency_value(self):
+        from aether_core.validation import validate_visual_review
+        with self.assertRaises(Exception) as ctx:
+            validate_visual_review({
+                "reviewed": True,
+                "style_consistency": "not_a_real_value",
+            })
+        self.assertIn("style_consistency", str(ctx.exception))
+
+
 if __name__ == "__main__":
     unittest.main()

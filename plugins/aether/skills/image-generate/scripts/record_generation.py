@@ -63,7 +63,15 @@ def apply_visual_review_default(payload: dict) -> dict:
         "reviewed": False,
         "style_consistency": "not_reviewed",
         "score": None,
+        # New fidelity breakdown. Both default to not_reviewed so historical
+        # runs do not silently count as either a high or low recipe match.
+        "recipe_fidelity": "not_reviewed",
+        "recipe_fidelity_score": None,
+        "subject_consistency": "not_reviewed",
+        "subject_consistency_score": None,
         "matched_traits": [],
+        "matched_signature_traits": [],
+        "matched_subject_traits": [],
         "deviations": [reason],
         "recommendation": "use",
         "suggested_revision": "",

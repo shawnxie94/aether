@@ -143,6 +143,15 @@ The JSON should include:
 - `assumptions`
 - `conflicts`
 
+## Recipe Signature Coverage Rules
+
+Recipes can carry two extra `composition_rules` keys that drive recipe fidelity at generation time:
+
+- `must_cover_ratios`: list of quantifiable visual signal budgets the recipe needs to occupy a defined share of the frame, e.g. "powder blue must cover at least 35 percent of the upper frame".
+- `signature_self_check`: list of single visual claims the model should be able to confirm before producing the final image, e.g. "iris shows visible coral-red and deep-blue split, not just highlights".
+
+The composer reads these two keys from the selected recipe, renders them into a dedicated "Recipe signature coverage:" paragraph, and appends the paragraph near the end of `refined_prompt` so the numbers and self-check anchors survive prompt word-frequency dilution. Future revisions of the recipe automatically pick up the same rules without the prompt-refine skill needing to re-encode them.
+
 ## Rules
 
 - Codex is the refinement engine; do not call or configure a separate LLM.

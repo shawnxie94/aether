@@ -318,6 +318,95 @@ class ComposerTests(unittest.TestCase):
             self.assertIn(specific["id"], recalled_ids)
             self.assertEqual(record["constraints"]["selected_recipes"][0]["recipe_id"], specific["id"])
 
+    def test_compose_prompt_appends_signature_coverage_paragraph(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = AetherStore(Path(temp_dir) / "aether.sqlite")
+            store.init()
+
+            style = store.create_visual_asset(
+                {
+                    "type": "style",
+                    "name": "Soft Blue Pencil Shoujo Portrait Illustration",
+                    "summary": "Pencil and pastel shoujo rendering.",
+                    "prompt_fragments": ["soft hand-drawn shoujo portrait, colored pencil, peach skin"],
+                    "negative_fragments": ["no glossy 3d render"],
+                }
+            )
+            recipe = store.create_recipe(
+                {
+                    "name": "Soft Blue Pencil Shoujo Portrait Recipe",
+                    "summary": "Test recipe with signature coverage rules.",
+                    "use_cases": ["portrait"],
+                    "composition_rules": [
+                        {
+                            "key": "must_cover_ratios",
+                            "value": [
+                                "powder blue covers at least 35% of the upper frame",
+                                "warm paper negative space covers at least 30%",
+                            ],
+                            "reason": "Recipe signature coverage budgets.",
+                        },
+                        {
+                            "key": "signature_self_check",
+                            "value": [
+                                "iris shows visible coral-red and deep-blue split, not just highlights",
+                                "sailor collar or ruffled camisole anchors the lower frame",
+                            ],
+                            "reason": "Anchors the model against word-frequency drift.",
+                        },
+                        {
+                            "key": "negative_constraints",
+                            "value": ["no glossy 3d render"],
+                        },
+                    ],
+                    "assets": [
+                        {"asset_id": style["id"], "role": "core", "weight": 0.9},
+                    ],
+                }
+            )
+            store.update_recipe_status(recipe["id"], "active")
+
+            record = compose_prompt(
+                store,
+                "A vertical 3:4 intimate shoujo portrait",
+                recipe_ids=[recipe["id"]],
+                explicit_asset_ids=[style["id"]],
+                aspect_ratio="3:4",
+            )
+            refined = record["refined_prompt"]
+            self.assertIn("Recipe signature coverage:", refined)
+            self.assertIn("powder blue covers at least 35% of the upper frame", refined)
+            self.assertIn("iris shows visible coral-red and deep-blue split", refined)
+            self.assertIsInstance(refined, str)
+            # Verify the signature coverage block is appended after other
+            # composition rules but before the trailing negative constraint
+            # block, so the numbers stay near the end of the model's
+            # attention window.
+            coverage_idx = refined.find("Recipe signature coverage:")
+            self.assertGreater(coverage_idx, 0)
+            self.assertLess(coverage_idx, len(refined))
+
+    def test_compose_prompt_skips_signature_coverage_when_no_rules(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = AetherStore(Path(temp_dir) / "aether.sqlite")
+            store.init()
+
+            style = store.create_visual_asset(
+                {
+                    "type": "style",
+                    "name": "Plain Style",
+                    "summary": "No signature coverage.",
+                    "prompt_fragments": ["simple style"],
+                }
+            )
+            record = compose_prompt(
+                store,
+                "A simple portrait",
+                explicit_asset_ids=[style["id"]],
+                aspect_ratio="3:4",
+            )
+            self.assertNotIn("Recipe signature coverage:", record["refined_prompt"])
+
 
 if __name__ == "__main__":
     unittest.main()
