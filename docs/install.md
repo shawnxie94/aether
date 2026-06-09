@@ -22,6 +22,16 @@ The package does not use npm `postinstall` to write into user directories.
 
 After installation, restart Codex or open a new thread so plugin skills reload. If `aether doctor` is not found, add `~/.local/bin` to `PATH`.
 
+## Editing Skill Files
+
+Skill files are loaded by Codex from the installed plugin cache, not
+directly from the repository. Edit `plugins/aether/skills/<skill>/SKILL.md`
+in this repo, then run `make install-local` (or
+`bash plugins/aether/scripts/install-local.sh`) and restart Codex so
+the running skill loader picks up the change. Editing the cache copy
+under `~/.codex/plugins/cache/aether/...` is silently lost on the next
+reinstall. See `docs/skill-source-vs-install-cache.md` for details.
+
 ## First Use In Codex
 
 Start with natural language:
