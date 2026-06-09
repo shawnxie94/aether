@@ -62,6 +62,21 @@ Use `mode: edit` when the user asks to fix, retouch, adjust, inpaint, or locally
 
 Prefer edit mode when the overall image is acceptable and only local issues need correction. Prefer a new generate run when the subject, composition, camera angle, or global style is wrong.
 
+> ⚠️ **HARD GATE — STOP HERE.** Before step 5, confirm that one of these is true **in the current conversation**:
+>
+> - The user approved the refined prompt or prompt record in a later message.
+> - The user provided an already refined / final model-ready prompt and explicitly asked to generate from it.
+> - The user explicitly said to auto-generate after refinement.
+> - The request is an edit of an existing generated image and includes or implies a concrete edit instruction.
+>
+> If the current turn just created a prompt record from a raw, fuzzy, short, or newly composed text prompt, do **not** call the configured image skill, the provider, or `record_generation.py` yet. Return to the user with the refined prompt, negative prompt, image params, and assumptions, and ask for confirmation. The user's original "generate / create / render" wording is not approval. Do **not** run:
+>
+> - `imagegen`, `rightcodes-imagegen`, or any underlying provider call
+> - `python skills/image-generate/scripts/record_generation.py --json ...`
+> - any paid, external, provider-backed, or irreversible generation call
+>
+> Confirmation is required even when the storage layer's `evolution_action` already implies a generation direction. When in doubt, stop and ask.
+
 5. Use the configured image skill to generate or edit the image. If generation/editing is unavailable or blocked, record a failed generation run with the error.
 
 Generated image files must be archived into `generation.generatedImageDir` before the run is recorded. Pass local file paths, image URLs, data URLs, or output objects containing `asset_path`, `image_path`, `file_path`, `path`, or `url` in `outputs`; the recording script will copy/download/decode them into generated asset storage and replace `outputs` with archived asset metadata.

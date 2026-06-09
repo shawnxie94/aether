@@ -96,6 +96,22 @@ aether visual-asset list --type <type> --status active --summary
 aether visual-asset list --query "<keyword>" --summary
 ```
 
+> ⚠️ **HARD GATE — STOP HERE.** Do **not** run any of the following commands in this skill until the user has answered step 6:
+>
+> - `aether visual-asset candidates confirm-batch <batch-id>`
+> - `aether visual-asset candidates decide <candidate-id> create_new`
+> - `aether visual-asset candidates decide <candidate-id> inherit_variant --target-asset-id <parent-asset-id>`
+> - `aether visual-asset candidates decide <candidate-id> attach_evidence --target-asset-id <existing-asset-id>`
+> - `aether visual-asset candidates decide <candidate-id> merge_existing`
+> - `aether recipe candidates confirm <recipe-candidate-id> [--force-new | --action ... | --variant-of ... | --target-recipe-id ...]`
+> - `aether visual-system candidates confirm <visual-system-candidate-id> [--force-new | --action ...]`
+> - `aether visual-asset merge <source> <target>`
+> - `aether recipe merge <source> <target>`
+> - `aether visual-system merge <source> <target>`
+> - `aether visual-asset branch <parent-asset-id>`
+>
+> These commands write into long-term visual memory and are not trivially reversible. Persisting the candidate batch with `save_candidate_batch.py` is allowed before confirmation; confirming is not. When the storage layer suggests `inherit_variant` / `attach_evidence` / `merge_existing` but the user (or your own visual judgement) prefers a different action, present the option to the user — do not silently override the storage recommendation and confirm.
+
 6. Ask the user to confirm one of these candidate actions:
 
 - create new visual asset

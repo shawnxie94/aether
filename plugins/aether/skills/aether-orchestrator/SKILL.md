@@ -7,9 +7,26 @@ description: Default entrypoint for Aether plugin requests. Use for any Aether w
 
 Use this skill as the routing layer for Aether workflows.
 
-## Non-Negotiable Generation Gate
+## Non-Negotiable Gates
+
+### Generation Gate
 
 For Aether, "generate/create/render an image" means "start the Aether generation workflow"; it does not mean "skip prompt confirmation." If the input is a raw, fuzzy, short, or newly composed text prompt, stop after `prompt-refine` saves and presents the prompt record. Do not call `image-generate`, `imagegen`, `rightcodes-imagegen`, or any other image provider until the user confirms that refined prompt or explicitly asked to auto-generate after refinement.
+
+### Sedimentation Gate (visual memory writes)
+
+The phrase "沉淀 / 记住 / 保存素材 / 分析素材 / 把这张图沉淀一下" means "start the visual-asset-capture workflow and present a candidate batch." It does **not** mean "skip candidate confirmation." Persisting a candidate batch with `save_candidate_batch.py` is allowed before user confirmation; **confirming** it is not. After `save_candidate_batch.py` returns, stop and present the candidate summary to the user (the localized table format inside `visual-asset-capture` step 6). Do **not** run any of the following without an explicit user choice from that table:
+
+- `aether visual-asset candidates confirm-batch <batch-id>`
+- `aether visual-asset candidates decide <candidate-id> {create_new,inherit_variant,attach_evidence,merge_existing,ignore}`
+- `aether recipe candidates confirm <recipe-candidate-id> [--force-new | --action ... | --variant-of ... | --target-recipe-id ...]`
+- `aether visual-system candidates confirm <visual-system-candidate-id> [--force-new | --action ...]`
+- `aether visual-asset merge <source> <target>`
+- `aether recipe merge <source> <target>`
+- `aether visual-system merge <source> <target>`
+- `aether visual-asset branch <parent-asset-id>`
+
+The storage layer's `evolution_action` is a recommendation, not an instruction. If you would override it (e.g. force-new when the suggestion is `inherit_variant`), surface that override as a separate option for the user to pick. If the user only says "沉淀一下" or "保存这张图" without picking an action, treat that as **insufficient confirmation** and ask one concise follow-up question.
 
 ## Routing
 
