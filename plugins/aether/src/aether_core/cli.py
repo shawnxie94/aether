@@ -462,7 +462,34 @@ def cmd_visual_asset_candidates_compact(args: argparse.Namespace) -> None:
 
 def cmd_visual_asset_candidates_confirm_batch(args: argparse.Namespace) -> None:
     _, store = _store()
-    dump_json(store.confirm_visual_asset_candidate_batch(args.batch_id))
+    result = store.confirm_visual_asset_candidate_batch(args.batch_id, dry_run=args.dry_run)
+    failures = (
+        result.get("asset_failures", [])
+        + result.get("visual_system_failures", [])
+        + result.get("recipe_failures", [])
+    )
+    dump_json(result)
+    if failures:
+        sys.stderr.write(
+            "\nconfirm-batch reported {n} failure(s) in batch {bid}{dry}:\n".format(
+                n=len(failures),
+                bid=args.batch_id,
+                dry=" (dry-run)" if args.dry_run else "",
+            )
+        )
+        for item in failures:
+            sys.stderr.write(
+                "  - [{stage}] {cid}: {err}\n".format(
+                    stage=item.get("stage", "?"),
+                    cid=item.get("candidate_id", "?"),
+                    err=item.get("error", ""),
+                )
+            )
+        if not args.dry_run:
+            sys.stderr.write(
+                "Re-run with --dry-run to preview the same batch without committing changes.\n"
+            )
+        raise SystemExit(2)
 
 
 def cmd_visual_asset_evidence(args: argparse.Namespace) -> None:
@@ -1056,6 +1083,11 @@ def build_parser() -> argparse.ArgumentParser:
     visual_asset_candidates_compact.set_defaults(func=cmd_visual_asset_candidates_compact)
     visual_asset_candidates_confirm_batch = visual_asset_candidates_sub.add_parser("confirm-batch")
     visual_asset_candidates_confirm_batch.add_argument("batch_id")
+    visual_asset_candidates_confirm_batch.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Preview confirmations without mutating state. Reports unresolved candidate_asset_id references and per-stage failures.",
+    )
     visual_asset_candidates_confirm_batch.set_defaults(func=cmd_visual_asset_candidates_confirm_batch)
     visual_asset_evidence = visual_asset_sub.add_parser("evidence")
     visual_asset_evidence.add_argument("asset_id")

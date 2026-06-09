@@ -2200,14 +2200,32 @@ class AetherStore:
             self.list_visual_asset_candidates(status=status, batch_id=batch_id, limit=None),
         )
 
-    def confirm_visual_asset_candidate_batch(self, batch_id: str) -> dict[str, Any]:
-        asset_results = []
-        for candidate in self.list_visual_asset_candidates(batch_id=batch_id, limit=None):
-            if candidate["status"] != "pending":
-                asset_results.append(candidate)
-                continue
-            payload = candidate.get("payload", {})
-            suggestion = payload.get("evolution_suggestion", {})
+    def confirm_visual_asset_candidate_batch(
+        self,
+        batch_id: str,
+        dry_run: bool = False,
+    ) -> dict[str, Any]:
+        """Confirm a full candidate batch (assets, visual systems, recipes).
+
+        Each stage (assets, visual systems, recipes) runs independently. If a
+        single candidate raises, the failure is captured in the corresponding
+        ``*_failures`` list and the loop continues with the next candidate. This
+        keeps partial state inspectable: an asset confirm failure no longer
+        aborts the whole batch, and the caller can act on the surviving
+        confirmations and the failed candidates separately.
+
+        With ``dry_run=True`` the method previews what would happen without
+        mutating state. It validates that every visual system / recipe
+        candidate can resolve its ``candidate_asset_id`` references against
+        the current asset candidate state, and reports any unresolved
+        reference as a failure. This is the recommended first call when a
+        user hits the "Visual system candidate asset is not confirmed" error
+        during a real confirm run.
+        """
+
+        def _resolve_action(candidate: dict[str, Any]) -> tuple[str, str | None]:
+            payload = candidate.get("payload", {}) or {}
+            suggestion = payload.get("evolution_suggestion", {}) or {}
             action = (
                 payload.get("evolution_action")
                 or suggestion.get("action")
@@ -2216,33 +2234,225 @@ class AetherStore:
             )
             target_asset_id = candidate.get("target_asset_id") or suggestion.get("target_id")
             if action in {"attach_evidence", "inherit_variant", "merge_existing"} and not target_asset_id:
-                similar = candidate.get("similar_candidates", [])
+                similar = candidate.get("similar_candidates", []) or []
                 if similar:
                     target_asset_id = similar[0].get("asset_id")
-            asset_results.append(self.decide_visual_asset_candidate(candidate["id"], action, target_asset_id))
+            return action, target_asset_id
 
-        system_results = []
+        asset_results: list[dict[str, Any]] = []
+        asset_failures: list[dict[str, Any]] = []
+
+        # For dry-run we pre-compute a synthetic candidate -> planned asset id
+        # map so the visual system / recipe preview stages can resolve their
+        # candidate_asset_id references without mutating state.
+        dry_run_synthetic_asset_ids: dict[str, str] = {}
+
+        for candidate in self.list_visual_asset_candidates(batch_id=batch_id, limit=None):
+            if candidate["status"] != "pending":
+                asset_results.append(candidate)
+                if dry_run and candidate.get("confirmed_asset_id"):
+                    dry_run_synthetic_asset_ids[candidate["id"]] = candidate["confirmed_asset_id"]
+                continue
+            action, target_asset_id = _resolve_action(candidate)
+            if dry_run:
+                planned_failure: str | None = None
+                if action in {"inherit_variant", "attach_evidence", "merge_existing"} and not target_asset_id:
+                    planned_failure = f"action '{action}' requires target_asset_id but none is set on the candidate"
+                elif action in {"inherit_variant", "attach_evidence", "merge_existing"} and not self.get_visual_asset(target_asset_id):
+                    planned_failure = f"action '{action}' target_asset_id '{target_asset_id}' does not exist"
+                if planned_failure:
+                    asset_failures.append(
+                        {
+                            "candidate_id": candidate["id"],
+                            "stage": "asset",
+                            "error": planned_failure,
+                        }
+                    )
+                    asset_results.append(
+                        {
+                            **{k: v for k, v in candidate.items() if k != "payload"},
+                            "dry_run": True,
+                            "planned_action": action,
+                            "planned_target_asset_id": target_asset_id,
+                            "dry_run_failure": planned_failure,
+                        }
+                    )
+                    continue
+                synthetic_id = (
+                    target_asset_id
+                    if action in {"inherit_variant", "attach_evidence", "merge_existing"}
+                    else f"visual_asset_preview_{candidate['id']}"
+                )
+                dry_run_synthetic_asset_ids[candidate["id"]] = synthetic_id
+                asset_results.append(
+                    {
+                        **{k: v for k, v in candidate.items() if k != "payload"},
+                        "dry_run": True,
+                        "planned_action": action,
+                        "planned_target_asset_id": target_asset_id,
+                        "planned_confirmed_asset_id": synthetic_id,
+                    }
+                )
+                continue
+            try:
+                decided = self.decide_visual_asset_candidate(
+                    candidate["id"], action, target_asset_id
+                )
+                asset_results.append(decided)
+            except Exception as exc:  # noqa: BLE001
+                asset_failures.append(
+                    {
+                        "candidate_id": candidate["id"],
+                        "stage": "asset",
+                        "action": action,
+                        "error": f"{type(exc).__name__}: {exc}",
+                    }
+                )
+
+        if not dry_run:
+            confirmed_by_candidate = {
+                item["id"]: item.get("confirmed_asset_id")
+                for item in self.list_visual_asset_candidates(batch_id=batch_id, limit=None)
+                if item.get("confirmed_asset_id")
+            }
+        else:
+            confirmed_by_candidate = dict(dry_run_synthetic_asset_ids)
+
+        def _collect_unresolved(
+            payload: dict[str, Any],
+            relations_key: str,
+            fallback_fields: tuple[str, ...],
+        ) -> list[str]:
+            relations = payload.get(relations_key, []) or []
+            if not relations:
+                relations = [
+                    {"candidate_asset_id": cid}
+                    for field in fallback_fields
+                    for cid in payload.get(field, []) or []
+                ]
+            return [
+                rel.get("candidate_asset_id")
+                for rel in relations
+                if rel.get("candidate_asset_id")
+                and not confirmed_by_candidate.get(rel.get("candidate_asset_id"))
+            ]
+
+        system_results: list[dict[str, Any]] = []
+        system_failures: list[dict[str, Any]] = []
+
         for candidate in self.list_visual_system_candidates(batch_id=batch_id, status="pending", limit=None):
-            system_results.append(self.confirm_visual_system_candidate(candidate["id"]))
+            payload = candidate.get("payload", {}) or {}
+            if dry_run:
+                unresolved = _collect_unresolved(
+                    payload,
+                    "candidate_asset_relations",
+                    (
+                        "core_candidate_asset_ids",
+                        "optional_candidate_asset_ids",
+                        "avoid_candidate_asset_ids",
+                    ),
+                )
+                if unresolved:
+                    system_failures.append(
+                        {
+                            "candidate_id": candidate["id"],
+                            "stage": "visual_system",
+                            "error": "unresolved candidate_asset_id references: " + ", ".join(unresolved),
+                            "unresolved_candidate_asset_ids": unresolved,
+                        }
+                    )
+                    continue
+                system_results.append(
+                    {
+                        **{k: v for k, v in candidate.items() if k != "payload"},
+                        "dry_run": True,
+                    }
+                )
+                continue
+            try:
+                system_results.append(self.confirm_visual_system_candidate(candidate["id"]))
+            except Exception as exc:  # noqa: BLE001
+                system_failures.append(
+                    {
+                        "candidate_id": candidate["id"],
+                        "stage": "visual_system",
+                        "error": f"{type(exc).__name__}: {exc}",
+                    }
+                )
 
         confirmed_system_ids = [
             item.get("confirmed_system_id")
             for item in system_results
             if item.get("confirmed_system_id")
         ]
-        recipe_results = []
+        if dry_run and system_results:
+            # In dry-run we always pretend the system would be confirmed for
+            # downstream recipe preview. The id is synthetic and only used to
+            # satisfy parent_system_ids checks.
+            confirmed_system_ids = [
+                f"visual_system_preview_{item['id']}" for item in system_results
+            ]
+
+        recipe_results: list[dict[str, Any]] = []
+        recipe_failures: list[dict[str, Any]] = []
+
         for candidate in self.list_recipe_candidates(batch_id=batch_id, status="pending", limit=None):
-            payload = candidate.get("payload", {})
-            parent_system_ids = None
-            if confirmed_system_ids and not payload.get("parent_system_ids"):
-                parent_system_ids = confirmed_system_ids
-            recipe_results.append(self.confirm_recipe_candidate(candidate["id"], parent_system_ids=parent_system_ids))
+            payload = candidate.get("payload", {}) or {}
+            if dry_run:
+                unresolved = _collect_unresolved(
+                    payload,
+                    "recipe_assets",
+                    (
+                        "core_candidate_asset_ids",
+                        "optional_candidate_asset_ids",
+                        "avoid_candidate_asset_ids",
+                    ),
+                )
+                if unresolved:
+                    recipe_failures.append(
+                        {
+                            "candidate_id": candidate["id"],
+                            "stage": "recipe",
+                            "error": "unresolved candidate_asset_id references: " + ", ".join(unresolved),
+                            "unresolved_candidate_asset_ids": unresolved,
+                        }
+                    )
+                    continue
+                recipe_results.append(
+                    {
+                        **{k: v for k, v in candidate.items() if k != "payload"},
+                        "dry_run": True,
+                    }
+                )
+                continue
+            try:
+                parent_system_ids = None
+                if confirmed_system_ids and not payload.get("parent_system_ids"):
+                    parent_system_ids = confirmed_system_ids
+                recipe_results.append(
+                    self.confirm_recipe_candidate(
+                        candidate["id"],
+                        parent_system_ids=parent_system_ids,
+                    )
+                )
+            except Exception as exc:  # noqa: BLE001
+                recipe_failures.append(
+                    {
+                        "candidate_id": candidate["id"],
+                        "stage": "recipe",
+                        "error": f"{type(exc).__name__}: {exc}",
+                    }
+                )
 
         return {
             "batch_id": batch_id,
+            "dry_run": dry_run,
             "candidate_assets": asset_results,
             "visual_system_candidates": system_results,
             "recipe_candidates": recipe_results,
+            "asset_failures": asset_failures,
+            "visual_system_failures": system_failures,
+            "recipe_failures": recipe_failures,
         }
 
     def _candidate_to_visual_asset_payload(self, candidate: dict[str, Any]) -> dict[str, Any]:

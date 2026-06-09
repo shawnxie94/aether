@@ -720,6 +720,299 @@ class StorageTests(unittest.TestCase):
             self.assertEqual(store.get_visual_system(system_id)["kind"], "worldview")
             self.assertEqual(store.get_visual_system(system_id)["status"], "active")
 
+    def test_confirm_candidate_batch_dry_run_reports_unresolved_references(self):
+        """Dry-run must surface unresolved candidate_asset_id references instead
+        of mutating state. This reproduces the failure mode a real confirm run
+        can hit: an asset candidate that is rigged onto an inherit_variant
+        path without a valid target will fail to confirm, leaving the
+        visual_system / recipe candidates unable to resolve their references.
+        """
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = AetherStore(Path(temp_dir) / "aether.sqlite")
+            store.init()
+
+            batch = store.create_visual_asset_candidate_batch(
+                {
+                    "candidate_assets": [
+                        {
+                            "id": "candidate_good",
+                            "type": "style",
+                            "name": "Style A",
+                            "summary": "style a",
+                        },
+                        {
+                            "id": "candidate_broken",
+                            "type": "color_palette",
+                            "name": "Palette B",
+                            "summary": "will be rigged to fail",
+                        },
+                    ],
+                    "visual_system_candidates": [
+                        {
+                            "kind": "art_direction",
+                            "name": "Test Art Direction",
+                            "summary": "uses a and b",
+                            "visual_rules": [
+                                {
+                                    "key": "medium",
+                                    "value": ["ink"],
+                                    "reason": "ink only",
+                                }
+                            ],
+                            "candidate_asset_relations": [
+                                {
+                                    "candidate_asset_id": "candidate_good",
+                                    "role": "core",
+                                    "weight": 0.9,
+                                    "reason": "core style",
+                                },
+                                {
+                                    "candidate_asset_id": "candidate_broken",
+                                    "role": "core",
+                                    "weight": 0.9,
+                                    "reason": "core palette",
+                                },
+                            ],
+                        }
+                    ],
+                    "recipe_candidates": [
+                        {
+                            "name": "Test Recipe",
+                            "required_asset_types": ["style", "color_palette"],
+                            "recipe_assets": [
+                                {"candidate_asset_id": "candidate_good", "role": "core", "weight": 0.8},
+                                {"candidate_asset_id": "candidate_broken", "role": "core", "weight": 0.8},
+                            ],
+                            "confidence": 0.6,
+                        }
+                    ],
+                }
+            )
+
+            # Force the broken candidate onto an inherit_variant path whose
+            # parent does not exist. decide_visual_asset_candidate will raise
+            # inside branch_visual_asset. In dry-run the asset stage should
+            # report this as an asset_failure, and the system/recipe stages
+            # should report the resulting unresolved references.
+            #
+            # We must update both the top-level decision column AND the
+            # evolution_action nested in the payload, because _resolve_action
+            # prefers payload.evolution_action.
+            with store.connect() as conn:
+                conn.execute(
+                    "update visual_asset_candidates set decision = ?, target_asset_id = ? where id = ?",
+                    ("inherit_variant", "visual_asset_does_not_exist", "candidate_broken"),
+                )
+                conn.execute(
+                    "update visual_asset_candidates set payload_json = json_set(payload_json, '$.evolution_action', ?) where id = ?",
+                    ("inherit_variant", "candidate_broken"),
+                )
+
+            preview = store.confirm_visual_asset_candidate_batch(batch["batch_id"], dry_run=True)
+            self.assertTrue(preview["dry_run"])
+            self.assertEqual(len(preview["candidate_assets"]), 2)
+            for entry in preview["candidate_assets"]:
+                self.assertTrue(entry["dry_run"])
+            # Dry-run must report the broken asset as a planned failure.
+            self.assertEqual(len(preview["asset_failures"]), 1)
+            self.assertEqual(
+                preview["asset_failures"][0]["candidate_id"], "candidate_broken"
+            )
+            # And the downstream stages must report the unresolved reference.
+            self.assertEqual(len(preview["visual_system_failures"]), 1)
+            self.assertEqual(len(preview["recipe_failures"]), 1)
+            self.assertIn(
+                "candidate_broken",
+                preview["visual_system_failures"][0]["unresolved_candidate_asset_ids"],
+            )
+            self.assertIn(
+                "candidate_broken",
+                preview["recipe_failures"][0]["unresolved_candidate_asset_ids"],
+            )
+
+            # Crucial: dry-run must not mutate state.
+            asset_candidates = store.list_visual_asset_candidates(batch_id=batch["batch_id"], limit=None)
+            for c in asset_candidates:
+                self.assertEqual(c["status"], "pending")
+                self.assertIsNone(c["confirmed_asset_id"])
+            system_candidates = store.list_visual_system_candidates(batch_id=batch["batch_id"], limit=None)
+            for c in system_candidates:
+                self.assertEqual(c["status"], "pending")
+            recipe_candidates = store.list_recipe_candidates(batch_id=batch["batch_id"], limit=None)
+            for c in recipe_candidates:
+                self.assertEqual(c["status"], "pending")
+
+    def test_confirm_candidate_batch_continues_after_asset_failure(self):
+        """A failing asset decision must not abort the rest of the batch. The
+        surviving assets, the visual system, and the recipe should still
+        confirm when their references resolve."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = AetherStore(Path(temp_dir) / "aether.sqlite")
+            store.init()
+
+            batch = store.create_visual_asset_candidate_batch(
+                {
+                    "candidate_assets": [
+                        {
+                            "id": "candidate_good",
+                            "type": "style",
+                            "name": "Good Style",
+                            "summary": "valid style",
+                        },
+                        {
+                            "id": "candidate_broken",
+                            "type": "style",
+                            "name": "Broken Style",
+                            "summary": "valid style candidate, but will be rigged to inherit from a missing parent",
+                        },
+                    ],
+                    "visual_system_candidates": [
+                        {
+                            "kind": "art_direction",
+                            "name": "Uses Good Only",
+                            "summary": "references candidate_good only",
+                            "visual_rules": [
+                                {
+                                    "key": "medium",
+                                    "value": ["ink"],
+                                    "reason": "ink only",
+                                }
+                            ],
+                            "candidate_asset_relations": [
+                                {
+                                    "candidate_asset_id": "candidate_good",
+                                    "role": "core",
+                                    "weight": 0.9,
+                                    "reason": "core style",
+                                },
+                            ],
+                        }
+                    ],
+                }
+            )
+
+            # Force the "broken" candidate onto an inherit_variant path whose
+            # parent does not exist. decide_visual_asset_candidate will raise
+            # KeyError inside branch_visual_asset, simulating the original
+            # "Visual system candidate asset is not confirmed" cascade where
+            # one bad asset decision used to abort the whole batch.
+            #
+            # We must update both the top-level decision column AND the
+            # evolution_action nested in the payload, because
+            # _resolve_action prefers payload.evolution_action.
+            with store.connect() as conn:
+                conn.execute(
+                    "update visual_asset_candidates set decision = ?, target_asset_id = ? where id = ?",
+                    ("inherit_variant", "visual_asset_does_not_exist", "candidate_broken"),
+                )
+                conn.execute(
+                    "update visual_asset_candidates set payload_json = json_set(payload_json, '$.evolution_action', ?) where id = ?",
+                    ("inherit_variant", "candidate_broken"),
+                )
+
+            result = store.confirm_visual_asset_candidate_batch(batch["batch_id"])
+
+            confirmed_ids = {
+                c["id"] for c in result["candidate_assets"] if c.get("confirmed_asset_id")
+            }
+            self.assertIn("candidate_good", confirmed_ids)
+            self.assertEqual(len(result["asset_failures"]), 1)
+            self.assertEqual(result["asset_failures"][0]["candidate_id"], "candidate_broken")
+            self.assertIn(
+                "visual_asset_does_not_exist",
+                result["asset_failures"][0]["error"],
+            )
+
+            # The visual system confirm should still succeed because its
+            # candidate_asset_id reference resolves to candidate_good, which
+            # was confirmed in the asset stage above.
+            self.assertEqual(len(result["visual_system_candidates"]), 1)
+            self.assertEqual(
+                result["visual_system_candidates"][0]["status"], "confirmed"
+            )
+            self.assertIsNotNone(
+                result["visual_system_candidates"][0].get("confirmed_system_id")
+            )
+
+    def test_confirm_candidate_batch_dry_run_does_not_mutate_state(self):
+        """A full happy-path dry-run should not advance any candidate to
+        'confirmed' or write a confirmed_asset_id."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = AetherStore(Path(temp_dir) / "aether.sqlite")
+            store.init()
+
+            batch = store.create_visual_asset_candidate_batch(
+                {
+                    "candidate_assets": [
+                        {
+                            "id": "candidate_x",
+                            "type": "style",
+                            "name": "Style X",
+                            "summary": "x",
+                        },
+                        {
+                            "id": "candidate_y",
+                            "type": "color_palette",
+                            "name": "Palette Y",
+                            "summary": "y",
+                        },
+                    ],
+                    "visual_system_candidates": [
+                        {
+                            "kind": "art_direction",
+                            "name": "XY Direction",
+                            "summary": "x+y",
+                            "visual_rules": [
+                                {
+                                    "key": "medium",
+                                    "value": ["ink"],
+                                    "reason": "ink",
+                                }
+                            ],
+                            "candidate_asset_relations": [
+                                {
+                                    "candidate_asset_id": "candidate_x",
+                                    "role": "core",
+                                    "weight": 0.8,
+                                    "reason": "x",
+                                },
+                                {
+                                    "candidate_asset_id": "candidate_y",
+                                    "role": "core",
+                                    "weight": 0.8,
+                                    "reason": "y",
+                                },
+                            ],
+                        }
+                    ],
+                    "recipe_candidates": [
+                        {
+                            "name": "XY Recipe",
+                            "required_asset_types": ["style", "color_palette"],
+                            "recipe_assets": [
+                                {"candidate_asset_id": "candidate_x", "role": "core", "weight": 0.8},
+                                {"candidate_asset_id": "candidate_y", "role": "core", "weight": 0.8},
+                            ],
+                            "confidence": 0.6,
+                        }
+                    ],
+                }
+            )
+
+            preview = store.confirm_visual_asset_candidate_batch(batch["batch_id"], dry_run=True)
+            self.assertTrue(preview["dry_run"])
+            self.assertEqual(preview["asset_failures"], [])
+            self.assertEqual(preview["visual_system_failures"], [])
+            self.assertEqual(preview["recipe_failures"], [])
+
+            for c in store.list_visual_asset_candidates(batch_id=batch["batch_id"], limit=None):
+                self.assertEqual(c["status"], "pending")
+                self.assertIsNone(c["confirmed_asset_id"])
+            for c in store.list_visual_system_candidates(batch_id=batch["batch_id"], limit=None):
+                self.assertEqual(c["status"], "pending")
+            for c in store.list_recipe_candidates(batch_id=batch["batch_id"], limit=None):
+                self.assertEqual(c["status"], "pending")
+
     def test_generation_reuse_suggestions_create_recipe_and_system_candidates(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             store = AetherStore(Path(temp_dir) / "aether.sqlite")
