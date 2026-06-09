@@ -475,6 +475,18 @@ def validate_recipe(payload: dict[str, Any]) -> None:
         validate_key_value_rule(rule, COMPOSITION_RULE_KEYS, "composition_rules.key")
 
 
+def validate_recipe_after_update(payload: dict[str, Any]) -> dict[str, Any]:
+    """Validate a recipe payload produced by storage.update_recipe.
+
+    Mirrors validate_recipe but also enforces that incremental updates
+    cannot accidentally drop required identity fields (id, name). Used
+    by the storage helper to keep the SQL upsert in one place while
+    still running full validation.
+    """
+    validate_recipe(payload)
+    return payload
+
+
 def validate_recipe_asset(payload: dict[str, Any]) -> None:
     validate_asset_relation(payload)
 

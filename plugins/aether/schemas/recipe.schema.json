@@ -18,8 +18,11 @@
             "palette_lighting_binding",
             "composition_camera_binding",
             "mood_tone_binding",
-            "negative_constraints"
-          ]
+            "negative_constraints",
+            "must_cover_ratios",
+            "signature_self_check"
+          ],
+          "description": "must_cover_ratios and signature_self_check carry quantifiable visual signal budgets and self-check anchors; the composer renders them into a dedicated Recipe signature coverage paragraph and appends it to refined_prompt so the numbers survive word-frequency dilution."
         },
         "value": {
           "type": "array",

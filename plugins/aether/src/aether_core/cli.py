@@ -616,6 +616,41 @@ def cmd_recipe_get(args: argparse.Namespace) -> None:
     dump_json(recipe)
 
 
+def cmd_recipe_update(args: argparse.Namespace) -> None:
+    """Targeted recipe edit that keeps validation intact.
+
+    The two most common operations are supported as direct flags:
+    --append-composition-rule (repeatable) appends one composition rule
+    object per use; --append-prompt-fragment-by-asset (asset_id=fragment
+    pair) enriches the prompt_fragments of an asset the recipe already
+    links to. The full record is rewritten through validate_recipe so
+    unknown rule keys cannot slip in.
+    """
+    _, store = _store()
+    append_rules: list[dict[str, Any]] = []
+    for raw in args.append_composition_rule or []:
+        append_rules.append(json.loads(raw))
+    append_fragments: dict[str, list[str]] = {}
+    for raw in args.append_prompt_fragment_by_asset or []:
+        if "=" not in raw:
+            raise SystemExit(
+                "--append-prompt-fragment-by-asset expects asset_id=fragment"
+            )
+        asset_id, fragment = raw.split("=", 1)
+        append_fragments.setdefault(asset_id.strip(), []).append(fragment.strip())
+    metadata_patch: dict[str, Any] = {}
+    if args.metadata_patch:
+        metadata_patch = json.loads(args.metadata_patch)
+    updated = store.update_recipe(
+        args.recipe_id,
+        append_composition_rules=append_rules or None,
+        append_prompt_fragments_by_asset=append_fragments or None,
+        metadata_patch=metadata_patch or None,
+        reason=args.reason or "",
+    )
+    dump_json(updated)
+
+
 def cmd_recipe_add_asset(args: argparse.Namespace) -> None:
     _, store = _store()
     payload = {
@@ -1135,6 +1170,30 @@ def build_parser() -> argparse.ArgumentParser:
     recipe_add_asset.add_argument("--weight", type=float, default=0.5)
     recipe_add_asset.add_argument("--reason")
     recipe_add_asset.set_defaults(func=cmd_recipe_add_asset)
+    recipe_update = recipe_sub.add_parser("update", help="Targeted recipe edit that keeps validation intact.")
+    recipe_update.add_argument("recipe_id")
+    recipe_update.add_argument(
+        "--append-composition-rule",
+        action="append",
+        default=[],
+        help=(
+            "JSON object string to append to composition_rules. Repeatable. "
+            "Existing rules with the same key are left untouched so signature "
+            "coverage rules cannot be clobbered."
+        ),
+    )
+    recipe_update.add_argument(
+        "--append-prompt-fragment-by-asset",
+        action="append",
+        default=[],
+        help=(
+            "asset_id=fragment pair to append to that asset's prompt_fragments. "
+            "The asset must already be linked to the recipe. Repeatable."
+        ),
+    )
+    recipe_update.add_argument("--metadata-patch", help="JSON object merged into recipe.metadata")
+    recipe_update.add_argument("--reason", help="Optional human-readable reason recorded in the recipe revision")
+    recipe_update.set_defaults(func=cmd_recipe_update)
     recipe_merge_preview = recipe_sub.add_parser("merge-preview")
     recipe_merge_preview.add_argument("source_recipe_id")
     recipe_merge_preview.add_argument("target_recipe_id")

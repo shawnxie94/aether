@@ -386,6 +386,124 @@ class ComposerTests(unittest.TestCase):
             self.assertGreater(coverage_idx, 0)
             self.assertLess(coverage_idx, len(refined))
 
+    def test_compose_prompt_exposes_signature_coverage_paragraph_as_structured_field(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = AetherStore(Path(temp_dir) / "aether.sqlite")
+            store.init()
+
+            style = store.create_visual_asset(
+                {
+                    "type": "style",
+                    "name": "Soft Blue Pencil Style",
+                    "summary": "Pencil and pastel.",
+                    "prompt_fragments": ["soft pencil drawing"],
+                }
+            )
+            recipe = store.create_recipe(
+                {
+                    "name": "Coverage Recipe",
+                    "summary": "Carries must_cover_ratios.",
+                    "use_cases": ["x"],
+                    "composition_rules": [
+                        {
+                            "key": "must_cover_ratios",
+                            "value": ["powder blue covers at least 35% of the frame"],
+                            "reason": "Recipe signature coverage budgets.",
+                        },
+                        {
+                            "key": "signature_self_check",
+                            "value": ["iris shows coral-red plus deep-blue split"],
+                            "reason": "Anchors against word-frequency drift.",
+                        },
+                    ],
+                    "assets": [
+                        {"asset_id": style["id"], "role": "core", "weight": 0.9},
+                    ],
+                }
+            )
+            store.update_recipe_status(recipe["id"], "active")
+
+            record = compose_prompt(
+                store,
+                "A vertical 3:4 portrait",
+                recipe_ids=[recipe["id"]],
+                explicit_asset_ids=[style["id"]],
+                aspect_ratio="3:4",
+            )
+            sig = record["composition_plan"].get("signature_coverage")
+            self.assertIsNotNone(sig, "composition_plan.signature_coverage should be populated")
+            self.assertIn("paragraph", sig)
+            self.assertIn("blocks", sig)
+            self.assertEqual(len(sig["blocks"]), 2)
+            self.assertEqual(
+                sig["blocks"][0]["key"],
+                "must_cover_ratios",
+            )
+            self.assertIn("Recipe signature coverage:", sig["paragraph"])
+            # The same paragraph should also be appended to refined_prompt.
+            self.assertIn(sig["paragraph"], record["refined_prompt"])
+
+    def test_compose_prompt_records_recipe_dominance_conflict(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = AetherStore(Path(temp_dir) / "aether.sqlite")
+            store.init()
+
+            style = store.create_visual_asset(
+                {
+                    "type": "style",
+                    "name": "Primary Pencil Style",
+                    "summary": "Recipe core style for pencil portraits.",
+                    "tags": ["shoujo", "pencil"],
+                    "prompt_fragments": ["soft pencil style for intimate portrait"],
+                }
+            )
+            competing_style = store.create_visual_asset(
+                {
+                    "type": "style",
+                    "name": "Competing Pencil Style",
+                    "summary": "Another style candidate for the same family.",
+                    "tags": ["shoujo", "pencil"],
+                    "prompt_fragments": ["competing pencil style for portrait"],
+                }
+            )
+            # Bump assets to active so the composer's active_assets
+            # list sees them; otherwise the recipe-dominance check
+            # cannot find the type for priority_type comparison.
+            store.update_visual_asset_status(style["id"], "active")
+            store.update_visual_asset_status(competing_style["id"], "active")
+            recipe = store.create_recipe(
+                {
+                    "name": "Dominant Recipe",
+                    "summary": "Recipe with one core style.",
+                    "use_cases": ["x"],
+                    "composition_rules": [],
+                    "assets": [
+                        {"asset_id": style["id"], "role": "core", "weight": 0.95},
+                    ],
+                }
+            )
+            store.update_recipe_status(recipe["id"], "active")
+
+            # Pass both styles as explicit so the dominance check can
+            # actually observe a competing asset in the selected set;
+            # hybrid_recall alone would not surface the competing style
+            # for a generic short query.
+            record = compose_prompt(
+                store,
+                "A vertical 3:4 intimate shoujo portrait, soft pencil style",
+                recipe_ids=[recipe["id"]],
+                explicit_asset_ids=[style["id"], competing_style["id"]],
+                aspect_ratio="3:4",
+            )
+            dominance_conflicts = [
+                c for c in record.get("conflicts", [])
+                if c.get("conflicts_with") == "recipe_primary_style"
+            ]
+            self.assertTrue(
+                len(dominance_conflicts) >= 1,
+                f"expected at least one recipe-dominance conflict, got {record.get('conflicts')}",
+            )
+
     def test_compose_prompt_skips_signature_coverage_when_no_rules(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             store = AetherStore(Path(temp_dir) / "aether.sqlite")

@@ -1,0 +1,81 @@
+{
+  "name": "Soft Blue Pencil Shoujo Portrait Recipe (with signature coverage)",
+  "summary": "Example recipe that adds must_cover_ratios and signature_self_check rules so the composer can render a dedicated Recipe signature coverage paragraph and append it to refined_prompt.",
+  "use_cases": [
+    "single-character social portrait",
+    "soft healing anime avatar",
+    "hand-drawn shoujo illustration study"
+  ],
+  "required_asset_types": ["style", "color_palette", "composition", "character"],
+  "composition_rules": [
+    {
+      "key": "asset_roles",
+      "value": [
+        "style controls pencil grain, pastel wash, paper finish, and shoujo eye rendering",
+        "color palette keeps powder blue balanced with warm peach paper and blush",
+        "composition keeps the portrait tightly cropped and eye-led",
+        "character defines the modest portrait posture"
+      ],
+      "reason": "The reference images are coherent because material, palette, crop, and character archetype reinforce each other."
+    },
+    {
+      "key": "layering_order",
+      "value": [
+        "start with warm off-white paper as the background",
+        "place the close-up portrait crop and eye focal hierarchy",
+        "apply powder-blue pencil and peach blush palette",
+        "render with broken pencil contours, dry pastel wash, and tiny sparkle flecks"
+      ],
+      "reason": "The portrait should read first as a delicate sketchbook page, then as a character study."
+    },
+    {
+      "key": "must_cover_ratios",
+      "value": [
+        "powder-blue pencil shading covers at least 35 percent of the upper frame (hair fringe, eye shadow, collar, or cup)",
+        "warm off-white paper negative space covers at least 30 percent of the frame",
+        "coral-red and deep-blue split iris occupies a visible fraction of the eye and is not collapsed to a single color"
+      ],
+      "reason": "Recipe signature coverage budgets. The original reference images use powder blue across more than half of the upper frame, and the red-blue iris split is the recipe's most distinctive signature. Without explicit ratios the model under-allocates these signals."
+    },
+    {
+      "key": "signature_self_check",
+      "value": [
+        "iris shows a clear coral-red plus deep-blue split, not just 'highlights' or a single-hue eye",
+        "sailor collar, ruffled camisole, or another recipe-faithful neckline anchors the lower frame",
+        "broken pencil contours and airy unfinished edges are visible, not fine cross-hatch realism"
+      ],
+      "reason": "Anchors the model against word-frequency drift. Each item is a single visual claim that can be checked after generation, so recipe_fidelity reviews have a concrete checklist to score against."
+    },
+    {
+      "key": "negative_constraints",
+      "value": [
+        "avoid glossy 3d rendering, hard cel shading, clean vector line art, photoreal skin, neon lighting, watermarks, and sexualized childlike framing"
+      ]
+    }
+  ],
+  "recommended_aspect_ratios": ["9:16", "3:4", "4:5"],
+  "confidence": 0.76,
+  "source": "same_user_reference_set",
+  "reason": "Both uploaded references share pale-blue hair, pencil-and-pastel texture, warm paper, shoujo eye emphasis, and tight vertical portrait framing.",
+  "assets": [
+    {
+      "asset_id": "visual_asset_style-soft-blue-pencil-shoujo-portrait-illustration",
+      "role": "core",
+      "weight": 0.95,
+      "reason": "Defines the hand-drawn shoujo pencil-and-pastel visual language."
+    },
+    {
+      "asset_id": "visual_asset_composition-intimate-cropped-shoujo-portrait-composition",
+      "role": "core",
+      "weight": 0.85,
+      "reason": "Preserves the close-up vertical crop and eye-led focal hierarchy."
+    },
+    {
+      "asset_id": "visual_asset_color-palette-powder-blue-peach-paper-portrait-palette",
+      "role": "core",
+      "weight": 0.85,
+      "reason": "Preserves the powder-blue, peach blush, warm paper, and red-blue eye color structure."
+    }
+  ],
+  "status": "active"
+}

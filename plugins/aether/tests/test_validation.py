@@ -291,5 +291,29 @@ class ValidationTests(unittest.TestCase):
         self.assertIn("style_consistency", str(ctx.exception))
 
 
+    def test_visual_review_records_infra_error_on_failure(self):
+        # The failure path must still leave an auditable visual_review
+        # record so retry history is inspectable.
+        from aether_core.validation import validate_visual_review
+        review = {
+            "reviewed": False,
+            "style_consistency": "not_reviewed",
+            "score": None,
+            "recipe_fidelity": "not_reviewed",
+            "recipe_fidelity_score": None,
+            "subject_consistency": "not_reviewed",
+            "subject_consistency_score": None,
+            "matched_traits": [],
+            "matched_signature_traits": [],
+            "matched_subject_traits": [],
+            "deviations": ["infra error: provider returned excessive system load"],
+            "recommendation": "use",
+            "suggested_revision": "",
+            "suggested_edit_instruction": "",
+            "localized_deviations": [],
+        }
+        validate_visual_review(review)
+
+
 if __name__ == "__main__":
     unittest.main()

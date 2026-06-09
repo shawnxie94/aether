@@ -440,6 +440,11 @@ def compose_prompt(
                 "recommended_aspect_ratios": recipe.get("recommended_aspect_ratios", []),
                 "reason": "recalled recipe" if recipe["id"] in recalled_recipe_reasons else "requested recipe",
                 "recall": recalled_recipe_reasons.get(recipe["id"]),
+                # Carry the full asset relations through to downstream
+                # recipe-dominance conflict checks. The dominance check
+                # uses role=core to figure out which assets own the
+                # primary style contract.
+                "assets": recipe.get("assets", []),
             }
         )
         for rule in recipe.get("composition_rules", []):
@@ -577,6 +582,54 @@ def compose_prompt(
             reasons_by_id[asset["id"]] = reasons
 
     conflicts = _detect_conflicts(selected)
+    # When the caller passes an explicit recipe_ids list, that recipe is
+    # the primary style contract. Any other selected asset that overlaps
+    # the recipe's core asset family (same type / same family_key) is
+    # treated as a dominance conflict so the caller can either re-pick
+    # the conflicting asset via explicit_asset_ids or drop it. We do not
+    # silently drop the conflict here because the caller may have
+    # intentionally requested both via explicit_asset_ids; the conflict
+    # entry carries a resolution hint instead.
+    if recipe_ids:
+        recipe_priority_ids: set[str] = set()
+        for recipe in selected_recipes:
+            for relation in recipe.get("assets", []):
+                if relation.get("role") == "core":
+                    recipe_priority_ids.add(relation["asset_id"])
+        if recipe_priority_ids:
+            priority_types: set[str] = set()
+            for asset in active_assets:
+                if asset["id"] in recipe_priority_ids:
+                    priority_types.add(asset["type"])
+            for asset in selected:
+                if asset["id"] in recipe_priority_ids:
+                    continue
+                if asset["type"] not in priority_types:
+                    continue
+                resolution = (
+                    "drop this asset; the recipe's core asset is the primary "
+                    "style contract for this type"
+                )
+                severity = "demoted"
+                if asset["id"] in explicit_set:
+                    resolution = (
+                        "the recipe's core asset dominates; this explicit asset "
+                        "overrides the recipe's style only when the user wants a "
+                        "deliberate style blend"
+                    )
+                    severity = "explicit_override"
+                conflicts.append(
+                    {
+                        "asset_id": asset["id"],
+                        "conflicts_with": "recipe_primary_style",
+                        "reason": (
+                            f"asset type {asset['type']} overlaps a core asset of "
+                            "the explicitly requested recipe; the recipe is the "
+                            "primary style contract and this asset was {severity}"
+                        ),
+                        "resolution": resolution,
+                    }
+                )
     selected_assets = [
         {
             "type": asset["type"],
@@ -640,6 +693,18 @@ def compose_prompt(
         for rule in recipe_composition_rules:
             if rule not in composition_plan["composition_rules"]:
                 composition_plan["composition_rules"].append(rule)
+        # Structured access to the recipe signature coverage paragraph
+        # so callers do not have to substring-search the rendered
+        # refined_prompt. Includes both the raw blocks (so prompt-refine
+        # can re-render with custom wording) and the rendered paragraph
+        # (so callers can append it verbatim).
+        if recipe_signature_coverage_blocks:
+            composition_plan["signature_coverage"] = {
+                "blocks": list(recipe_signature_coverage_blocks),
+                "paragraph": _build_signature_coverage_paragraph(
+                    recipe_signature_coverage_blocks
+                ),
+            }
     for asset in selected:
         key = PLAN_KEYS.get(asset["type"], asset["type"])
         summary = asset.get("summary") or asset.get("name", "")

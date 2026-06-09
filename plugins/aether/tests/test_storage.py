@@ -1541,6 +1541,92 @@ class StorageTests(unittest.TestCase):
             self.assertIn("reuse_suggestions", updated)
             self.assertEqual(len(updated["reuse_suggestions"]["recipe_candidates"]), 1)
 
+    def test_recipe_update_appends_composition_rules(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = AetherStore(Path(temp_dir) / "aether.sqlite")
+            store.init()
+            recipe = store.create_recipe(
+                {
+                    "name": "Update Test Recipe",
+                    "summary": "Base recipe for update tests.",
+                    "use_cases": ["x"],
+                    "composition_rules": [
+                        {"key": "asset_roles", "value": ["role1"], "reason": "base"},
+                    ],
+                }
+            )
+            store.update_recipe_status(recipe["id"], "active")
+            updated = store.update_recipe(
+                recipe["id"],
+                append_composition_rules=[
+                    {
+                        "key": "must_cover_ratios",
+                        "value": ["powder blue >= 35%"],
+                        "reason": "anchor",
+                    },
+                    {
+                        # duplicate key should be ignored
+                        "key": "must_cover_ratios",
+                        "value": ["ignored"],
+                    },
+                ],
+                reason="add coverage",
+            )
+            keys = [r.get("key") for r in updated["composition_rules"]]
+            self.assertIn("asset_roles", keys)
+            self.assertIn("must_cover_ratios", keys)
+            # only the first must_cover_ratios is kept
+            self.assertEqual(
+                sum(1 for k in keys if k == "must_cover_ratios"),
+                1,
+            )
+            # revision history captured the change
+            revisions = store.list_revisions("recipe", entity_id=recipe["id"])
+            self.assertGreaterEqual(len(revisions), 1)
+            self.assertEqual(revisions[0]["action"], "incremental_update")
+
+    def test_recipe_update_rejects_unknown_rule_key(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = AetherStore(Path(temp_dir) / "aether.sqlite")
+            store.init()
+            recipe = store.create_recipe(
+                {
+                    "name": "Reject Test",
+                    "summary": "For rejection test.",
+                    "use_cases": ["x"],
+                    "composition_rules": [],
+                }
+            )
+            with self.assertRaises(Exception) as ctx:
+                store.update_recipe(
+                    recipe["id"],
+                    append_composition_rules=[
+                        {"key": "made_up_key", "value": ["x"]},
+                    ],
+                )
+            self.assertIn("composition_rules.key", str(ctx.exception))
+
+    def test_visual_asset_prompt_fragments_replace(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = AetherStore(Path(temp_dir) / "aether.sqlite")
+            store.init()
+            asset = store.create_visual_asset(
+                {
+                    "type": "style",
+                    "name": "Replace Test Style",
+                    "summary": "x",
+                    "prompt_fragments": ["first fragment"],
+                }
+            )
+            updated = store.update_visual_asset_prompt_fragments(
+                asset["id"],
+                ["first fragment", "second fragment"],
+            )
+            self.assertEqual(
+                updated["prompt_fragments"],
+                ["first fragment", "second fragment"],
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

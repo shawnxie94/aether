@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -51,6 +52,37 @@ def apply_visual_review_default(payload: dict) -> dict:
     if isinstance(payload.get("visual_review"), dict) and payload["visual_review"]:
         return payload
     if payload.get("status") not in {"generated", "edited"}:
+        # Failure path: still leave an auditable visual_review record so
+        # retry history can be inspected. The breakdown fields are all
+        # "not_reviewed" so the failure does not count as a fidelity or
+        # subject signal; only the deviations list carries the cause.
+        error_text = ""
+        if payload.get("error"):
+            error_text = str(payload.get("error"))
+        deviations = []
+        if error_text:
+            deviations.append(f"infra error: {error_text[:200]}")
+        else:
+            deviations.append(
+                "no visual review: attempt did not reach generated or edited state"
+            )
+        payload["visual_review"] = {
+            "reviewed": False,
+            "style_consistency": "not_reviewed",
+            "score": None,
+            "recipe_fidelity": "not_reviewed",
+            "recipe_fidelity_score": None,
+            "subject_consistency": "not_reviewed",
+            "subject_consistency_score": None,
+            "matched_traits": [],
+            "matched_signature_traits": [],
+            "matched_subject_traits": [],
+            "deviations": deviations,
+            "recommendation": "use",
+            "suggested_revision": "",
+            "suggested_edit_instruction": "",
+            "localized_deviations": [],
+        }
         return payload
 
     reason = "Visual review was not provided before recording this generated output."
@@ -90,6 +122,15 @@ def main() -> None:
     parser.add_argument("--max-attempts", type=int, help="Maximum attempts planned for this generation request.")
     parser.add_argument("--retry-of", help="Generation run id or logical request id this attempt retries.")
     parser.add_argument("--retryable", choices=["true", "false"], help="Whether the failure should be considered retryable.")
+    parser.add_argument(
+        "--workspace-mirror",
+        action="store_true",
+        help=(
+            "After archiving, create symlinks under <cwd>/outputs/aether-mirror/<run_id>/ "
+            "pointing to each archived output so the workspace has a stable path to "
+            "open the latest generated image without copying the bytes."
+        ),
+    )
     args = parser.parse_args()
 
     config = load_config()
@@ -103,6 +144,22 @@ def main() -> None:
     store.init()
     payload = archive_generation_outputs(config, store, payload)
     record = store.create_generation_run(payload)
+    if args.workspace_mirror and record.get("outputs"):
+        mirror_dir = Path.cwd() / "outputs" / "aether-mirror" / record["id"]
+        mirror_dir.mkdir(parents=True, exist_ok=True)
+        for index, output in enumerate(record["outputs"], start=1):
+            image_path = output.get("image_path") or output.get("asset_path")
+            if not image_path:
+                continue
+            target = mirror_dir / f"image-{index}.png"
+            try:
+                if target.exists() or target.is_symlink():
+                    target.unlink()
+                os.symlink(image_path, target)
+            except OSError:
+                # Fallback to a copy on platforms that forbid symlinks.
+                target.write_bytes(Path(image_path).read_bytes())
+        record["workspace_mirror"] = str(mirror_dir)
     if args.liked is not None or args.notes:
         feedback = {}
         if args.liked is not None:

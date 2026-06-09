@@ -208,3 +208,22 @@ aether visual-asset activate <visual-asset-id>
 - Preserve source prompts in `source_references` when provided.
 - Preserve chat attachment images as ingested reference assets whenever session data exposes an `input_image` data URL.
 - Do not call image-generation skills from this workflow unless the user asks to generate an image after visual asset capture is complete.
+
+## When To Add Recipe Signature Coverage Rules
+
+Recipes that lean on a specific visual signature (color split, dominant motif, signature negative space, signature material contrast) should also carry two extra `composition_rules` keys so the model gets hard numbers and self-check anchors instead of word-frequency heuristics:
+
+- `must_cover_ratios`: list of quantifiable visual signal budgets, e.g. `"powder-blue pencil shading covers at least 35 percent of the upper frame (hair fringe, eye shadow, collar, or cup)"`.
+- `signature_self_check`: list of single visual claims the model can confirm before producing the final image, e.g. `"iris shows a clear coral-red plus deep-blue split, not just 'highlights' or a single-hue eye"`.
+
+The composer reads these two keys from the selected recipe, renders them into a dedicated "Recipe signature coverage:" paragraph, and appends the paragraph near the end of `refined_prompt` so the numbers survive prompt dilution. Future revisions of the recipe automatically pick up the same rules.
+
+Use these keys when:
+
+- The reference images share a single visible trait that is the recipe's main identity signal (e.g. red-blue iris split on a portrait recipe).
+- Generation runs keep producing outputs that "look fine" but lost the signature trait.
+- A consumer of the recipe needs a concrete checklist for `recipe_fidelity` review.
+
+Do not add them when the recipe is meant to be style-agnostic (a composition-only recipe that should not lock in a palette).
+
+A worked example lives at `plugins/aether/examples/recipe-with-signature-coverage.json`. To extend an existing recipe without rewriting it, use `aether recipe update <recipe_id> --append-composition-rule '<json>'` once per rule.

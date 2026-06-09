@@ -22,6 +22,7 @@ from .validation import (
     validate_generation_run,
     validate_prompt_record,
     validate_recipe,
+    validate_recipe_after_update,
     validate_recipe_asset,
     validate_recipe_candidate,
     validate_visual_system,
@@ -1527,6 +1528,27 @@ class AetherStore:
         updated = self.get_visual_asset(asset_id)
         assert updated is not None
         return updated
+
+    def update_visual_asset_prompt_fragments(
+        self,
+        asset_id: str,
+        prompt_fragments: list[str],
+    ) -> dict[str, Any]:
+        """Replace the prompt_fragments list of a visual asset.
+
+        Used by recipe incremental updates so that the recipe can
+        enrich the prompt fragments of an asset it already links to.
+        Validates the asset's other profile fields are unchanged.
+        """
+        existing = self.get_visual_asset(asset_id)
+        if not existing:
+            raise KeyError(f"Visual asset not found: {asset_id}")
+        updated_payload = dict(existing)
+        updated_payload["prompt_fragments"] = prompt_fragments
+        # Reuse the create path so the SQL stays a single statement and
+        # the asset's other fields are preserved.
+        self.create_visual_asset(updated_payload)
+        return self.get_visual_asset(asset_id)
 
     def _compact_unique(self, values: list[Any], limit: int = 12) -> list[Any]:
         seen: set[str] = set()
@@ -3448,6 +3470,120 @@ class AetherStore:
         created = self.get_recipe(recipe_id)
         assert created is not None
         return created
+
+    def update_recipe(
+        self,
+        recipe_id: str,
+        *,
+        append_composition_rules: list[dict[str, Any]] | None = None,
+        replace_composition_rules: list[dict[str, Any]] | None = None,
+        append_prompt_fragments_by_asset: dict[str, list[str]] | None = None,
+        metadata_patch: dict[str, Any] | None = None,
+        reason: str = "",
+    ) -> dict[str, Any]:
+        """Targeted recipe edits that keep validation intact.
+
+        Recipes carry signature visual contracts and should be mutated
+        carefully. This helper supports the most common incremental edits
+        without forcing callers to read-modify-write a full payload:
+
+        - append_composition_rules: append a list of new composition
+          rules; existing rules with the same key are left untouched so
+          callers do not accidentally clobber signature coverage rules.
+        - replace_composition_rules: replace the entire list. The
+          replacement is validated against the existing rule keys plus
+          the new ones, so previously unknown keys cannot slip in.
+        - append_prompt_fragments_by_asset: for each visual asset id,
+          append prompt fragments to the asset's prompt_fragments list.
+          The asset must already be linked to the recipe, otherwise a
+          KeyError is raised.
+        - metadata_patch: shallow merge into recipe.metadata.
+
+        Returns the refreshed recipe record. Raises KeyError if the
+        recipe does not exist; raises ValidationError if any rule
+        payload is invalid.
+        """
+        existing = self.get_recipe(recipe_id, include_assets=True)
+        if not existing:
+            raise KeyError(f"Recipe not found: {recipe_id}")
+        timestamp = now_iso()
+        updated_payload: dict[str, Any] = dict(existing)
+        updated_payload["updated_at"] = timestamp
+
+        if append_composition_rules:
+            existing_keys = {
+                rule.get("key")
+                for rule in existing.get("composition_rules", [])
+                if isinstance(rule, dict)
+            }
+            merged_rules = list(existing.get("composition_rules", []))
+            for rule in append_composition_rules:
+                if not isinstance(rule, dict):
+                    raise ValueError("Each appended composition rule must be a dict")
+                if rule.get("key") in existing_keys:
+                    continue
+                merged_rules.append(rule)
+                existing_keys.add(rule.get("key"))
+            updated_payload["composition_rules"] = merged_rules
+        if replace_composition_rules is not None:
+            updated_payload["composition_rules"] = replace_composition_rules
+
+        updated_payload = validate_recipe_after_update(updated_payload)
+
+        if append_prompt_fragments_by_asset:
+            for asset_id, fragments in append_prompt_fragments_by_asset.items():
+                asset = self.get_visual_asset(asset_id)
+                if not asset:
+                    raise KeyError(f"Visual asset not found: {asset_id}")
+                existing_relations = [
+                    r
+                    for r in self.list_recipe_assets(recipe_id=recipe_id)
+                    if r.get("asset_id") == asset_id
+                ]
+                if not existing_relations:
+                    raise KeyError(
+                        f"Asset {asset_id} is not linked to recipe {recipe_id}; "
+                        "link the asset first via set_recipe_asset"
+                    )
+                new_fragments = list(asset.get("prompt_fragments", []))
+                for fragment in fragments:
+                    if fragment and fragment not in new_fragments:
+                        new_fragments.append(fragment)
+                self.update_visual_asset_prompt_fragments(asset_id, new_fragments)
+
+        if metadata_patch:
+            merged_metadata = dict(existing.get("metadata", {}))
+            merged_metadata.update(metadata_patch)
+            updated_payload["metadata"] = merged_metadata
+
+        # Use create_recipe upsert path so the SQL stays a single statement.
+        self.create_recipe(updated_payload)
+
+        # Record a recipe revision entry so the change is auditable.
+        try:
+            self.create_revision(
+                "recipe",
+                recipe_id,
+                "incremental_update",
+                before=existing,
+                after=updated_payload,
+                diff={
+                    "appended_rule_keys": [
+                        rule.get("key")
+                        for rule in (append_composition_rules or [])
+                    ],
+                    "replaced_rules": replace_composition_rules is not None,
+                    "appended_assets": list(
+                        (append_prompt_fragments_by_asset or {}).keys()
+                    ),
+                    "metadata_keys": list((metadata_patch or {}).keys()),
+                },
+                reason=reason,
+            )
+        except Exception:
+            # Revision logging should never fail the update itself.
+            pass
+        return self.get_recipe(recipe_id, include_assets=True)
 
     def _unique_slug_id(self, table: str, base_id: str) -> str:
         if table not in {"recipes", "visual_assets", "visual_systems"}:
