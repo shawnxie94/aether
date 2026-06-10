@@ -791,6 +791,33 @@ def cmd_asset_unreferenced(args: argparse.Namespace) -> None:
     dump_json(store.unreferenced_assets(kind=args.kind))
 
 
+def cmd_asset_backfill_fingerprints(args: argparse.Namespace) -> None:
+    config, store = _store()
+    only_kinds = [args.kind] if args.kind else None
+    summary = store.backfill_fingerprints(
+        config,
+        kind=args.kind,
+        only_missing=not args.all,
+        only_kinds=only_kinds,
+        limit=args.limit,
+        dry_run=args.dry_run,
+    )
+    # Hide the verbose per-asset plan unless the user asked for it. The
+    # dry-run preview is the main use case, so default ``--show-plan``
+    # to true when dry-run is on and false otherwise.
+    if not args.show_plan and not args.dry_run:
+        summary.pop("plan", None)
+    elif not args.show_plan and args.dry_run:
+        summary["plan_summary"] = {
+            "count": len(summary.get("plan", [])),
+            "with_palette": sum(
+                1 for entry in summary.get("plan", []) if entry.get("palette_hex")
+            ),
+        }
+        summary.pop("plan", None)
+    dump_json(summary)
+
+
 def cmd_prompt_save(args: argparse.Namespace) -> None:
     config, store = _store()
     payload = read_json_arg(args.json)
@@ -1313,6 +1340,33 @@ def build_parser() -> argparse.ArgumentParser:
     asset_unreferenced = asset_sub.add_parser("unreferenced")
     asset_unreferenced.add_argument("--kind", choices=["reference", "generated"])
     asset_unreferenced.set_defaults(func=cmd_asset_unreferenced)
+    asset_backfill = asset_sub.add_parser("backfill-fingerprints")
+    asset_backfill.add_argument(
+        "--kind",
+        choices=["reference", "generated"],
+        help="Restrict the scan to a single asset kind.",
+    )
+    asset_backfill.add_argument(
+        "--all",
+        action="store_true",
+        help="Recompute every asset instead of skipping rows that already have a fingerprint.",
+    )
+    asset_backfill.add_argument(
+        "--limit",
+        type=int,
+        help="Maximum number of assets to process (after the missing-only filter).",
+    )
+    asset_backfill.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Report the planned updates without writing to the database.",
+    )
+    asset_backfill.add_argument(
+        "--show-plan",
+        action="store_true",
+        help="Include the per-asset plan in the output. Defaults to true during --dry-run.",
+    )
+    asset_backfill.set_defaults(func=cmd_asset_backfill_fingerprints)
 
     prompt = sub.add_parser("prompt", help="Compose or save generation-ready prompts.")
     prompt_sub = prompt.add_subparsers(required=True)

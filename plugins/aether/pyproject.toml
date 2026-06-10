@@ -3,7 +3,15 @@ name = "aether"
 version = "0.1.0"
 description = "Codex plugin backed visual asset memory and prompt refinement system for AI image generation."
 requires-python = ">=3.9"
-dependencies = []
+dependencies = [
+  "Pillow>=10.0",
+]
+
+[project.optional-dependencies]
+clip = [
+  "open_clip_torch>=2.20",
+  "torch>=2.0",
+]
 
 [build-system]
 requires = ["setuptools>=68"]

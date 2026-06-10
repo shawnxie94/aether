@@ -712,8 +712,32 @@ def compose_prompt(
             composition_plan[key].append(summary)
         else:
             composition_plan[key] = summary
+    # Project machine-friendly hex palette hints out of color_palette
+    # assets so the refined prompt can pass them to the image model
+    # verbatim. We only attach hex strings; the LLM-generated text
+    # description still flows through the standard "color" summary path.
+    palette_hints: list[str] = []
+    for asset in selected:
+        if asset.get("type") != "color_palette":
+            continue
+        profile = asset.get("profile") or {}
+        dominant_hex = profile.get("dominant_hex") or []
+        accent_hex = profile.get("accent_hex") or []
+        if dominant_hex:
+            palette_hints.append(
+                "dominant palette: " + ", ".join(dominant_hex)
+            )
+        if accent_hex:
+            palette_hints.append(
+                "accent palette: " + ", ".join(accent_hex)
+            )
+    if palette_hints:
+        composition_plan["palette_hints"] = palette_hints
 
     refined_parts = [source_prompt]
+    for fragment in palette_hints:
+        if fragment not in refined_parts:
+            refined_parts.append(fragment)
     for fragment in system_visual_rules:
         if fragment not in refined_parts:
             refined_parts.append(fragment)

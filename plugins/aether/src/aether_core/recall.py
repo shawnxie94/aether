@@ -60,11 +60,30 @@ def weighted_score(
     lexical_score: float,
     relation_score: float = 0.0,
     quality_score: float = 0.0,
+    visual_signal_score: float = 0.0,
 ) -> float:
+    """Combine the five recall signals into a single 0-1 score.
+
+    The classic 4-way weighting is preserved for callers that do not pass
+    a visual signal: ``semantic 0.55, lexical 0.25, relation 0.15,
+    quality 0.05``. When ``visual_signal_score`` is supplied, the weights
+    are renormalized to ``0.45 / 0.20 / 0.12 / 0.05 / 0.18`` so the new
+    signal contributes meaningfully without starving the textual channels.
+    """
+
+    if visual_signal_score <= 0:
+        return round(
+            0.55 * semantic_score
+            + 0.25 * lexical_score
+            + 0.15 * relation_score
+            + 0.05 * quality_score,
+            4,
+        )
     return round(
-        0.55 * semantic_score
-        + 0.25 * lexical_score
-        + 0.15 * relation_score
-        + 0.05 * quality_score,
+        0.45 * semantic_score
+        + 0.20 * lexical_score
+        + 0.12 * relation_score
+        + 0.05 * quality_score
+        + 0.18 * visual_signal_score,
         4,
     )

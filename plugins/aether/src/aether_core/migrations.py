@@ -5,7 +5,7 @@ import sqlite3
 from .storage_time import now_iso
 
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 
 def ensure_column(
@@ -207,12 +207,31 @@ def _migration_v6_business_indexes(conn: sqlite3.Connection) -> None:
     )
 
 
+def _migration_v7_image_fingerprints(conn: sqlite3.Connection) -> None:
+    """Add the per-asset image fingerprint payload to the ``assets`` table.
+
+    The column is JSON-typed at the application layer; the SQLite schema
+    stays TEXT for portability. Existing rows will simply have ``NULL``
+    until they are re-ingested, which the asset governance helpers can
+    batch later if desired.
+    """
+
+    ensure_column(
+        conn, "assets", "fingerprint_json", "text not null default '{}'"
+    )
+    conn.execute(
+        "create index if not exists idx_assets_fingerprint_present "
+        "on assets(sha256) where fingerprint_json != '{}'"
+    )
+
+
 # Ordered list of ``(schema_version, [callable])``. Each callable receives a
 # connection and applies one idempotent migration step. New schema changes
 # should append a new version tuple rather than editing an existing step.
 MIGRATIONS: list[tuple[int, list]] = [
     (5, [_migration_v5_column_enhancements]),
     (6, [_migration_v6_business_indexes]),
+    (7, [_migration_v7_image_fingerprints]),
 ]
 
 

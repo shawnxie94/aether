@@ -682,12 +682,26 @@ class AetherStore:
                         "payload": reference,
                     },
                 )
+        # Apply the same lazy fingerprint merge that read paths use so the
+        # create path returns the enriched profile callers expect.
+        record["profile"] = self._merge_image_fingerprint_into_profile(
+            record["profile"], record
+        )
         return record
 
     def get_visual_asset(self, asset_id: str) -> dict[str, Any] | None:
         with self.connect() as conn:
             row = conn.execute("select * from visual_assets where id = ?", (asset_id,)).fetchone()
         return self._visual_asset_from_row(row) if row else None
+
+    def get_asset(self, asset_id: str) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                "select * from assets where id = ?", (asset_id,)
+            ).fetchone()
+        if not row:
+            return None
+        return self._asset_from_row(row)
 
     def find_asset_by_sha256(self, sha256: str, kind: str | None = None) -> dict[str, Any] | None:
         sql = "select * from assets where sha256 = ?"
@@ -737,19 +751,94 @@ class AetherStore:
             ]
         return assets[:limit] if limit is not None and limit >= 0 else assets
 
+    def _visual_asset_fingerprint_text(self, entity: dict[str, Any]) -> str:
+        """Render source-reference fingerprints as canonical text snippets.
+
+        Visual assets rarely carry the fingerprint directly (it lives on the
+        ``assets`` row), so we walk ``source_references`` and look up each
+        reference asset by id, then summarize its palette/geometry/stats
+        block. The summary is appended to the canonical text so the
+        embedding index surfaces visual signals alongside textual tags.
+        """
+
+        from .image_fingerprint import fingerprint_summary
+
+        references = entity.get("source_references") or []
+        snippets: list[str] = []
+        for reference in references:
+            if not isinstance(reference, dict):
+                continue
+            asset_id = reference.get("asset_id")
+            if not asset_id:
+                continue
+            asset = self.get_asset(asset_id)
+            if not asset:
+                continue
+            fingerprint = asset.get("fingerprint") or {}
+            summary = fingerprint_summary(fingerprint)
+            if summary:
+                snippets.append(summary)
+        if not snippets:
+            return ""
+        return "image fingerprint: " + " | ".join(snippets)
+
+    def _merge_image_fingerprint_into_profile(
+        self, profile: Any, entity: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Project the first available source-reference fingerprint into the
+        profile so callers that read ``profile`` directly get hex palette,
+        geometry, and stats without needing to walk source_references.
+        """
+
+        from .image_fingerprint import palette_to_profile
+
+        if not isinstance(profile, dict):
+            profile = {}
+        merged = dict(profile)
+        for reference in entity.get("source_references") or []:
+            if not isinstance(reference, dict):
+                continue
+            asset = self.get_asset(reference.get("asset_id") or "")
+            if not asset:
+                continue
+            fingerprint = asset.get("fingerprint") or {}
+            if not fingerprint:
+                continue
+            palette_profile = palette_to_profile(fingerprint)
+            for key, value in palette_profile.items():
+                merged.setdefault(key, value)
+            if "image_fingerprint" not in merged:
+                merged["image_fingerprint"] = {
+                    "palette": (fingerprint.get("palette") or {}),
+                    "geometry": (fingerprint.get("geometry") or {}),
+                    "stats": {
+                        key: value
+                        for key, value in (fingerprint.get("stats") or {}).items()
+                        if key != "stats_vector"
+                    },
+                    "has_clip": bool(fingerprint.get("clip")),
+                }
+            break
+        return merged
+
     def canonical_entity_text(self, entity_type: str, entity: dict[str, Any]) -> str:
         if entity_type == "visual_asset":
+            fingerprint_text = self._visual_asset_fingerprint_text(entity)
+            profile = entity.get("profile")
+            if fingerprint_text:
+                profile = self._merge_image_fingerprint_into_profile(profile, entity)
             return canonical_text(
                 [
                     entity.get("type"),
                     entity.get("name"),
                     entity.get("summary"),
                     entity.get("tags"),
-                    entity.get("profile"),
+                    profile,
                     entity.get("prompt_fragments"),
                     entity.get("negative_fragments"),
                     entity.get("compatible_with"),
                     entity.get("avoid_with"),
+                    fingerprint_text,
                 ]
             )
         if entity_type == "visual_system":
@@ -1195,7 +1284,10 @@ class AetherStore:
         parent_system_ids: list[str] | None = None,
         min_score: float = 0.0,
         include_unavailable: bool = False,
+        query_fingerprint: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
+        from .image_fingerprint import visual_signal_score
+
         provider = None
         query_vector: list[float] | None = None
         provider_error = ""
@@ -1222,6 +1314,30 @@ class AetherStore:
         if provider and query_vector is not None:
             embedding_rows = self._ensure_entity_embeddings(entity_type, entity_texts, provider, config)
 
+        # Cache visual asset fingerprints keyed by source_reference asset id
+        # so a recall pass over hundreds of entities does not refetch the
+        # same reference asset row from SQLite over and over.
+        fingerprint_cache: dict[str, dict[str, Any]] = {}
+
+        def _entity_fingerprint(asset_dict: dict[str, Any]) -> dict[str, Any] | None:
+            for reference in asset_dict.get("source_references") or []:
+                if not isinstance(reference, dict):
+                    continue
+                ref_asset_id = reference.get("asset_id")
+                if not ref_asset_id:
+                    continue
+                if ref_asset_id in fingerprint_cache:
+                    cached = fingerprint_cache[ref_asset_id]
+                    if cached is not None:
+                        return cached
+                    continue
+                ref_asset = self.get_asset(ref_asset_id)
+                fingerprint = (ref_asset or {}).get("fingerprint") or {}
+                fingerprint_cache[ref_asset_id] = fingerprint or None
+                if fingerprint:
+                    return fingerprint
+            return None
+
         for entity, (entity_id, text) in zip(entities, entity_texts):
             entity_id = self._entity_id(entity_type, entity)
             lexical_score, matched_terms = lexical_similarity(query_text, text)
@@ -1237,13 +1353,19 @@ class AetherStore:
                 parent_system_ids=parent_system_ids,
             )
             quality_score = self._entity_quality_score(entity_type, entity)
+            entity_visual = 0.0
+            if query_fingerprint and entity_type == "visual_asset":
+                entity_fp = _entity_fingerprint(entity)
+                if entity_fp:
+                    entity_visual = visual_signal_score(query_fingerprint, entity_fp)
             score = weighted_score(
                 semantic_score=semantic_score,
                 lexical_score=lexical_score,
                 relation_score=relation_score,
                 quality_score=quality_score,
+                visual_signal_score=entity_visual,
             )
-            if score <= min_score and lexical_score <= 0 and semantic_score <= 0 and relation_score <= 0:
+            if score <= min_score and lexical_score <= 0 and semantic_score <= 0 and relation_score <= 0 and entity_visual <= 0:
                 continue
             result = {
                 "entity_type": entity_type,
@@ -1254,6 +1376,7 @@ class AetherStore:
                 "lexical_score": round(lexical_score, 4),
                 "relation_score": round(relation_score, 4),
                 "quality_score": round(quality_score, 4),
+                "visual_signal_score": round(entity_visual, 4),
                 "matched_terms": matched_terms,
                 "provider_error": provider_error,
             }
@@ -4448,6 +4571,7 @@ class AetherStore:
         return updated
 
     def create_asset(self, payload: dict[str, Any]) -> dict[str, Any]:
+        fingerprint = payload.get("fingerprint") or {}
         record = {
             "id": payload.get("id") or new_id("asset"),
             "kind": payload["kind"],
@@ -4456,14 +4580,16 @@ class AetherStore:
             "sha256": payload["sha256"],
             "mime_type": payload.get("mime_type", "application/octet-stream"),
             "size_bytes": int(payload.get("size_bytes", 0)),
+            "fingerprint": fingerprint,
             "created_at": payload.get("created_at", now_iso()),
         }
         with self.connect() as conn:
             conn.execute(
                 """
                 insert into assets (
-                  id, kind, source_path, asset_path, sha256, mime_type, size_bytes, created_at
-                ) values (?, ?, ?, ?, ?, ?, ?, ?)
+                  id, kind, source_path, asset_path, sha256, mime_type, size_bytes,
+                  fingerprint_json, created_at
+                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     record["id"],
@@ -4473,10 +4599,205 @@ class AetherStore:
                     record["sha256"],
                     record["mime_type"],
                     record["size_bytes"],
+                    json_dumps(fingerprint),
                     record["created_at"],
                 ),
             )
         return record
+
+    def update_asset_fingerprint(self, asset_id: str, fingerprint: dict[str, Any]) -> None:
+        """Persist a computed image fingerprint on an existing asset row.
+
+        The backfill path uses this to retrofit the v7 fingerprint column
+        for assets that were ingested before Pillow support was wired in.
+        The fingerprint must already be a serializable dict.
+        """
+
+        with self.connect() as conn:
+            conn.execute(
+                "update assets set fingerprint_json = ? where id = ?",
+                (json_dumps(fingerprint), asset_id),
+            )
+
+    def backfill_fingerprints(
+        self,
+        config: Any,
+        *,
+        kind: str | None = None,
+        only_missing: bool = True,
+        only_kinds: list[str] | None = None,
+        limit: int | None = None,
+        dry_run: bool = False,
+    ) -> dict[str, Any]:
+        """Recompute image fingerprints for assets that lack one.
+
+        ``only_missing=True`` (default) only touches rows whose
+        ``fingerprint_json`` is the empty placeholder ``'{}'`` written by
+        the v7 migration. Pass ``only_missing=False`` to recompute every
+        asset; useful when operators want to refresh stale fingerprints
+        after a code change.
+
+        ``only_kinds`` narrows the scan to specific asset kinds (defaults
+        to ``["reference", "generated"]`` which are the only kinds that
+        ever carry images).
+
+        ``dry_run=True`` reports the planned updates without writing
+        anything. The returned ``plan`` is a per-asset preview of what
+        would change.
+
+        The summary block is also written to a sidecar JSON file next to
+        each asset so a second invocation against the same file is a
+        no-op (cheap re-runs during development).
+        """
+
+        from pathlib import Path
+        from .image_fingerprint import (
+            compute_fingerprint,
+            fingerprint_path_for,
+            load_cached_fingerprint,
+            write_cached_fingerprint,
+        )
+
+        # ``kind`` is the most specific filter and wins over
+        # ``only_kinds`` so the CLI ``--kind=reference`` flag actually
+        # restricts the scan. ``only_kinds`` is a finer-grained override
+        # callers can pass programmatically; if both are given ``kind``
+        # takes priority.
+        if kind:
+            target_kinds = [kind]
+        else:
+            target_kinds = only_kinds or ["reference", "generated"]
+        # The scan always covers every asset of the requested kinds so
+        # governance signals (missing file, broken sidecar) are surfaced
+        # even when the row already has a fingerprint. ``only_missing``
+        # controls whether we *recompute and persist*, not whether we
+        # *look* at the row.
+        query = "select * from assets where kind in ({})".format(
+            ", ".join("?" for _ in target_kinds)
+        )
+        params: list[Any] = list(target_kinds)
+        with self.connect() as conn:
+            rows = conn.execute(query, tuple(params)).fetchall()
+        assets = [self._asset_from_row(row) for row in rows]
+        recompute_targets = set()
+        if only_missing:
+            # Look up the fingerprint column once per asset id. Mapping
+            # the result by id avoids the row-ordering pitfalls of an
+            # ``in (...)`` select when ids arrive out of sequence.
+            asset_ids = [asset["id"] for asset in assets]
+            if asset_ids:
+                placeholders = ", ".join("?" for _ in asset_ids)
+                with self.connect() as conn:
+                    rows_present = conn.execute(
+                        f"select id, fingerprint_json from assets where id in ({placeholders})",
+                        tuple(asset_ids),
+                    ).fetchall()
+                for row in rows_present:
+                    fingerprint_text = row["fingerprint_json"] or ""
+                    if fingerprint_text in ("", "{}"):
+                        recompute_targets.add(row["id"])
+        else:
+            recompute_targets = {asset["id"] for asset in assets}
+        if limit is not None:
+            assets = assets[:limit]
+
+        fingerprint_cfg = (config.data.get("storage") or {}).get("fingerprint") or {}
+        include_clip = bool(fingerprint_cfg.get("clip", True))
+
+        plan: list[dict[str, Any]] = []
+        updated = 0
+        skipped: list[dict[str, Any]] = []
+        failed: list[dict[str, Any]] = []
+        for asset in assets:
+            asset_id = asset["id"]
+            asset_path = asset.get("asset_path") or ""
+            if not asset_path:
+                if asset_id in recompute_targets:
+                    skipped.append({"asset_id": asset_id, "reason": "no asset_path"})
+                continue
+            path = Path(asset_path)
+            if not path.exists():
+                if asset_id in recompute_targets:
+                    skipped.append({"asset_id": asset_id, "reason": "asset file missing", "asset_path": asset_path})
+                continue
+            if asset_id not in recompute_targets:
+                # Already fingerprinted and we are in only_missing mode:
+                # report a quick no-op plan entry so operators can see
+                # the asset was inspected but intentionally not retouched.
+                existing_fingerprint = asset.get("fingerprint") or {}
+                plan.append(
+                    {
+                        "asset_id": asset_id,
+                        "asset_path": asset_path,
+                        "kind": asset.get("kind"),
+                        "sha256": asset.get("sha256"),
+                        "size_bytes": asset.get("size_bytes"),
+                        "fingerprint_present": bool(existing_fingerprint),
+                        "palette_hex": (existing_fingerprint.get("palette") or {}).get("dominant_hex") or [],
+                        "aspect_ratio": (existing_fingerprint.get("geometry") or {}).get("aspect_ratio"),
+                        "temperature": (existing_fingerprint.get("palette") or {}).get("temperature"),
+                        "sidecar": fingerprint_path_for(asset_path) if existing_fingerprint else None,
+                        "recomputed": False,
+                    }
+                )
+                continue
+            cached = load_cached_fingerprint(asset_path)
+            if cached is not None:
+                fingerprint = cached
+            else:
+                try:
+                    fingerprint = compute_fingerprint(asset_path, include_clip=include_clip)
+                except Exception as exc:
+                    failed.append(
+                        {
+                            "asset_id": asset_id,
+                            "reason": f"compute failed: {exc}",
+                            "asset_path": asset_path,
+                        }
+                    )
+                    continue
+            palette_hex = (fingerprint.get("palette") or {}).get("dominant_hex") or []
+            geometry = fingerprint.get("geometry") or {}
+            entry = {
+                "asset_id": asset_id,
+                "asset_path": asset_path,
+                "kind": asset.get("kind"),
+                "sha256": asset.get("sha256"),
+                "size_bytes": asset.get("size_bytes"),
+                "fingerprint_present": bool(fingerprint),
+                "palette_hex": palette_hex,
+                "aspect_ratio": geometry.get("aspect_ratio"),
+                "temperature": (fingerprint.get("palette") or {}).get("temperature"),
+                "sidecar": fingerprint_path_for(asset_path) if fingerprint else None,
+                "recomputed": True,
+            }
+            plan.append(entry)
+            if dry_run:
+                continue
+            if not fingerprint:
+                skipped.append({"asset_id": asset_id, "reason": "compute returned empty fingerprint"})
+                continue
+            try:
+                self.update_asset_fingerprint(asset_id, fingerprint)
+                write_cached_fingerprint(asset_path, fingerprint)
+                updated += 1
+            except Exception as exc:
+                failed.append(
+                    {
+                        "asset_id": asset_id,
+                        "reason": f"persist failed: {exc}",
+                        "asset_path": asset_path,
+                    }
+                )
+        return {
+            "ok": True,
+            "dry_run": dry_run,
+            "scanned": len(assets),
+            "updated": updated,
+            "skipped": skipped,
+            "failed": failed,
+            "plan": plan,
+        }
 
     def list_assets(self, kind: str | None = None, limit: int | None = 50) -> list[dict[str, Any]]:
         query = "select * from assets"
@@ -5247,6 +5568,7 @@ class AetherStore:
                 )
 
     def _asset_from_row(self, row: sqlite3.Row) -> dict[str, Any]:
+        fingerprint = json_loads(row["fingerprint_json"], {}) if "fingerprint_json" in row.keys() else {}
         return {
             "id": row["id"],
             "kind": row["kind"],
@@ -5255,11 +5577,12 @@ class AetherStore:
             "sha256": row["sha256"],
             "mime_type": row["mime_type"],
             "size_bytes": row["size_bytes"],
+            "fingerprint": fingerprint or None,
             "created_at": row["created_at"],
         }
 
     def _visual_asset_from_row(self, row: sqlite3.Row) -> dict[str, Any]:
-        return {
+        record = {
             "id": row["id"],
             "type": row["type"],
             "name": row["name"],
@@ -5278,6 +5601,14 @@ class AetherStore:
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
         }
+        # Lazy-merge the source-reference fingerprint into the profile so
+        # downstream readers see hex palette / geometry / stats without
+        # needing a separate API call. The original profile JSON is left
+        # untouched on disk.
+        record["profile"] = self._merge_image_fingerprint_into_profile(
+            record["profile"], record
+        )
+        return record
 
     def _visual_asset_candidate_from_row(self, row: sqlite3.Row) -> dict[str, Any]:
         return {

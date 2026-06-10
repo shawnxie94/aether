@@ -16,9 +16,9 @@ from aether_core.storage import AetherStore
 
 
 class MigrationFrameworkTests(unittest.TestCase):
-    def test_schema_version_is_six(self):
-        self.assertEqual(SCHEMA_VERSION, 6)
-        self.assertEqual([version for version, _ in MIGRATIONS], [5, 6])
+    def test_schema_version_is_current(self):
+        self.assertEqual(SCHEMA_VERSION, 7)
+        self.assertEqual([version for version, _ in MIGRATIONS], [5, 6, 7])
 
     def test_ensure_column_is_idempotent(self):
         with tempfile.TemporaryDirectory() as td:
@@ -67,7 +67,7 @@ class MigrationFrameworkTests(unittest.TestCase):
         store = self._init_store()
         store.init()
         with store.connect() as conn:
-            self.assertEqual(applied_versions(conn), {5, 6})
+            self.assertEqual(applied_versions(conn), {5, 6, 7})
         # Calling init() a second time must not throw and must not
         # duplicate migration rows.
         store.init()
@@ -78,7 +78,7 @@ class MigrationFrameworkTests(unittest.TestCase):
                     "select version from schema_migrations order by version"
                 ).fetchall()
             ]
-            self.assertEqual(versions, [5, 6])
+            self.assertEqual(versions, [5, 6, 7])
 
     def test_init_after_partial_migration_picks_up_missing(self):
         store = self._init_store()
@@ -86,12 +86,12 @@ class MigrationFrameworkTests(unittest.TestCase):
         # Simulate a database that was created on the pre-migration framework
         # and only has the historical v5 row recorded.
         with store.connect() as conn:
-            conn.execute("delete from schema_migrations where version = 6")
+            conn.execute("delete from schema_migrations where version in (6, 7)")
             self.assertEqual(applied_versions(conn), {5})
-        # init() should re-apply v6 and record it.
+        # init() should re-apply the missing migrations and record them.
         store.init()
         with store.connect() as conn:
-            self.assertEqual(applied_versions(conn), {5, 6})
+            self.assertEqual(applied_versions(conn), {5, 6, 7})
 
     def test_business_indexes_exist_after_init(self):
         store = self._init_store()

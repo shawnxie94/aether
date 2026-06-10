@@ -2,6 +2,22 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "Aether Visual Asset",
   "type": "object",
+  "image_fingerprint": {
+    "type": "object",
+    "description": "Computed image fingerprint (hex palette, geometry, lighting/stats, optional CLIP).",
+    "properties": {
+      "schema_version": {"type": "integer"},
+      "palette": {"type": "object"},
+      "geometry": {"type": "object"},
+      "stats": {"type": "object"},
+      "clip": {
+        "anyOf": [
+          {"type": "array", "items": {"type": "number"}},
+          {"type": "null"}
+        ]
+      }
+    }
+  },
   "required": ["type", "name"],
   "definitions": {
     "profileValue": {
@@ -37,6 +53,8 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "dominant_hex": {"$ref": "#/definitions/profileValue"},
+        "accent_hex": {"$ref": "#/definitions/profileValue"},
         "dominant_colors": {"$ref": "#/definitions/profileValue"},
         "accent_colors": {"$ref": "#/definitions/profileValue"},
         "saturation": {"$ref": "#/definitions/profileValue"},
