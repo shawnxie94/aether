@@ -88,8 +88,8 @@ EOF
 
 # Post-install health check. The project layout script lives next to the
 # aether repo root; from here ($plugin_root is <project>/plugins/aether)
-# it is one level up under scripts/.
-project_root="$(cd "$plugin_root/.." >/dev/null 2>&1 && pwd)"
+# it is two levels up under scripts/.
+project_root="$(cd "$plugin_root/../.." >/dev/null 2>&1 && pwd)"
 verify_script="$project_root/scripts/verify_aether_layout.sh"
 if [ -x "$verify_script" ]; then
   printf "\n=== Post-install layout verification ===\n"

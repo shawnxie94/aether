@@ -1,6 +1,6 @@
 ---
 name: visual-asset-capture
-description: Use when the user provides reference images, screenshots, image files, or image-plus-source-prompt inputs and wants Aether to analyze, deduplicate, or save reusable visual asset candidates for confirmation. This is the default Aether route for image plus prompt inputs unless the user explicitly asks to generate or edit an output image.
+description: Use when the user provides reference images, screenshots, image files, or image-plus-source-prompt inputs and wants Aether to analyze, deduplicate, or save reusable visual asset candidates for confirmation. This is the default Aether route for image plus prompt inputs unless the user explicitly asks to generate or edit an output image. When the user explicitly asks to validate or tune the just-sedimented memory, also runs the optional post-confirmation consistency verification loop (step 7.5) that calls prompt-refine + image-generate to measure recipe_fidelity and, if the new run drifts, applies append-only tuning to the recipe and its assets.
 ---
 
 # Aether Visual Asset Capture
@@ -186,6 +186,69 @@ aether visual-system candidates confirm <visual-system-candidate-id> --force-new
 aether visual-system candidates ignore <visual-system-candidate-id> --cleanup
 ```
 
+7.5. (Optional) Post-confirmation consistency verification & tuning.
+
+This step is **not** part of the default sedimentation flow. Only run it when the user explicitly asks to validate or tune the just-sedimented memory, e.g. phrases like "沉淀一下并生成一张验证", "verify the recipe", "check the assets actually transfer", or "tune if it drifts". The default confirmation flow ends at step 7.
+
+7.5.1. Scope and loop budget
+
+- Target: the just-confirmed visual assets, recipe, and visual system from this run (the active ids, not the candidate ids).
+- Loop budget: at most 3 verification rounds. If fidelity stays below `high` after 3 rounds, stop and ask the user how to proceed. Do not silently keep tuning.
+- Purpose: catch the common case where the visual memory looks correct on paper but drifts in generation (palette anchor pulls too hard, brushwork softens, specks over-spread, signature motif disappears, etc.).
+
+7.5.2. Verification round
+
+Goal: produce one generation run that exercises the recipe on a **new subject** (not a re-render of the reference image), then read the run's `visual_review.recipe_fidelity` to score how well the memory carried over.
+
+1. Pick a probe subject. The subject must be different from the reference image's main subject so the test actually exercises the recipe's transferability. Keep the scene, palette, mood, and composition signals identical to the recipe. Example: if the reference was a curly-haired young woman on a vintage car, the probe can be a young man with glasses on a different color vintage car in the same Mediterranean hill town.
+2. Call `prompt-refine` with the just-confirmed recipe / system ids and the probe source prompt, then save the prompt record.
+3. Hand the prompt record to `image-generate` (the underlying image skill, e.g. `rightcodes-imagegen` or `imagegen`). Record the run.
+4. Visually inspect the output. Required review fields (see `image-generate` step 6 for the full schema):
+   - `visual_review.reviewed`: `true`
+   - `visual_review.style_consistency`: `high` / `moderate` / `low` / `major_deviation`
+   - `visual_review.recipe_fidelity`: `high` / `moderate` / `low` / `major_deviation` / `not_reviewed`
+   - `visual_review.recipe_fidelity_score`: optional 0-1 number
+   - `visual_review.matched_signature_traits`: list of signature traits that survived
+   - `visual_review.deviations`: list of drifted traits
+   - `visual_review.localized_deviations`: small region defects that do not need a full re-tune
+5. Classify the round:
+   - `recipe_fidelity: high` and `style_consistency: high` -> **pass**, stop the loop.
+   - `recipe_fidelity: moderate` with one or two localized deviations -> **minor drift**, go to step 7.5.3 with the targeted L1-L2 actions.
+   - `recipe_fidelity: low` or `major_deviation`, or any signature trait listed in the recipe's `must_cover_ratios` failed -> **major drift**, go to step 7.5.3 with the structural L3-L6 actions.
+   - `recipe_fidelity: not_reviewed` or generation failed -> **inconclusive**, do not tune; ask the user how to proceed.
+
+7.5.3. Tuning actions (append-only by default)
+
+Tune from the cheapest to the most structural. Always prefer actions that keep the original confirmed assets intact and create branched / appended successors. Never silently edit the v1 profile or rename a confirmed recipe.
+
+| Level | Action | When to use it | Aether command |
+| --- | --- | --- | --- |
+| L0 | Re-run with a sharper source prompt or a different probe subject. | Drift is a one-off sampling artefact, not a memory defect. | `prompt-refine` + `image-generate` again, no memory change. |
+| L1 | Append a new composition rule to the recipe (`signature_self_check` or `must_cover_ratios`). | A specific signature trait disappeared or a number ratio failed. | `aether recipe update <recipe_id> --append-composition-rule '<json>'` |
+| L2 | Add the missing v2 / branched asset to the recipe's `recipe_assets`. | A recallable visual asset already exists in storage but is not linked to the recipe. | `aether recipe add-asset <recipe_id> <visual_asset_id> --role core\|optional --weight <w> --reason "<why>"` |
+| L3 | Branch a v2 of one specific visual asset that drifted. | A single asset's profile or prompt fragments do not describe the signature precisely enough. | `aether visual-asset branch <parent_asset_id> --json <v2.json>` then `aether visual-asset activate <v2_id>` |
+| L4 | Branch v2 for the whole recipe or visual system. | Multiple L3 fixes are needed at once, or a whole-direction re-statement is required. | Use `visual-asset branch` per asset, then `aether visual-system create` a v2 system pointing at the v2 assets, then `aether visual-system merge <v1_id> <v2_id>` to retire v1, then archive v1 with the Aether storage helper. |
+| L5 | Archive a superseded v1 / v2 so the active set collapses to one canonical row. | Only after a v2 / v3 exists and the user has confirmed the new canonical record is the one to keep. | `aether visual-asset archive <id>` for visual assets; for visual systems use the Aether storage helper `AetherStore.update_visual_system_status(<id>, "archived")`. The CLI does not expose system archive or activate; use the storage helper from a one-line Python script. |
+| L6 | Rebuild the canonical record. | When the v1 / v2 lineage is too tangled to follow. Create a fresh v3 system with a clean name, link v2 assets to it, then archive v1 + v2 in one pass. | `aether visual-system create --json <v3.json>` + storage helper to set `active` + archive the older rows. |
+
+Rules for tuning:
+
+- Do not delete v1 / v2 visual assets; archive them. Archiving is reversible, deletion is not (no CLI command for visual asset delete exists; the only available exit is `archive`).
+- Do not edit a confirmed visual asset's profile in place. Branch a v2 instead, so the v1 evidence is preserved for traceability.
+- For recipes, always use `update --append-composition-rule`; never replace a v1 rule. v1 rules are part of the recipe's history.
+- Every tuning round that mutates memory must be followed by another verification round (step 7.5.2). Do not declare success without re-running.
+- Always record the verification run with `record_generation.py` and an honest `visual_review`. Mark the run as `liked: true` only when the user has approved the output, not because the run is a verification probe.
+
+7.5.4. Termination
+
+Stop the loop when one of the following is true:
+
+- `recipe_fidelity: high` and the user accepts the output.
+- Three rounds completed without reaching `high`. Stop, present the drift summary, and ask the user to pick the next action (manual prompt edit, more aggressive L4-L6 restructuring, or accept the current fidelity and move on).
+- The user interrupts with "stop tuning" or similar.
+
+When stopping on a pass, summarize for the user: which round passed, the final `recipe_fidelity_score`, the v2 / v3 record ids that were created, and which v1 / v2 ids were archived. Hide internal ids by default; show the localized readable names.
+
 8. Use explicit state commands for direct branch or merge work outside the candidate queue:
 
 ```bash
@@ -208,6 +271,7 @@ aether visual-asset activate <visual-asset-id>
 - Preserve source prompts in `source_references` when provided.
 - Preserve chat attachment images as ingested reference assets whenever session data exposes an `input_image` data URL.
 - Do not call image-generation skills from this workflow unless the user asks to generate an image after visual asset capture is complete.
+- Post-confirmation tuning (step 7.5) must be append-only: branch a v2 visual asset or v2 visual system, append a composition rule, or archive the older row. Never edit a confirmed visual asset's profile in place, never overwrite a confirmed recipe's composition rules, and never delete a confirmed record. Archiving is the only available soft-delete.
 
 ## When To Add Recipe Signature Coverage Rules
 
