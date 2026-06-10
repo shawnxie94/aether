@@ -33,6 +33,152 @@ from .validation import (
 )
 
 
+
+# Mapping from ``visual_assets.type`` to the fingerprint blocks and
+# stat fields that the merge step is allowed to surface in the asset's
+# profile. The keys are:
+#
+# - ``palette``: True to merge ``dominant_hex`` / ``accent_hex`` / etc.
+# - ``stats_fields``: list of specific stat keys (e.g. ``exposure``)
+#   that the type's profile schema is willing to accept.
+# - ``include_palette`` / ``include_geometry`` / ``include_stats``:
+#   whether the type may see the corresponding block in the top-level
+#   ``image_fingerprint`` snapshot.
+#
+# Types that should not consume a fingerprint at all (because their
+# semantic is "no fingerprint" or "anti-fingerprint") get an empty
+# mapping so the merge path is a no-op for them.
+_FOOTPRINT_TYPE_MAP: dict[str, dict[str, Any]] = {
+    "color_palette": {
+        "palette": True,
+        "stats_fields": [],
+        "include_palette": True,
+        "include_geometry": False,
+        "include_stats": False,
+    },
+    "lighting": {
+        "palette": False,
+        "stats_fields": ["exposure", "dynamic_range"],
+        "include_palette": False,
+        "include_geometry": False,
+        "include_stats": True,
+    },
+    "composition": {
+        "palette": False,
+        "stats_fields": [],
+        "include_palette": False,
+        "include_geometry": True,
+        "include_stats": False,
+    },
+    "shape_line": {
+        "palette": False,
+        "stats_fields": ["edge_density"],
+        "include_palette": False,
+        "include_geometry": False,
+        "include_stats": True,
+    },
+    "texture": {
+        "palette": False,
+        "stats_fields": [
+            "low_frequency_ratio",
+            "mid_frequency_ratio",
+            "high_frequency_ratio",
+        ],
+        "include_palette": False,
+        "include_geometry": False,
+        "include_stats": True,
+    },
+    "mood": {
+        # Mood borrows the temperature and saturation cues (warm/cool
+        # atmosphere) plus lighting exposure. It does NOT absorb the
+        # raw hex lists because the user-facing mood asset should
+        # stay free of concrete colors that would over-constrain the
+        # generation prompt.
+        "palette": True,
+        "palette_keys": ["temperature", "saturation", "color_relationship"],
+        "stats_fields": ["exposure", "dynamic_range"],
+        "include_palette": True,
+        "include_geometry": False,
+        "include_stats": True,
+    },
+    "scene": {
+        # Scene cares about the spatial geometry and the temperature
+        # cue of the palette; it does not consume texture statistics
+        # or the raw hex lists.
+        "palette": True,
+        "palette_keys": ["temperature", "saturation", "color_relationship"],
+        "stats_fields": [],
+        "include_palette": True,
+        "include_geometry": True,
+        "include_stats": False,
+    },
+    "style": {
+        # Style is the most aggregate type: it legitimately wants to
+        # absorb every fingerprint dimension because it represents a
+        # unified visual signature.
+        "palette": True,
+        "stats_fields": [
+            "exposure",
+            "dynamic_range",
+            "edge_density",
+            "low_frequency_ratio",
+            "mid_frequency_ratio",
+            "high_frequency_ratio",
+        ],
+        "include_palette": True,
+        "include_geometry": True,
+        "include_stats": True,
+    },
+    "camera": {
+        # Camera cares about aspect ratio (its shot_distance proxy)
+        # and exposure (lens feel).
+        "palette": False,
+        "stats_fields": ["exposure", "dynamic_range"],
+        "include_palette": False,
+        "include_geometry": True,
+        "include_stats": True,
+    },
+    "character": {
+        # Character is a non-image subject: silhouettes, costume, and
+        # pose need a target detector, not a per-image fingerprint.
+        "palette": False,
+        "stats_fields": [],
+        "include_palette": False,
+        "include_geometry": False,
+        "include_stats": False,
+    },
+    "prop_symbol": {
+        # Same as character: needs object detection, not a per-image
+        # color/geometry fingerprint.
+        "palette": False,
+        "stats_fields": [],
+        "include_palette": False,
+        "include_geometry": False,
+        "include_stats": False,
+    },
+    "negative_rule": {
+        # Negative rules explicitly forbid traits; surfacing a
+        # fingerprint of the very thing the user wants to avoid would
+        # be self-defeating. Skip the merge entirely.
+        "palette": False,
+        "stats_fields": [],
+        "include_palette": False,
+        "include_geometry": False,
+        "include_stats": False,
+    },
+}
+
+# Fallback for unknown / future types. Strict: emit nothing rather
+# than risk a cross-type contamination.
+_EMPTY_FOOTPRINT_TYPE: dict[str, Any] = {
+    "palette": False,
+    "stats_fields": [],
+    "include_palette": False,
+    "include_geometry": False,
+    "include_stats": False,
+}
+
+
 class AetherStore:
     NON_RECALLABLE_STATUSES = {"archived", "deprecated", "merged"}
     COMPACT_TEXT_LIMIT = 520
@@ -756,12 +902,23 @@ class AetherStore:
 
         Visual assets rarely carry the fingerprint directly (it lives on the
         ``assets`` row), so we walk ``source_references`` and look up each
-        reference asset by id, then summarize its palette/geometry/stats
-        block. The summary is appended to the canonical text so the
-        embedding index surfaces visual signals alongside textual tags.
+        reference asset by id, then summarize the parts of the fingerprint
+        that match the visual asset's ``type``. The summary is appended to
+        the canonical text so the embedding index surfaces visual signals
+        that are semantically appropriate for the asset.
         """
 
         from .image_fingerprint import fingerprint_summary
+
+        asset_type = entity.get("type")
+        allowed = _FOOTPRINT_TYPE_MAP.get(asset_type, _EMPTY_FOOTPRINT_TYPE)
+        include_any = (
+            allowed["include_palette"]
+            or allowed["include_geometry"]
+            or allowed["include_stats"]
+        )
+        if not include_any:
+            return ""
 
         references = entity.get("source_references") or []
         snippets: list[str] = []
@@ -775,7 +932,27 @@ class AetherStore:
             if not asset:
                 continue
             fingerprint = asset.get("fingerprint") or {}
-            summary = fingerprint_summary(fingerprint)
+            # Build a fingerprint snapshot that only contains the
+            # blocks the type is allowed to see. For ``stats`` we go
+            # further and trim the per-key fields so lighting text
+            # does not absorb edge_density from shape_line territory.
+            trimmed: dict[str, Any] = {}
+            if allowed["include_palette"] and fingerprint.get("palette"):
+                trimmed["palette"] = fingerprint["palette"]
+            if allowed["include_geometry"] and fingerprint.get("geometry"):
+                trimmed["geometry"] = fingerprint["geometry"]
+            if allowed["include_stats"] and fingerprint.get("stats"):
+                stats_keys = allowed["stats_fields"] or list(
+                    (fingerprint.get("stats") or {}).keys()
+                )
+                trimmed["stats"] = {
+                    key: value
+                    for key, value in (fingerprint.get("stats") or {}).items()
+                    if key in stats_keys
+                }
+            if not trimmed:
+                continue
+            summary = fingerprint_summary(trimmed)
             if summary:
                 snippets.append(summary)
         if not snippets:
@@ -785,12 +962,26 @@ class AetherStore:
     def _merge_image_fingerprint_into_profile(
         self, profile: Any, entity: dict[str, Any]
     ) -> dict[str, Any]:
-        """Project the first available source-reference fingerprint into the
-        profile so callers that read ``profile`` directly get hex palette,
-        geometry, and stats without needing to walk source_references.
+        """Project the source-reference fingerprint into the profile using
+        a type-aware field mapping.
+
+        Different ``visual_assets.type`` values only make sense with
+        specific fingerprint blocks. Color palette assets should not
+        absorb geometry subject boxes, and lighting assets should not
+        pick up texture frequency ratios. The mapping below is the
+        single source of truth for which fingerprint dimensions may
+        land in which profile.
+
+        The top-level ``image_fingerprint`` snapshot still gets
+        attached to every type because it is a root field (not subject
+        to the per-type profile white-list), but it is trimmed to the
+        blocks the type is allowed to consume.
         """
 
         from .image_fingerprint import palette_to_profile
+
+        asset_type = entity.get("type")
+        allowed = _FOOTPRINT_TYPE_MAP.get(asset_type, _EMPTY_FOOTPRINT_TYPE)
 
         if not isinstance(profile, dict):
             profile = {}
@@ -804,20 +995,55 @@ class AetherStore:
             fingerprint = asset.get("fingerprint") or {}
             if not fingerprint:
                 continue
-            palette_profile = palette_to_profile(fingerprint)
-            for key, value in palette_profile.items():
-                merged.setdefault(key, value)
-            if "image_fingerprint" not in merged:
-                merged["image_fingerprint"] = {
-                    "palette": (fingerprint.get("palette") or {}),
-                    "geometry": (fingerprint.get("geometry") or {}),
-                    "stats": {
+            # Profile fields: only set keys that the type's profile
+            # white-list is willing to accept. This avoids leaking
+            # ``dominant_hex`` into a ``lighting`` profile or
+            # ``exposure`` into a ``texture`` profile.
+            if allowed["palette"]:
+                palette_profile = palette_to_profile(fingerprint)
+                palette_keys = allowed.get("palette_keys")
+                if palette_keys is None:
+                    # Default: every palette key. Used by
+                    # color_palette and style, where the full hex
+                    # payload is the point of the asset.
+                    for key, value in palette_profile.items():
+                        merged.setdefault(key, value)
+                else:
+                    # Selective palette (e.g. mood borrows
+                    # temperature / saturation but not the raw hex
+                    # lists).
+                    for key in palette_keys:
+                        if key in palette_profile and key not in merged:
+                            merged[key] = palette_profile[key]
+            if allowed["stats_fields"]:
+                stats = fingerprint.get("stats") or {}
+                for key in allowed["stats_fields"]:
+                    if key in stats and key not in merged:
+                        merged[key] = stats[key]
+            # Top-level image_fingerprint snapshot, trimmed to the
+            # blocks the type is allowed to see. Skip the snapshot
+            # entirely when the type is not allowed to consume any
+            # block (e.g. character / prop_symbol / negative_rule)
+            # so we never attach a no-op payload.
+            include_any = (
+                allowed["include_palette"]
+                or allowed["include_geometry"]
+                or allowed["include_stats"]
+            )
+            if include_any and "image_fingerprint" not in merged:
+                trimmed: dict[str, Any] = {"has_clip": bool(fingerprint.get("clip"))}
+                if allowed["include_palette"]:
+                    trimmed["palette"] = fingerprint.get("palette") or {}
+                if allowed["include_geometry"]:
+                    trimmed["geometry"] = fingerprint.get("geometry") or {}
+                if allowed["include_stats"]:
+                    stats = fingerprint.get("stats") or {}
+                    trimmed["stats"] = {
                         key: value
-                        for key, value in (fingerprint.get("stats") or {}).items()
+                        for key, value in stats.items()
                         if key != "stats_vector"
-                    },
-                    "has_clip": bool(fingerprint.get("clip")),
-                }
+                    }
+                merged["image_fingerprint"] = trimmed
             break
         return merged
 
