@@ -1899,6 +1899,106 @@ class StorageTests(unittest.TestCase):
                 )
             self.assertIn("composition_rules.key", str(ctx.exception))
 
+    def test_recipe_update_adds_source_reference_ids(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = AetherStore(Path(temp_dir) / "aether.sqlite")
+            store.init()
+            recipe = store.create_recipe(
+                {
+                    "name": "Source Ref Recipe",
+                    "summary": "x",
+                    "use_cases": ["x"],
+                    "composition_rules": [],
+                }
+            )
+            # Two reference assets; one will be added by id, one via the
+            # raw assets table path.
+            ref_a = store.create_asset(
+                {
+                    "kind": "reference",
+                    "source_path": "/tmp/aether-test-ref-a.png",
+                    "asset_path": "/tmp/aether-test-ref-a.png",
+                    "sha256": "a" * 64,
+                    "mime_type": "image/png",
+                    "size_bytes": 1,
+                }
+            )
+            ref_b = store.create_asset(
+                {
+                    "kind": "reference",
+                    "source_path": "/tmp/aether-test-ref-b.png",
+                    "asset_path": "/tmp/aether-test-ref-b.png",
+                    "sha256": "b" * 64,
+                    "mime_type": "image/png",
+                    "size_bytes": 1,
+                }
+            )
+            # Add ref_a once, then a second time -> dedupe, length stays 1.
+            updated = store.update_recipe(
+                recipe["id"],
+                add_source_reference_ids=[ref_a["id"], ref_a["id"]],
+            )
+            self.assertEqual(updated["source_reference_ids"], [ref_a["id"]])
+            # Now add ref_b -> order preserved (ref_a first).
+            updated = store.update_recipe(
+                recipe["id"],
+                add_source_reference_ids=[ref_b["id"]],
+            )
+            self.assertEqual(updated["source_reference_ids"], [ref_a["id"], ref_b["id"]])
+            # Revision records the added ids.
+            revisions = store.list_revisions("recipe", entity_id=recipe["id"])
+            self.assertGreaterEqual(len(revisions), 2)
+            last_diff = revisions[0]["diff"]
+            self.assertEqual(last_diff.get("added_source_reference_ids"), [ref_b["id"]])
+
+    def test_recipe_update_rejects_non_reference_source_id(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = AetherStore(Path(temp_dir) / "aether.sqlite")
+            store.init()
+            recipe = store.create_recipe(
+                {
+                    "name": "Reject Source Ref",
+                    "summary": "x",
+                    "use_cases": ["x"],
+                    "composition_rules": [],
+                }
+            )
+            generated = store.create_asset(
+                {
+                    "kind": "generated",
+                    "source_path": "/tmp/aether-test-gen.png",
+                    "asset_path": "/tmp/aether-test-gen.png",
+                    "sha256": "c" * 64,
+                    "mime_type": "image/png",
+                    "size_bytes": 1,
+                }
+            )
+            with self.assertRaises(Exception) as ctx:
+                store.update_recipe(
+                    recipe["id"],
+                    add_source_reference_ids=[generated["id"]],
+                )
+            self.assertIn("kind=reference", str(ctx.exception))
+
+    def test_recipe_update_rejects_missing_source_id(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = AetherStore(Path(temp_dir) / "aether.sqlite")
+            store.init()
+            recipe = store.create_recipe(
+                {
+                    "name": "Missing Source Ref",
+                    "summary": "x",
+                    "use_cases": ["x"],
+                    "composition_rules": [],
+                }
+            )
+            with self.assertRaises(KeyError) as ctx:
+                store.update_recipe(
+                    recipe["id"],
+                    add_source_reference_ids=["asset_does_not_exist"],
+                )
+            self.assertIn("asset_does_not_exist", str(ctx.exception))
+
     def test_visual_asset_prompt_fragments_replace(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             store = AetherStore(Path(temp_dir) / "aether.sqlite")

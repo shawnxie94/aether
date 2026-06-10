@@ -673,6 +673,7 @@ def cmd_recipe_update(args: argparse.Namespace) -> None:
         args.recipe_id,
         append_composition_rules=append_rules or None,
         append_prompt_fragments_by_asset=append_fragments or None,
+        add_source_reference_ids=list(args.source_reference_id or []) or None,
         metadata_patch=metadata_patch or None,
         reason=args.reason or "",
     )
@@ -1222,6 +1223,16 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "asset_id=fragment pair to append to that asset's prompt_fragments. "
             "The asset must already be linked to the recipe. Repeatable."
+        ),
+    )
+    recipe_update.add_argument(
+        "--source-reference-id",
+        action="append",
+        default=[],
+        help=(
+            "Reference asset id to append to source_reference_ids. "
+            "Repeatable. Each id must point to an existing reference asset; "
+            "duplicates are ignored."
         ),
     )
     recipe_update.add_argument("--metadata-patch", help="JSON object merged into recipe.metadata")

@@ -3688,6 +3688,7 @@ class AetherStore:
         append_composition_rules: list[dict[str, Any]] | None = None,
         replace_composition_rules: list[dict[str, Any]] | None = None,
         append_prompt_fragments_by_asset: dict[str, list[str]] | None = None,
+        add_source_reference_ids: list[str] | None = None,
         metadata_patch: dict[str, Any] | None = None,
         reason: str = "",
     ) -> dict[str, Any]:
@@ -3707,6 +3708,10 @@ class AetherStore:
           append prompt fragments to the asset's prompt_fragments list.
           The asset must already be linked to the recipe, otherwise a
           KeyError is raised.
+        - add_source_reference_ids: append reference asset ids to the
+          recipe's source_reference_ids list. Each id must point to an
+          existing asset of kind=reference; duplicates are ignored and
+          the existing order is preserved.
         - metadata_patch: shallow merge into recipe.metadata.
 
         Returns the refreshed recipe record. Raises KeyError if the
@@ -3766,6 +3771,40 @@ class AetherStore:
             merged_metadata.update(metadata_patch)
             updated_payload["metadata"] = merged_metadata
 
+        if add_source_reference_ids:
+            normalized_ids: list[str] = []
+            for raw_id in add_source_reference_ids:
+                if not isinstance(raw_id, str) or not raw_id.strip():
+                    raise ValueError("Each source_reference_id must be a non-empty string")
+                normalized_ids.append(raw_id.strip())
+            with self.connect() as conn:
+                placeholders = ",".join("?" for _ in normalized_ids)
+                rows = conn.execute(
+                    f"select id, kind from assets where id in ({placeholders})",
+                    tuple(normalized_ids),
+                ).fetchall()
+            found = {row["id"]: row["kind"] for row in rows}
+            missing = [asset_id for asset_id in normalized_ids if asset_id not in found]
+            if missing:
+                raise KeyError(
+                    f"Reference assets not found: {', '.join(missing)}"
+                )
+            wrong_kind = [
+                asset_id for asset_id, kind in found.items()
+                if kind != "reference"
+            ]
+            if wrong_kind:
+                raise ValueError(
+                    "source_reference_ids must reference kind=reference assets; "
+                    f"non-reference ids: {', '.join(sorted(wrong_kind))}"
+                )
+            existing_refs = list(existing.get("source_reference_ids", []))
+            merged_refs = list(existing_refs)
+            for asset_id in normalized_ids:
+                if asset_id not in merged_refs:
+                    merged_refs.append(asset_id)
+            updated_payload["source_reference_ids"] = merged_refs
+
         # Use create_recipe upsert path so the SQL stays a single statement.
         self.create_recipe(updated_payload)
 
@@ -3785,6 +3824,9 @@ class AetherStore:
                     "replaced_rules": replace_composition_rules is not None,
                     "appended_assets": list(
                         (append_prompt_fragments_by_asset or {}).keys()
+                    ),
+                    "added_source_reference_ids": list(
+                        add_source_reference_ids or []
                     ),
                     "metadata_keys": list((metadata_patch or {}).keys()),
                 },

@@ -69,7 +69,8 @@ cache-sync:
 	    exit 1; \
 	}
 	cp plugins/aether/src/aether_core/__init__.py \
-	   plugins/aether/src/aether_core/composer.py \
+	   plugins/aether/src/aether_core/cli.py \
+   plugins/aether/src/aether_core/composer.py \
 	   plugins/aether/src/aether_core/embeddings.py \
 	   plugins/aether/src/aether_core/migrations.py \
 	   plugins/aether/src/aether_core/panel_data.py \
