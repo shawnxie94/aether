@@ -329,6 +329,7 @@ def compose_prompt(
     explicit_asset_ids: list[str] | None = None,
     system_ids: list[str] | None = None,
     recipe_ids: list[str] | None = None,
+    source_reference_asset_ids: list[str] | None = None,
     query: str = "",
     aspect_ratio: str | None = None,
     target_generation_skill: str | None = None,
@@ -339,30 +340,50 @@ def compose_prompt(
     explicit_asset_ids = explicit_asset_ids or []
     system_ids = system_ids or []
     recipe_ids = recipe_ids or []
+    source_reference_asset_ids = source_reference_asset_ids or []
     explicit_set = set(explicit_asset_ids)
     intent_sketch = _intent_sketch(source_prompt, query)
     recall_query = " ".join([source_prompt, query, " ".join(intent_sketch["query_terms"])])
+    # When the caller hands us reference asset ids (e.g. chat attachments
+    # or visual-asset-capture evidence) we average their stored image
+    # fingerprints and feed the result to hybrid_recall as
+    # ``query_fingerprint``. That lets the recall ranking use the
+    # visual_signal_score (palette / stats / CLIP cosine) on top of the
+    # existing lexical and embedding channels, so a "warm evening glow"
+    # source prompt paired with a warm reference image can float warm
+    # visual assets above the textual results.
+    from .image_fingerprint import merge_fingerprints
+    ref_fingerprints: list[dict[str, Any]] = []
+    for ref_id in source_reference_asset_ids:
+        ref_asset = store.get_asset(ref_id)
+        if not ref_asset:
+            continue
+        ref_fp = ref_asset.get("fingerprint") or {}
+        if ref_fp:
+            ref_fingerprints.append(ref_fp)
+    query_fingerprint = merge_fingerprints(ref_fingerprints)
+    recall_kwargs = {"config": config, "query_fingerprint": query_fingerprint} if query_fingerprint else {"config": config}
     recalled_systems: list[dict[str, Any]] = []
     recalled_recipes: list[dict[str, Any]] = []
     recalled_assets: list[dict[str, Any]] = []
     if not system_ids:
         recalled_systems = [
             item
-            for item in store.hybrid_recall("visual_system", recall_query, config=config, limit=3)
+            for item in store.hybrid_recall("visual_system", recall_query, **recall_kwargs, limit=3)
             if item["score"] >= 0.02
         ]
         system_ids = [item["system_id"] for item in recalled_systems[:1]]
     if not recipe_ids:
         recalled_recipes = [
             item
-            for item in store.hybrid_recall("recipe", recall_query, config=config, limit=3)
+            for item in store.hybrid_recall("recipe", recall_query, **recall_kwargs, limit=3)
             if item["score"] >= 0.02
         ]
         selected_recipe_id = _choose_recalled_recipe(store, recalled_recipes)
         recipe_ids = [selected_recipe_id] if selected_recipe_id else []
     recalled_assets = [
         item
-        for item in store.hybrid_recall("visual_asset", recall_query, config=config, limit=12)
+        for item in store.hybrid_recall("visual_asset", recall_query, **recall_kwargs, limit=12)
         if item["score"] >= 0.02
     ]
     collapsed_recalled_assets = _collapse_recalled_assets_by_family(
@@ -801,6 +822,8 @@ def compose_prompt(
             "semantic_enabled": bool(config and config.get("embedding", {}).get("provider") not in (None, "", "disabled")),
             "embedding_provider": (config or {}).get("embedding", {}).get("provider", "disabled"),
             "embedding_model": (config or {}).get("embedding", {}).get("model", ""),
+            "visual_signal_enabled": bool(query_fingerprint),
+            "source_reference_asset_ids": list(source_reference_asset_ids),
         },
         "intent_analysis": {
             "source_prompt": source_prompt,

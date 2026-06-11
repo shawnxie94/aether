@@ -525,6 +525,175 @@ class ComposerTests(unittest.TestCase):
             )
             self.assertNotIn("Recipe signature coverage:", record["refined_prompt"])
 
+    def test_compose_prompt_uses_reference_fingerprint_to_bias_recall(self):
+        """When the caller hands compose_prompt a reference asset id
+        whose fingerprint is warm, the recall ranking should float the
+        warm visual asset above the cool one even though both share the
+        same textual query terms. This pins the visual_signal_score path
+        that was previously dormant because query_fingerprint was
+        never threaded into compose_prompt.
+        """
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = AetherStore(Path(temp_dir) / "aether.sqlite")
+            store.init()
+
+            warm_reference = store.create_asset(
+                {
+                    "kind": "reference",
+                    "source_path": "/tmp/warm.png",
+                    "asset_path": "/tmp/warm.png",
+                    "sha256": "warm-sha",
+                    "mime_type": "image/png",
+                    "size_bytes": 1,
+                    "fingerprint": {
+                        "palette": {
+                            "dominant_hex": ["#ff5500", "#cc1100", "#882200"],
+                            "accent_hex": ["#ffeebb"],
+                            "temperature": "warm",
+                        },
+                        "stats": {"stats_vector": [0.8, 0.7, 0.6, 0.9, 0.1, 0.2, 0.7, 0.3]},
+                        "clip": [0.9, 0.1, 0.0],
+                    },
+                }
+            )
+            cool_reference = store.create_asset(
+                {
+                    "kind": "reference",
+                    "source_path": "/tmp/cool.png",
+                    "asset_path": "/tmp/cool.png",
+                    "sha256": "cool-sha",
+                    "mime_type": "image/png",
+                    "size_bytes": 1,
+                    "fingerprint": {
+                        "palette": {
+                            "dominant_hex": ["#001155", "#223388", "#4455aa"],
+                            "accent_hex": ["#aaccff"],
+                            "temperature": "cool",
+                        },
+                        "stats": {"stats_vector": [0.1, 0.3, 0.0, 0.2, 0.7, 0.6, 0.1, 0.1]},
+                        "clip": [0.0, 0.1, 0.9],
+                    },
+                }
+            )
+
+            warm_style = store.create_visual_asset(
+                {
+                    "type": "style",
+                    "name": "Warm sunset",
+                    "summary": "warm sunset atmosphere style",
+                    "tags": ["warm", "sunset"],
+                    "status": "active",
+                    # The visual_asset row carries a source_references
+                    # pointer so the lazy fingerprint merge on read can
+                    # surface the reference asset's fingerprint; the
+                    # visual_signal_score branch keys off that.
+                    "source_references": [
+                        {"asset_id": warm_reference["id"], "image_path": warm_reference["asset_path"]}
+                    ],
+                }
+            )
+            cool_style = store.create_visual_asset(
+                {
+                    "type": "style",
+                    "name": "Cool midnight",
+                    "summary": "cool midnight atmosphere style",
+                    "tags": ["cool", "midnight"],
+                    "status": "active",
+                    "source_references": [
+                        {"asset_id": cool_reference["id"], "image_path": cool_reference["asset_path"]}
+                    ],
+                }
+            )
+
+            record_warm = compose_prompt(
+                store,
+                "atmosphere style",
+                query="atmosphere",
+                source_reference_asset_ids=[warm_reference["id"]],
+            )
+            record_cool = compose_prompt(
+                store,
+                "atmosphere style",
+                query="atmosphere",
+                source_reference_asset_ids=[cool_reference["id"]],
+            )
+
+            self.assertTrue(record_warm["recall_strategy"]["visual_signal_enabled"])
+            self.assertEqual(
+                record_warm["recall_strategy"]["source_reference_asset_ids"],
+                [warm_reference["id"]],
+            )
+            self.assertFalse(
+                compose_prompt(
+                    store,
+                    "atmosphere style",
+                    query="atmosphere",
+                )["recall_strategy"]["visual_signal_enabled"]
+            )
+
+            # The warm reference should make the warm style rank
+            # strictly above the cool style; the cool reference should
+            # flip the order.
+            warm_recall = {
+                item["asset_id"]: item
+                for item in record_warm["recall_candidates"]["visual_assets"]
+            }
+            cool_recall = {
+                item["asset_id"]: item
+                for item in record_cool["recall_candidates"]["visual_assets"]
+            }
+            self.assertGreater(
+                warm_recall[warm_style["id"]]["score"],
+                warm_recall[cool_style["id"]]["score"],
+                "warm reference should float warm style above cool style",
+            )
+            self.assertGreater(
+                cool_recall[cool_style["id"]]["score"],
+                cool_recall[warm_style["id"]]["score"],
+                "cool reference should float cool style above warm style",
+            )
+
+    def test_merge_fingerprints_handles_empty_and_partial(self):
+        """merge_fingerprints is the new helper that backs the
+        query_fingerprint path; lock its contract so callers can rely
+        on the empty / partial / mixed-clip behaviour.
+        """
+        from aether_core.image_fingerprint import merge_fingerprints
+
+        self.assertEqual(merge_fingerprints([]), {})
+        self.assertEqual(merge_fingerprints([None, {}]), {})
+
+        # Single fingerprint round-trips: every block survives.
+        only = {
+            "palette": {
+                "dominant_hex": ["#112233"],
+                "accent_hex": ["#445566"],
+                "temperature": "warm",
+                "saturation": 0.5,
+            },
+            "stats": {
+                "stats_vector": [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8],
+                "exposure": 0.1,
+            },
+            "clip": [0.1, 0.2, 0.3],
+        }
+        merged = merge_fingerprints([only])
+        self.assertEqual(merged["palette"]["dominant_hex"], ["#112233"])
+        self.assertEqual(merged["stats"]["stats_vector"], only["stats"]["stats_vector"])
+        self.assertEqual(merged["clip"], [0.1, 0.2, 0.3])
+        self.assertTrue(merged["has_clip"])
+
+        # Mixing a fingerprint with a clip and one without must still
+        # produce a usable merged clip vector so the visual_signal_score
+        # path can fire; the merge must not silently drop the block.
+        no_clip = {
+            "palette": {"dominant_hex": ["#aabbcc"]},
+            "stats": {"stats_vector": [0.4, 0.5, 0.6, 0.7, 0.1, 0.1, 0.1, 0.1]},
+        }
+        merged = merge_fingerprints([only, no_clip])
+        self.assertEqual(len(merged["clip"]), 3)
+        self.assertTrue(merged["has_clip"])
+
 
 if __name__ == "__main__":
     unittest.main()

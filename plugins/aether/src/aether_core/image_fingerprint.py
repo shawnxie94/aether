@@ -413,6 +413,109 @@ def cosine_similarity_vector(left, right):
     return max(0.0, min(1.0, dot / (left_norm * right_norm)))
 
 
+def _hex_from_rgb_normalized(rgb):
+    r, g, b = (max(0, min(255, int(round(channel * 255)))) for channel in rgb)
+    return f"#{r:02x}{g:02x}{b:02x}"
+
+
+def merge_fingerprints(fingerprints):
+    """Average a list of fingerprint dicts into a single representative
+    fingerprint for query-side similarity scoring.
+
+    The merge keeps only the blocks that every input shares; otherwise
+    the resulting fingerprint would carry a value backed by fewer
+    observations and bias the cosine similarity. ``palette.dominant_hex``
+    / ``palette.accent_hex`` are averaged per RGB channel, ``stats_vector``
+    and ``clip`` are averaged element-wise. ``temperature`` is taken from
+    the first input that has one (it is a categorical, not a vector).
+    Returns an empty dict if no input has any of those blocks.
+    """
+
+    cleaned = [fp for fp in (fingerprints or []) if fp]
+    if not cleaned:
+        return {}
+
+    palettes = [fp.get("palette") or {} for fp in cleaned]
+    geometries = [fp.get("geometry") or {} for fp in cleaned]
+    stats = [fp.get("stats") or {} for fp in cleaned]
+    clips = [fp.get("clip") for fp in cleaned]
+
+    def _avg_hex(per_fp_hexes):
+        buckets: list[list[tuple[float, float, float]]] = []
+        for hexes in per_fp_hexes:
+            bucket = []
+            for value in hexes or []:
+                if not isinstance(value, str) or len(value) != 7 or not value.startswith("#"):
+                    continue
+                try:
+                    r = int(value[1:3], 16) / 255.0
+                    g = int(value[3:5], 16) / 255.0
+                    b = int(value[5:7], 16) / 255.0
+                except ValueError:
+                    continue
+                bucket.append((r, g, b))
+            if bucket:
+                buckets.append(bucket)
+        if not buckets:
+            return []
+        width = max(len(b) for b in buckets)
+        padded = [b + [b[-1]] * (width - len(b)) for b in buckets]
+        merged: list[str] = []
+        for column in zip(*padded):
+            rs = sum(item[0] for item in column) / len(column)
+            gs = sum(item[1] for item in column) / len(column)
+            bs = sum(item[2] for item in column) / len(column)
+            merged.append(_hex_from_rgb_normalized((rs, gs, bs)))
+        return merged
+
+    def _avg_vector(per_fp_vectors):
+        vectors = [v for v in per_fp_vectors if v]
+        if not vectors:
+            return []
+        width = max(len(v) for v in vectors)
+        padded = [list(v) + [v[-1]] * (width - len(v)) for v in vectors]
+        return [sum(col) / len(col) for col in zip(*padded)]
+
+    merged: dict[str, Any] = {}
+    dominant = _avg_hex([p.get("dominant_hex") for p in palettes])
+    accent = _avg_hex([p.get("accent_hex") for p in palettes])
+    if dominant or accent:
+        merged_palette: dict[str, Any] = {}
+        if dominant:
+            merged_palette["dominant_hex"] = dominant
+        if accent:
+            merged_palette["accent_hex"] = accent
+        for key in ("temperature", "saturation", "color_relationship"):
+            values = [p.get(key) for p in palettes if p.get(key) is not None]
+            if values:
+                merged_palette[key] = values[0] if key == "temperature" else (
+                    round(sum(values) / len(values), 4) if all(isinstance(v, (int, float)) for v in values) else values[0]
+                )
+        merged["palette"] = merged_palette
+
+    if any(geometries):
+        # Geometry fields are scalars per image; keep the first input's
+        # values so a single dominant frame still drives the query.
+        merged["geometry"] = next((g for g in geometries if g), {})
+
+    stats_vector = _avg_vector([s.get("stats_vector") for s in stats])
+    if stats_vector:
+        merged_stats: dict[str, Any] = {"stats_vector": [round(v, 4) for v in stats_vector]}
+        for key in ("exposure", "dynamic_range", "edge_density",
+                    "low_frequency_ratio", "mid_frequency_ratio", "high_frequency_ratio"):
+            values = [s.get(key) for s in stats if isinstance(s.get(key), (int, float))]
+            if values:
+                merged_stats[key] = round(sum(values) / len(values), 4)
+        merged["stats"] = merged_stats
+
+    clip_vector = _avg_vector(clips)
+    if clip_vector:
+        merged["clip"] = [round(v, 6) for v in clip_vector]
+    merged["has_clip"] = bool(clip_vector)
+
+    return merged
+
+
 def visual_signal_score(left, right):
     """Return a 0-1 score combining palette, stats, and CLIP cosine.
 

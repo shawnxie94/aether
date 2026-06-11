@@ -46,6 +46,16 @@ def main() -> None:
     parser.add_argument("--asset-id", action="append", default=[])
     parser.add_argument("--system-id", action="append", default=[])
     parser.add_argument("--recipe-id", action="append", default=[])
+    parser.add_argument(
+        "--reference-asset-id",
+        action="append",
+        default=[],
+        help=(
+            "Reference asset id whose image fingerprint should bias the recall ranking. "
+            "Repeatable; the fingerprints are averaged to form the query footprint. "
+            "Use this for chat attachments or visual-asset-capture evidence."
+        ),
+    )
     parser.add_argument("--aspect-ratio")
     parser.add_argument("--target-generation-skill")
     parser.add_argument("--overlay-json", help="Optional prompt-record JSON overrides, or '-' for stdin.")
@@ -65,6 +75,7 @@ def main() -> None:
         explicit_asset_ids=args.asset_id,
         system_ids=args.system_id,
         recipe_ids=args.recipe_id,
+        source_reference_asset_ids=args.reference_asset_id,
         query=args.query,
         aspect_ratio=args.aspect_ratio,
         target_generation_skill=target_generation_skill,

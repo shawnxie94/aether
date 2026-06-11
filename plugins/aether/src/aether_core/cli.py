@@ -834,6 +834,7 @@ def cmd_prompt_compose(args: argparse.Namespace) -> None:
         explicit_asset_ids=args.asset_id or [],
         system_ids=args.system_id or [],
         recipe_ids=args.recipe_id or [],
+        source_reference_asset_ids=args.reference_asset_id or [],
         query=args.query or "",
         aspect_ratio=args.aspect_ratio,
         target_generation_skill=target_generation_skill,
@@ -1385,6 +1386,16 @@ def build_parser() -> argparse.ArgumentParser:
     prompt_compose.add_argument("--asset-id", action="append", help="Saved visual memory ID to apply. Repeatable.")
     prompt_compose.add_argument("--system-id", action="append", help="Visual system ID to apply. Repeatable.")
     prompt_compose.add_argument("--recipe-id", action="append", help="Recipe ID to apply. Repeatable.")
+    prompt_compose.add_argument(
+        "--reference-asset-id",
+        action="append",
+        help=(
+            "Reference asset id whose image fingerprint should bias the recall ranking. "
+            "Repeatable; the fingerprints are averaged to form the query footprint. "
+            "Use this for chat attachments or visual-asset-capture evidence that should "
+            "steer recall towards palette / geometry / CLIP-similar visual memory."
+        ),
+    )
     prompt_compose.add_argument("--query", help="Keywords used to recall related visual memory.")
     prompt_compose.add_argument("--aspect-ratio", help="Preferred image aspect ratio, such as 1:1, 3:4, or 16:9.")
     prompt_compose.add_argument("--target-generation-skill", help="Generation skill name to target.")
