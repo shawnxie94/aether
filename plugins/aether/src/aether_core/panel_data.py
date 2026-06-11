@@ -35,7 +35,55 @@ def _image_from_asset(asset: dict[str, Any]) -> dict[str, Any]:
         "sha256": asset.get("sha256", ""),
         "size_bytes": asset.get("size_bytes", 0),
         "exists": path.exists(),
+        "fingerprint": _panel_image_fingerprint(asset.get("fingerprint") or {}),
     }
+
+
+def _panel_image_fingerprint(fingerprint: dict[str, Any]) -> dict[str, Any]:
+    """Project the raw image fingerprint into the lightweight shape the
+    panel renders. Keeps only the palette / geometry / stats blocks the
+    UI cares about, plus a ``has_clip`` boolean so the template can show
+    whether the embedding is present without leaking the vector.
+    """
+    if not fingerprint:
+        return {}
+    palette = fingerprint.get("palette") or {}
+    geometry = fingerprint.get("geometry") or {}
+    stats = fingerprint.get("stats") or {}
+    if not (palette or geometry or stats):
+        return {}
+    summary: dict[str, Any] = {"has_clip": bool(fingerprint.get("clip"))}
+    if palette:
+        summary["palette"] = {
+            "dominant_hex": palette.get("dominant_hex") or [],
+            "accent_hex": palette.get("accent_hex") or [],
+            "temperature": palette.get("temperature"),
+            "saturation": palette.get("saturation"),
+        }
+    if geometry:
+        summary["geometry"] = {
+            "width": geometry.get("width"),
+            "height": geometry.get("height"),
+            "aspect_ratio": geometry.get("aspect_ratio"),
+        }
+    if stats:
+        summary["stats"] = {
+            "mean_brightness": stats.get("mean_brightness"),
+            "contrast": stats.get("contrast"),
+        }
+    return summary
+
+
+def _visual_asset_image_fingerprint(asset: dict[str, Any]) -> dict[str, Any]:
+    """Return the visual asset level ``image_fingerprint`` snapshot.
+
+    The snapshot is already merged into ``asset["profile"]`` by
+    :meth:`AetherStore._merge_image_fingerprint_into_profile`, so the
+    panel renderer can read it directly from the profile payload.
+    """
+    profile = asset.get("profile") or {}
+    snapshot = profile.get("image_fingerprint")
+    return snapshot if isinstance(snapshot, dict) else {}
 
 
 def _compact_text(value: str, limit: int = 180) -> str:
@@ -153,6 +201,7 @@ def collect_panel_data(config: LoadedConfig, store: AetherStore) -> dict[str, An
                 "negative_fragment_count": len(asset.get("negative_fragments", [])),
                 "reference_images": _resolve_images(reference_ids, asset_map, kind="reference"),
                 "generated_images": _resolve_images(generated_ids, asset_map, kind="generated"),
+                "image_fingerprint": _visual_asset_image_fingerprint(asset),
             }
         )
 
@@ -453,6 +502,7 @@ def collect_panel_visual_assets(config: LoadedConfig, store: AetherStore) -> lis
                 "negative_fragment_count": len(asset.get("negative_fragments", [])),
                 "reference_images": _resolve_images(reference_ids, asset_map, kind="reference"),
                 "generated_images": _resolve_images(generated_ids, asset_map, kind="generated"),
+                "image_fingerprint": _visual_asset_image_fingerprint(asset),
             }
         )
     return items

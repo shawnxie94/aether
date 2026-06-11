@@ -486,6 +486,156 @@ class PanelTemplateLoaderTests(unittest.TestCase):
         self.assertIn("<script>", PANEL_HTML)
 
 
+class PanelFingerprintTests(unittest.TestCase):
+    """The panel must surface the image fingerprint pipeline that
+    ``aether_core.storage`` exposes on the asset / visual_asset rows.
+    """
+
+    def _setUpPanel(self):
+        ctx = tempfile.TemporaryDirectory()
+        self.addCleanup(ctx.cleanup)
+        root = Path(ctx.name)
+        config = load_config(write_config(root))
+        store = AetherStore(config.database_path)
+        store.init()
+        reference_path = root / "reference.png"
+        generated_path = root / "generated.png"
+        reference_path.write_bytes(b"reference")
+        generated_path.write_bytes(b"generated")
+        reference_fingerprint = {
+            "palette": {
+                "dominant_hex": ["#aabbcc", "#112233"],
+                "accent_hex": ["#ff8800"],
+                "temperature": "warm",
+                "saturation": 0.42,
+            },
+            "geometry": {
+                "width": 1024,
+                "height": 768,
+                "aspect_ratio": 1.3333,
+            },
+            "stats": {"mean_brightness": 0.51, "contrast": 0.33},
+            "clip": [0.1, 0.2, 0.3],
+        }
+        reference = store.create_asset(
+            {
+                "kind": "reference",
+                "source_path": str(reference_path),
+                "asset_path": str(reference_path),
+                "sha256": "ref-sha",
+                "mime_type": "image/png",
+                "size_bytes": reference_path.stat().st_size,
+                "fingerprint": reference_fingerprint,
+            }
+        )
+        generated = store.create_asset(
+            {
+                "kind": "generated",
+                "source_path": str(generated_path),
+                "asset_path": str(generated_path),
+                "sha256": "gen-sha",
+                "mime_type": "image/png",
+                "size_bytes": generated_path.stat().st_size,
+                "fingerprint": {
+                    "palette": {
+                        "dominant_hex": ["#445566"],
+                        "temperature": "cool",
+                        "saturation": 0.20,
+                    },
+                },
+            }
+        )
+        visual_asset = store.create_visual_asset(
+            {
+                "type": "style",
+                "name": "Fingerprint Style",
+                "summary": "Style used to verify the panel renders image fingerprints.",
+                "source_references": [
+                    {"asset_id": reference["id"], "image_path": reference["asset_path"]}
+                ],
+            }
+        )
+        store.create_generation_run(
+            {
+                "source_prompt": "p",
+                "refined_prompt": "p",
+                "generation_skill": "test",
+                "selected_assets": [{"asset_id": visual_asset["id"]}],
+                "outputs": [{"asset_id": generated["id"], "asset_path": generated["asset_path"]}],
+                "status": "generated",
+            }
+        )
+        self._panel_refs = (config, store, reference, generated, visual_asset)
+
+    def test_image_level_fingerprint_is_propagated_to_panel_payload(self):
+        self._setUpPanel()
+        config, store, reference, generated, visual_asset = self._panel_refs
+        data = collect_panel_data(config, store)
+        panel_asset = next(item for item in data["visual_assets"] if item["id"] == visual_asset["id"])
+
+        panel_refs = panel_asset["reference_images"]
+        self.assertEqual(len(panel_refs), 1)
+        ref_fp = panel_refs[0]["fingerprint"]
+        self.assertEqual(ref_fp["palette"]["dominant_hex"], ["#aabbcc", "#112233"])
+        self.assertEqual(ref_fp["palette"]["accent_hex"], ["#ff8800"])
+        self.assertEqual(ref_fp["palette"]["temperature"], "warm")
+        self.assertEqual(ref_fp["geometry"]["width"], 1024)
+        self.assertEqual(ref_fp["geometry"]["height"], 768)
+        self.assertTrue(ref_fp["has_clip"])
+        # stats vector must never be shipped to the panel.
+        self.assertNotIn("stats_vector", ref_fp.get("stats", {}))
+
+        panel_gens = panel_asset["generated_images"]
+        self.assertEqual(len(panel_gens), 1)
+        gen_fp = panel_gens[0]["fingerprint"]
+        self.assertEqual(gen_fp["palette"]["dominant_hex"], ["#445566"])
+        self.assertEqual(gen_fp["palette"]["temperature"], "cool")
+        self.assertFalse(gen_fp["has_clip"])
+        # Geometry and stats were absent on the generated asset, so the
+        # helper must omit them entirely.
+        self.assertNotIn("geometry", gen_fp)
+        self.assertNotIn("stats", gen_fp)
+
+    def test_visual_asset_image_fingerprint_snapshot_is_exposed(self):
+        self._setUpPanel()
+        config, store, _reference, _generated, visual_asset = self._panel_refs
+        data = collect_panel_data(config, store)
+        panel_asset = next(item for item in data["visual_assets"] if item["id"] == visual_asset["id"])
+        snapshot = panel_asset["image_fingerprint"]
+        # storage._merge_image_fingerprint_into_profile must have already
+        # moved the palette block into profile["image_fingerprint"] for
+        # the type "style". The panel just surfaces it.
+        self.assertIn("palette", snapshot)
+        self.assertEqual(snapshot["palette"]["dominant_hex"], ["#aabbcc", "#112233"])
+        self.assertEqual(snapshot["palette"]["temperature"], "warm")
+        self.assertTrue(snapshot["has_clip"])
+
+    def test_visual_assets_section_endpoint_includes_fingerprint(self):
+        from aether_core import panel_data as panel_data_mod
+
+        self._setUpPanel()
+        config, store, _reference, _generated, visual_asset = self._panel_refs
+        items = panel_data_mod.collect_panel_visual_assets(config, store)
+        panel_asset = next(item for item in items if item["id"] == visual_asset["id"])
+        self.assertIn("image_fingerprint", panel_asset)
+        self.assertIn("fingerprint", panel_asset["reference_images"][0])
+        self.assertIn("fingerprint", panel_asset["generated_images"][0])
+
+    def test_template_renders_fingerprint_helpers(self):
+        from aether_core.panel import PANEL_HTML as html
+        # New CSS classes / helpers must be wired into the on-disk panel
+        # template; if anyone removes the render path the next layer
+        # of tests will start failing.
+        for needle in (
+            "palette-swatches",
+            "function imageFingerprintBlock",
+            "function visualAssetFingerprintBlock",
+            "imageFingerprintBlock(image)",
+            "<h4>Footprint</h4>",
+        ):
+            self.assertIn(needle, html)
+
+
 class PanelSectionEndpointTests(unittest.TestCase):
     """Per-section endpoints with ETag/304 behaviour."""
 
@@ -925,6 +1075,31 @@ class PanelUrlStateSyncTests(unittest.TestCase):
                 "#/favorites",
             )
 
+    def test_tab_click_resets_type_filter(self):
+        # The Type filter is collection-specific (visual_assets.type,
+        # visual_systems.kind, recipe.required_asset_types). Carrying
+        # it across tab switches silently hides every row when, for
+        # example, "texture" was selected on the Assets tab and the
+        # Systems tab has no rows of that kind. The tab click handler
+        # must reset state.type to "" so each view starts with its
+        # full collection. ``state.status`` is intentionally preserved
+        # because the Favorites tab's ``status=active`` default is a
+        # deliberate cross-tab preference, not a leak.
+        anchor = """      state.view = target;
+      state.detail = null;
+      // The Type filter is collection-specific (visual_assets type vs
+      // visual_systems kind vs recipe required_asset_types). Carrying
+      // it across tabs silently leaves users staring at "No matching
+      // records" when, for example, "texture" was selected on the
+      // Assets tab and the Systems tab has no rows of that kind.
+      // Reset it on every tab switch. ``state.status`` is left intact
+      // because the Favorites tab's ``status=active`` default is a
+      // deliberate cross-tab preference, not a leak.
+      state.type = "";
+      render({ push: true });
+    }))"""
+        self.assertIn(anchor, PANEL_HTML)
+
     def test_navigation_uses_push_filter_uses_replace(self):
         # Tab clicks, detail open, and detail close are user navigation
         # so they call ``render({ push: true })`` to add a history entry.
@@ -951,8 +1126,12 @@ class PanelUrlStateSyncTests(unittest.TestCase):
                 f"{fn} should push a history entry",
             )
         tab_click_idx = PANEL_HTML.index('.tab").forEach(button => button.addEventListener("click"')
+        # The tab click handler is the largest of the three push call
+        # sites because the type-reset fix added an explanatory
+        # comment. Keep the window wide enough to span it so this test
+        # does not couple to the exact comment length.
         self.assertIn(
-            "render({ push: true })", PANEL_HTML[tab_click_idx:tab_click_idx + 800],
+            "render({ push: true })", PANEL_HTML[tab_click_idx:tab_click_idx + 1500],
             "tab click handler should push a history entry",
         )
         # Filter inputs do not opt in to push, so they fall through to

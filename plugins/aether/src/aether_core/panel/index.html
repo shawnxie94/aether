@@ -421,6 +421,64 @@
       text-overflow: ellipsis;
       white-space: nowrap;
     }
+    .fingerprint {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      padding: 0 8px 8px;
+      font-size: 11px;
+      color: var(--muted);
+    }
+    .fingerprint .palette-swatches {
+      display: flex;
+      gap: 3px;
+      height: 12px;
+      border-radius: 3px;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      background: var(--panel-soft);
+    }
+    .fingerprint .swatch {
+      flex: 1 1 0;
+      min-width: 0;
+    }
+    .fingerprint .swatch.empty {
+      flex: 1 1 auto;
+      background: transparent;
+    }
+    .fingerprint .meta-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      align-items: center;
+    }
+    .fingerprint .meta-row .pill {
+      padding: 2px 6px;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+    }
+    .fingerprint .temperature.warm { color: var(--gold); }
+    .fingerprint .temperature.cool { color: var(--blue); }
+    .fingerprint .temperature.neutral { color: var(--muted); }
+    .fingerprint.empty {
+      display: none;
+    }
+    .fingerprint .missing {
+      font-size: 10px;
+      color: var(--muted);
+      font-style: italic;
+    }
+    .fingerprint.compact {
+      padding: 0;
+      gap: 4px;
+    }
+    .fingerprint.compact .palette-swatches {
+      height: 8px;
+    }
+    .fingerprint.compact .meta-row .pill {
+      font-size: 9px;
+    }
     .download {
       min-height: 0;
       padding: 5px 8px;
@@ -547,6 +605,64 @@
       return (images || []).filter(image => image.exists !== false);
     }
 
+    function fingerprintHasContent(fp) {
+      return !!(fp && (fp.palette || fp.geometry || fp.stats || fp.has_clip));
+    }
+
+    function fingerprintSwatchList(fp) {
+      const palette = (fp && fp.palette) || {};
+      const hexes = (palette.dominant_hex || []).concat(palette.accent_hex || []);
+      // Cap to six swatches to keep the strip visually compact.
+      return hexes.slice(0, 6);
+    }
+
+    function fingerprintMetaRow(fp, options) {
+      const compact = !!(options && options.compact);
+      const palette = (fp && fp.palette) || {};
+      const geometry = (fp && fp.geometry) || {};
+      const parts = [];
+      const ratio = geometry.aspect_ratio;
+      const width = geometry.width;
+      const height = geometry.height;
+      if (ratio && width && height) {
+        parts.push(`<span class="pill">${esc(width)}×${esc(height)} · ${Number(ratio).toFixed(2)}:1</span>`);
+      } else if (ratio) {
+        parts.push(`<span class="pill">${Number(ratio).toFixed(2)}:1</span>`);
+      }
+      if (palette.temperature) {
+        parts.push(`<span class="pill temperature ${esc(palette.temperature)}">${esc(palette.temperature)}</span>`);
+      }
+      if (fp && fp.has_clip) {
+        parts.push(`<span class="pill" title="CLIP embedding present">CLIP</span>`);
+      }
+      if (compact && !parts.length) {
+        parts.push(`<span class="missing">no footprint</span>`);
+      }
+      return parts.length ? `<div class="meta-row">${parts.join("")}</div>` : "";
+    }
+
+    function imageFingerprintBlock(image) {
+      const fp = (image && image.fingerprint) || null;
+      if (!fingerprintHasContent(fp)) {
+        return `<div class="fingerprint empty"></div>`;
+      }
+      const swatches = fingerprintSwatchList(fp);
+      const swatchHtml = swatches.length
+        ? `<div class="palette-swatches">${swatches.map(hex => `<span class="swatch" style="background:${attr(hex)}" title="${attr(hex)}"></span>`).join("")}</div>`
+        : `<div class="palette-swatches"><span class="swatch empty" title="no palette"></span></div>`;
+      return `<div class="fingerprint">${swatchHtml}${fingerprintMetaRow(fp)}</div>`;
+    }
+
+    function visualAssetFingerprintBlock(item) {
+      const fp = (item && item.image_fingerprint) || null;
+      if (!fingerprintHasContent(fp)) return "";
+      const swatches = fingerprintSwatchList(fp);
+      const swatchHtml = swatches.length
+        ? `<div class="palette-swatches">${swatches.map(hex => `<span class="swatch" style="background:${attr(hex)}" title="${attr(hex)}"></span>`).join("")}</div>`
+        : `<div class="palette-swatches"><span class="swatch empty" title="no palette"></span></div>`;
+      return `<div class="section"><h4>Footprint</h4><div class="fingerprint compact">${swatchHtml}${fingerprintMetaRow(fp, { compact: true })}</div></div>`;
+    }
+
     function imageSet(item) {
       return [...existingImages(item.reference_images), ...existingImages(item.generated_images)];
     }
@@ -650,6 +766,7 @@
           <span>${esc(image.label)}</span>
           <a class="download" href="${attr(image.src)}" download="${attr(image.label)}">Download</a>
         </div>
+        ${imageFingerprintBlock(image)}
       </div>`).join("")}</div>`;
     }
 
@@ -698,6 +815,8 @@
 
     function definitionBlocks(item) {
       const blocks = [];
+      const footprintBlock = visualAssetFingerprintBlock(item);
+      if (footprintBlock) blocks.push(footprintBlock);
       blocks.push(`<div class="section"><h4>Definition</h4><p>${esc(item.definition || item.summary || "")}</p></div>`);
       if (item.tags && item.tags.length) blocks.push(`<div class="section"><h4>Tags</h4><div class="chips">${chips(item.tags)}</div></div>`);
       if (item.required_asset_types && item.required_asset_types.length) blocks.push(`<div class="section"><h4>Required Asset Types</h4><div class="chips">${chips(item.required_asset_types, "recipe")}</div></div>`);
@@ -1116,6 +1235,15 @@
       if (state.view === target && !state.detail) return;
       state.view = target;
       state.detail = null;
+      // The Type filter is collection-specific (visual_assets type vs
+      // visual_systems kind vs recipe required_asset_types). Carrying
+      // it across tabs silently leaves users staring at "No matching
+      // records" when, for example, "texture" was selected on the
+      // Assets tab and the Systems tab has no rows of that kind.
+      // Reset it on every tab switch. ``state.status`` is left intact
+      // because the Favorites tab's ``status=active`` default is a
+      // deliberate cross-tab preference, not a leak.
+      state.type = "";
       render({ push: true });
     }));
     document.getElementById("search").addEventListener("input", event => {
