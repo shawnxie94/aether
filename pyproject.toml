@@ -1,0 +1,22 @@
+[project]
+name = "aether-dev"
+version = "0.1.0"
+description = "Local dev environment for the Aether Codex plugin (image fingerprint pipeline + backfill CLI)."
+requires-python = ">=3.10"
+dependencies = [
+  # Plugin runtime (mirrors plugins/aether/pyproject.toml)
+  "Pillow>=10.0",
+  # Local dev tooling
+  "requests>=2.30",
+]
+
+[project.optional-dependencies]
+clip = [
+  "open_clip_torch>=2.20",
+  "torch>=2.0",
+]
+
+[tool.uv]
+# Keep the existing venv name so the editor + aether CLI launcher
+# keep finding it at the same path.
+package = false

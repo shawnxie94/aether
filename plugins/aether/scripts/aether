@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Resolve the real script path even when invoked through symlinks so
+# the plugin_root we derive here points at the actual install location.
 source_path="${BASH_SOURCE[0]}"
 while [ -L "$source_path" ]; do
   source_dir="$(cd -P "$(dirname "$source_path")" >/dev/null 2>&1 && pwd)"
@@ -15,5 +17,27 @@ done
 script_dir="$(cd -P "$(dirname "$source_path")" >/dev/null 2>&1 && pwd)"
 plugin_root="$(cd "$script_dir/.." >/dev/null 2>&1 && pwd)"
 
-export PYTHONPATH="$plugin_root/src${PYTHONPATH:+:$PYTHONPATH}"
-exec "${PYTHON:-python3}" -m aether_core.cli "$@"
+# Pick the Python interpreter in this priority order:
+#   1. Explicit ${AETHER_PYTHON} env var (CI / custom installs).
+#   2. The repo-local .venv/bin/python two levels above the plugin
+#      (works whether the user runs from the plugin cache or from a
+#      checkout of the plugin source).
+#   3. The legacy ${PYTHON} env var for backwards compatibility.
+#   4. The first "python3" on PATH (system fallback).
+python_exe=""
+if [ -n "${AETHER_PYTHON:-}" ] && [ -x "${AETHER_PYTHON}" ]; then
+  python_exe="${AETHER_PYTHON}"
+elif [ -x "${plugin_root}/../../.venv/bin/python" ]; then
+  python_exe="${plugin_root}/../../.venv/bin/python"
+elif [ -n "${PYTHON:-}" ] && [ -x "${PYTHON}" ]; then
+  python_exe="${PYTHON}"
+elif command -v python3 >/dev/null 2>&1; then
+  python_exe="$(command -v python3)"
+fi
+if [ -z "${python_exe}" ]; then
+  echo "aether: could not locate a Python interpreter. Set AETHER_PYTHON or install python3." >&2
+  exit 1
+fi
+
+export PYTHONPATH="${plugin_root}/src${PYTHONPATH:+:$PYTHONPATH}"
+exec "${python_exe}" -m aether_core.cli "$@"
