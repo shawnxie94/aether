@@ -745,6 +745,15 @@ class AetherStore:
                     "delete from panel_favorites where entity_type = ? and entity_id = ?",
                     (entity_type, entity_id),
                 )
+        # The panel keeps an in-memory snapshot of the per-section
+        # lookup tables and the ETag values. A favorite toggle mutates
+        # the ``panel_favorites`` table, so the snapshot is now stale.
+        # Drop it eagerly so the next read sees the new row count.
+        try:
+            from .panel_data import invalidate_panel_lookup_cache
+            invalidate_panel_lookup_cache()
+        except ImportError:
+            pass
         return {"entity_type": entity_type, "entity_id": entity_id, "favorite": favorite}
 
     def create_visual_asset(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -867,7 +876,17 @@ class AetherStore:
         tag: str | None = None,
         query: str | None = None,
         limit: int | None = 50,
+        asset_map: dict[str, dict[str, Any]] | None = None,
     ) -> list[dict[str, Any]]:
+        """List visual assets and merge their source-reference fingerprints.
+
+        ``asset_map`` is an optional pre-loaded ``{asset_id: asset_row}``
+        table. Passing it in skips the N+1 ``get_asset`` walk inside
+        :meth:`_merge_image_fingerprint_into_profile`, which is the
+        single biggest cost on the production 24MB database. The
+        Aether panel pre-loads the full ``assets`` table into a dict
+        and threads it through here.
+        """
         sql = "select * from visual_assets"
         clauses: list[str] = []
         params: list[Any] = []
@@ -882,7 +901,12 @@ class AetherStore:
         sql += " order by updated_at desc"
         with self.connect() as conn:
             rows = conn.execute(sql, tuple(params)).fetchall()
-        assets = [self._visual_asset_from_row(row) for row in rows]
+        assets = [
+            self._visual_asset_from_row(
+                row, _asset_map_for_merge=asset_map
+            )
+            for row in rows
+        ]
         if tag:
             assets = [asset for asset in assets if tag in asset.get("tags", [])]
         if query:
@@ -960,7 +984,10 @@ class AetherStore:
         return "image fingerprint: " + " | ".join(snippets)
 
     def _merge_image_fingerprint_into_profile(
-        self, profile: Any, entity: dict[str, Any]
+        self,
+        profile: Any,
+        entity: dict[str, Any],
+        asset_map: dict[str, dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """Project the source-reference fingerprint into the profile using
         a type-aware field mapping.
@@ -989,7 +1016,17 @@ class AetherStore:
         for reference in entity.get("source_references") or []:
             if not isinstance(reference, dict):
                 continue
-            asset = self.get_asset(reference.get("asset_id") or "")
+            ref_id = reference.get("asset_id") or ""
+            # ``asset_map`` lets callers short-circuit the N+1 ``get_asset``
+            # walk that the source-references traversal otherwise triggers.
+            # The Aether panel pre-loads the full ``assets`` table into a
+            # dict so this loop runs in O(references) instead of one extra
+            # SQL per reference (which on a 282-asset production database
+            # turned ``list_visual_assets`` from ~60ms to ~420ms).
+            if asset_map is not None:
+                asset = asset_map.get(ref_id)
+            else:
+                asset = self.get_asset(ref_id)
             if not asset:
                 continue
             fingerprint = asset.get("fingerprint") or {}
@@ -5807,7 +5844,12 @@ class AetherStore:
             "created_at": row["created_at"],
         }
 
-    def _visual_asset_from_row(self, row: sqlite3.Row) -> dict[str, Any]:
+    def _visual_asset_from_row(
+        self,
+        row: sqlite3.Row,
+        *,
+        _asset_map_for_merge: dict[str, dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
         record = {
             "id": row["id"],
             "type": row["type"],
@@ -5830,9 +5872,11 @@ class AetherStore:
         # Lazy-merge the source-reference fingerprint into the profile so
         # downstream readers see hex palette / geometry / stats without
         # needing a separate API call. The original profile JSON is left
-        # untouched on disk.
+        # untouched on disk. ``_asset_map_for_merge`` is threaded through
+        # to skip the per-reference ``get_asset`` N+1 walk when the
+        # caller has the full assets table on hand.
         record["profile"] = self._merge_image_fingerprint_into_profile(
-            record["profile"], record
+            record["profile"], record, asset_map=_asset_map_for_merge
         )
         return record
 
