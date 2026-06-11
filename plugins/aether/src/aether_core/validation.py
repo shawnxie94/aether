@@ -60,6 +60,25 @@ VISUAL_ASSET_PROFILE_KEYS_BY_TYPE = {
         "contrast",
         "temperature",
         "color_relationship",
+        # Allow authors to hand-set the hex lists in the profile itself.
+        # Without these, dominant_hex / accent_hex are only available via
+        # the lazy-merge from image_fingerprint, which uses a single
+        # MEDIANCUT pass and can drop vibrant-but-nearby hues (e.g.
+        # emerald green being collapsed into a sage bucket). Persisting
+        # the hex lists here lets v2 / branched palettes lock in a
+        # measured consensus across references.
+        "dominant_hex",
+        "accent_hex",
+        # Structured region-to-hex binding. Required for color_palette
+        # assets so the composer can render hex-by-region text into
+        # refined_prompt instead of treating the hex list as a global
+        # tint. Format: {"sky_zenith": ["#026592", ...], "foliage_main":
+        # ["#299558", ...], ...}. Region names are free-form
+        # snake_case; values are lists of lowercase hex strings.
+        # The composer reads this field directly when present.
+        "hex_to_object",
+        # Ad-hoc editorial notes; not consumed by the composer.
+        "profile_revision_note",
     },
     "lighting": {
         "light_source",
@@ -411,8 +430,34 @@ def validate_visual_asset_profile(profile: dict[str, Any], asset_type: str) -> N
             for item in value:
                 if not isinstance(item, (str, int, float, bool)):
                     raise ValidationError("Each profile list value must be a string, number, or boolean")
+        elif isinstance(value, dict):
+            # Structured dicts are allowed when the value is a flat
+            # ``str -> list[scalar]`` map. Today only ``hex_to_object``
+            # on ``color_palette`` uses this shape: ``{"sky_zenith":
+            # ["#026592", ...], "foliage_main": ["#299558", ...], ...}``.
+            # We require the key to be a non-empty snake_case-ish
+            # string and the value to be a list of scalar strings
+            # (hex codes in practice). Anything more complex should
+            # go into ``metadata`` so the composer can read it via
+            # the standard ``profile.<key>`` access path.
+            for k, v in value.items():
+                if not isinstance(k, str) or not k.strip():
+                    raise ValidationError(
+                        "Profile dict keys must be non-empty strings "
+                        f"(got {type(k).__name__})"
+                    )
+                if not isinstance(v, list) or not v:
+                    raise ValidationError(
+                        f"Profile dict value for key {k!r} must be a non-empty list"
+                    )
+                for item in v:
+                    if not isinstance(item, (str, int, float, bool)):
+                        raise ValidationError(
+                            f"Profile dict list value for key {k!r} must contain "
+                            "strings, numbers, or booleans"
+                        )
         elif not isinstance(value, (str, int, float, bool)):
-            raise ValidationError("Each profile value must be a string, number, boolean, or list")
+            raise ValidationError("Each profile value must be a string, number, boolean, list, or hex_to_object dict")
 
 
 def validate_key_value_rule(rule: Any, allowed_keys: set[str], field_name: str) -> None:

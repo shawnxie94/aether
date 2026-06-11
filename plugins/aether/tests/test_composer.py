@@ -164,6 +164,101 @@ class ComposerTests(unittest.TestCase):
             self.assertEqual(record["constraints"]["selected_systems"][0]["system_id"], system["id"])
             self.assertEqual(record["constraints"]["selected_recipes"][0]["recipe_id"], recipe["id"])
 
+    def test_explicit_recipe_does_not_auto_recall_unrelated_system_assets(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = AetherStore(Path(temp_dir) / "aether.sqlite")
+            store.init()
+
+            recipe_style = store.create_visual_asset(
+                {
+                    "type": "style",
+                    "name": "Alariko Ink Watercolor",
+                    "summary": "quiet Italian countryside watercolor town style",
+                    "prompt_fragments": ["transparent watercolor town sketch"],
+                    "status": "active",
+                }
+            )
+            recipe_palette = store.create_visual_asset(
+                {
+                    "type": "color_palette",
+                    "name": "Alariko Cobalt Sage Palette",
+                    "summary": "cobalt sky sage olive meadow terracotta roofs",
+                    "prompt_fragments": ["cobalt sky and sage olive meadow"],
+                    "status": "active",
+                }
+            )
+            outside_style = store.create_visual_asset(
+                {
+                    "type": "style",
+                    "name": "Mucha Autumn Poster",
+                    "summary": "Italian autumn female figure terracotta decorative poster",
+                    "prompt_fragments": ["decorative Mucha poster figure"],
+                    "status": "active",
+                }
+            )
+            outside_palette = store.create_visual_asset(
+                {
+                    "type": "color_palette",
+                    "name": "Mucha Warm Lithograph",
+                    "summary": "warm autumn terracotta grapevine palette",
+                    "prompt_fragments": ["warm lithograph grapevine palette"],
+                    "status": "active",
+                }
+            )
+            outside_system = store.create_visual_system(
+                {
+                    "kind": "art_direction",
+                    "name": "Mucha Autumn Art Nouveau Direction",
+                    "visual_rules": [
+                        {
+                            "key": "rendering",
+                            "value": ["decorative Art Nouveau poster panel"],
+                        }
+                    ],
+                    "assets": [
+                        {"asset_id": outside_style["id"], "role": "core", "weight": 0.9},
+                        {"asset_id": outside_palette["id"], "role": "core", "weight": 0.9},
+                    ],
+                    "status": "active",
+                }
+            )
+            recipe = store.create_recipe(
+                {
+                    "name": "Alariko Pastoral Town And Countryside Scene",
+                    "composition_rules": [
+                        {
+                            "key": "style_application",
+                            "value": ["ink linework with transparent watercolor washes"],
+                        }
+                    ],
+                    "assets": [
+                        {"asset_id": recipe_style["id"], "role": "core", "weight": 0.95},
+                        {"asset_id": recipe_palette["id"], "role": "core", "weight": 0.9},
+                    ],
+                    "status": "active",
+                }
+            )
+
+            record = compose_prompt(
+                store,
+                "A small hilltop town in the Italian countryside at late afternoon, "
+                "terracotta roofs, a single figure walking up a stone path",
+                recipe_ids=[recipe["id"]],
+                aspect_ratio="16:9",
+            )
+
+            selected_ids = {item["asset_id"] for item in record["selected_assets"]}
+            self.assertIn(recipe_style["id"], selected_ids)
+            self.assertIn(recipe_palette["id"], selected_ids)
+            self.assertNotIn(outside_style["id"], selected_ids)
+            self.assertNotIn(outside_palette["id"], selected_ids)
+            self.assertEqual(record["constraints"]["selected_systems"], [])
+            self.assertEqual(record["recall_candidates"].get("visual_systems", []), [])
+            self.assertNotIn(
+                outside_system["id"],
+                {item.get("system_id") for item in record["constraints"]["selected_systems"]},
+            )
+
     def test_compose_prompt_recalls_system_and_recipe_from_intent_sketch(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             store = AetherStore(Path(temp_dir) / "aether.sqlite")

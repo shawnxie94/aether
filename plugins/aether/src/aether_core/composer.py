@@ -341,6 +341,7 @@ def compose_prompt(
     system_ids = system_ids or []
     recipe_ids = recipe_ids or []
     source_reference_asset_ids = source_reference_asset_ids or []
+    explicit_recipe_mode = bool(recipe_ids)
     explicit_set = set(explicit_asset_ids)
     intent_sketch = _intent_sketch(source_prompt, query)
     recall_query = " ".join([source_prompt, query, " ".join(intent_sketch["query_terms"])])
@@ -366,7 +367,7 @@ def compose_prompt(
     recalled_systems: list[dict[str, Any]] = []
     recalled_recipes: list[dict[str, Any]] = []
     recalled_assets: list[dict[str, Any]] = []
-    if not system_ids:
+    if not system_ids and not explicit_recipe_mode:
         recalled_systems = [
             item
             for item in store.hybrid_recall("visual_system", recall_query, **recall_kwargs, limit=3)
@@ -381,11 +382,12 @@ def compose_prompt(
         ]
         selected_recipe_id = _choose_recalled_recipe(store, recalled_recipes)
         recipe_ids = [selected_recipe_id] if selected_recipe_id else []
-    recalled_assets = [
-        item
-        for item in store.hybrid_recall("visual_asset", recall_query, **recall_kwargs, limit=12)
-        if item["score"] >= 0.02
-    ]
+    if not explicit_recipe_mode:
+        recalled_assets = [
+            item
+            for item in store.hybrid_recall("visual_asset", recall_query, **recall_kwargs, limit=12)
+            if item["score"] >= 0.02
+        ]
     collapsed_recalled_assets = _collapse_recalled_assets_by_family(
         store,
         recalled_assets,
@@ -403,6 +405,7 @@ def compose_prompt(
     forced_asset_reasons: dict[str, list[str]] = {}
     boosted_asset_reasons: dict[str, list[str]] = {}
     avoided_asset_ids: set[str] = set()
+    allowed_asset_ids: set[str] | None = set(explicit_asset_ids) if explicit_recipe_mode else None
     system_visual_rules: list[str] = []
     system_avoid_rules: list[str] = []
     recipe_composition_rules: list[str] = []
@@ -442,6 +445,8 @@ def compose_prompt(
             asset_id = relation["asset_id"]
             role = relation.get("role", "optional")
             reason = f"{system['kind']} system {system['name']} relation: {role}"
+            if allowed_asset_ids is not None and role != "avoid":
+                allowed_asset_ids.add(asset_id)
             if role == "core":
                 forced_asset_reasons.setdefault(asset_id, []).append(reason)
             elif role == "optional":
@@ -513,6 +518,8 @@ def compose_prompt(
                         asset_id = relation["asset_id"]
                         role = relation.get("role", "optional")
                         reason = f"{system['kind']} system {system['name']} relation: {role}"
+                        if allowed_asset_ids is not None and role != "avoid":
+                            allowed_asset_ids.add(asset_id)
                         if role == "core":
                             forced_asset_reasons.setdefault(asset_id, []).append(reason)
                         elif role == "optional":
@@ -523,6 +530,8 @@ def compose_prompt(
             asset_id = relation["asset_id"]
             role = relation.get("role", "optional")
             reason = f"recipe {recipe['name']} relation: {role}"
+            if allowed_asset_ids is not None and role != "avoid":
+                allowed_asset_ids.add(asset_id)
             if role == "core":
                 forced_asset_reasons.setdefault(asset_id, []).append(reason)
             elif role == "optional":
@@ -572,6 +581,7 @@ def compose_prompt(
             for asset in active_assets
             if asset["type"] == asset_type
             and asset["id"] not in selected_ids
+            and (allowed_asset_ids is None or asset["id"] in allowed_asset_ids)
             and (asset["id"] not in avoided_asset_ids or asset["id"] in explicit_set)
         ]
         scored = [
@@ -735,23 +745,43 @@ def compose_prompt(
             composition_plan[key] = summary
     # Project machine-friendly hex palette hints out of color_palette
     # assets so the refined prompt can pass them to the image model
-    # verbatim. We only attach hex strings; the LLM-generated text
-    # description still flows through the standard "color" summary path.
+    # verbatim. When the asset carries an explicit hex_to_object region
+    # binding, render that as "region: hex hex" lines so the image model
+    # binds each hex to a specific image region (sky / foliage / etc.)
+    # rather than treating the list as a global tint. Fall back to the
+    # legacy "dominant palette: ..." / "accent palette: ..." lines when
+    # no region binding is present.
     palette_hints: list[str] = []
     for asset in selected:
         if asset.get("type") != "color_palette":
             continue
         profile = asset.get("profile") or {}
-        dominant_hex = profile.get("dominant_hex") or []
-        accent_hex = profile.get("accent_hex") or []
-        if dominant_hex:
-            palette_hints.append(
-                "dominant palette: " + ", ".join(dominant_hex)
-            )
-        if accent_hex:
-            palette_hints.append(
-                "accent palette: " + ", ".join(accent_hex)
-            )
+        hex_to_object = profile.get("hex_to_object") or {}
+        if isinstance(hex_to_object, dict) and hex_to_object:
+            palette_hints.append("per-region hex binding:")
+            for region, hexes in hex_to_object.items():
+                if not isinstance(hexes, list) or not hexes:
+                    continue
+                clean = [
+                    h.strip().lower() for h in hexes
+                    if isinstance(h, str) and h.strip()
+                ]
+                if not clean:
+                    continue
+                palette_hints.append(f"  {region}: " + ", ".join(clean))
+        else:
+            # Legacy fallback: emit the global hex list so older assets
+            # still inject colors into refined_prompt.
+            dominant_hex = profile.get("dominant_hex") or []
+            accent_hex = profile.get("accent_hex") or []
+            if dominant_hex:
+                palette_hints.append(
+                    "dominant palette: " + ", ".join(dominant_hex)
+                )
+            if accent_hex:
+                palette_hints.append(
+                    "accent palette: " + ", ".join(accent_hex)
+                )
     if palette_hints:
         composition_plan["palette_hints"] = palette_hints
 
@@ -791,6 +821,11 @@ def compose_prompt(
         "Selected visual assets were recalled from active assets using explicit ids, visual systems, recipes, prompt/query overlap, compatibility, and generation quality.",
         f"Aspect ratio set to {generation_params['aspectRatio']}.",
     ]
+    if explicit_recipe_mode:
+        assumptions[0] = (
+            "Explicit recipe mode constrained visual assets to the requested "
+            "recipe, its parent systems, explicit systems, and explicit asset ids."
+        )
     if conflicts:
         assumptions.append("Conflicts were detected; preserve explicit user constraints and core style before optional assets.")
 
