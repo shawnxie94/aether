@@ -2303,6 +2303,13 @@ class AetherStore:
             if action in {"attach_evidence", "inherit_variant", "merge_existing"}
             else None
         )
+        # Candidate tables only expose a pending/confirmed/ignored lifecycle.
+        # Any non-pending status supplied by the caller (e.g. a stray "draft")
+        # is clamped to "pending" so confirm-batch stage 1 will not silently
+        # skip the row.
+        candidate_status = payload.get("status") or "pending"
+        if candidate_status != "pending":
+            candidate_status = "pending"
         payload = {
             **payload,
             "reuse_score": reuse_score,
@@ -2311,6 +2318,7 @@ class AetherStore:
             "evolution_suggestion": evolution_suggestion,
             "similar_candidates": similar_candidates,
             "target_asset_id": target_asset_id,
+            "status": candidate_status,
         }
         record = {
             "id": candidate_id,
@@ -2322,7 +2330,7 @@ class AetherStore:
             "reuse_score": reuse_score,
             "decision": action,
             "similar_candidates": similar_candidates,
-            "status": payload.get("status", "pending"),
+            "status": candidate_status,
             "target_asset_id": target_asset_id,
             "confirmed_asset_id": payload.get("confirmed_asset_id"),
             "created_at": payload.get("created_at", timestamp),
@@ -2634,7 +2642,11 @@ class AetherStore:
         dry_run_synthetic_asset_ids: dict[str, str] = {}
 
         for candidate in self.list_visual_asset_candidates(batch_id=batch_id, limit=None):
-            if candidate["status"] != "pending":
+            # Treat any non-terminal status as actionable. The candidate
+            # lifecycle is pending/confirmed/ignored, but legacy data may
+            # still carry "draft" rows; those would otherwise be silently
+            # skipped and never reach decide_visual_asset_candidate.
+            if candidate["status"] in {"confirmed", "ignored"}:
                 asset_results.append(candidate)
                 if dry_run and candidate.get("confirmed_asset_id"):
                     dry_run_synthetic_asset_ids[candidate["id"]] = candidate["confirmed_asset_id"]
@@ -3631,11 +3643,17 @@ class AetherStore:
         validate_visual_system_candidate(payload)
         timestamp = now_iso()
         candidate_id = payload.get("id") or new_id("system_candidate")
+        # Clamp non-pending statuses to "pending" so confirm-batch does not
+        # silently skip the row. Candidate lifecycle is pending/confirmed/ignored.
+        system_status = payload.get("status") or "pending"
+        if system_status != "pending":
+            system_status = "pending"
+        payload = {**payload, "status": system_status}
         record = {
             "id": candidate_id,
             "batch_id": payload.get("batch_id") or new_id("candidate_batch"),
             "payload": payload,
-            "status": payload.get("status", "pending"),
+            "status": system_status,
             "confirmed_system_id": payload.get("confirmed_system_id"),
             "created_at": payload.get("created_at", timestamp),
             "updated_at": timestamp,
@@ -4472,11 +4490,17 @@ class AetherStore:
         validate_recipe_candidate(payload)
         timestamp = now_iso()
         candidate_id = payload.get("id") or new_id("recipe_candidate")
+        # Clamp non-pending statuses to "pending" so confirm-batch does not
+        # silently skip the row. Candidate lifecycle is pending/confirmed/ignored.
+        recipe_status = payload.get("status") or "pending"
+        if recipe_status != "pending":
+            recipe_status = "pending"
+        payload = {**payload, "status": recipe_status}
         record = {
             "id": candidate_id,
             "batch_id": payload.get("batch_id") or new_id("candidate_batch"),
             "payload": payload,
-            "status": payload.get("status", "pending"),
+            "status": recipe_status,
             "confirmed_recipe_id": payload.get("confirmed_recipe_id"),
             "created_at": payload.get("created_at", timestamp),
             "updated_at": timestamp,
