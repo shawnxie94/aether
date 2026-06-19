@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from aether_core.assets import backfill_orphan_generated_assets
 from aether_core.config import load_config
 from aether_core.panel import PANEL_HTML, collect_panel_data
 from aether_core.panel_bundle import export_panel_bundle, import_panel_bundle
@@ -288,6 +289,186 @@ class PanelTests(unittest.TestCase):
             panel_asset = next(item for item in data["visual_assets"] if item["id"] == visual_asset["id"])
 
             self.assertEqual([image["id"] for image in panel_asset["generated_images"]], [first["id"]])
+
+    def test_panel_data_resolves_generated_outputs_via_asset_path(self):
+        """Orphan ``outputs[].asset_id`` values still surface on the panel
+        as long as the underlying ``asset_path`` resolves to a current
+        asset row. This is the recovery path for generation_runs whose
+        original asset rows were rebuilt or removed while the file on
+        disk was preserved.
+        """
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            config = load_config(write_config(root))
+            store = AetherStore(config.database_path)
+            store.init()
+            generated_path = root / "generated.png"
+            generated_path.write_bytes(b"recovered output")
+            visual_asset = store.create_visual_asset(
+                {
+                    "type": "style",
+                    "name": "Recoverable Style",
+                    "summary": "Style whose generation was previously orphaned.",
+                }
+            )
+            current = store.create_asset(
+                {
+                    "kind": "generated",
+                    "source_path": str(generated_path),
+                    "asset_path": str(generated_path),
+                    "sha256": "new-sha",
+                    "mime_type": "image/png",
+                    "size_bytes": generated_path.stat().st_size,
+                }
+            )
+            # Simulate a historical generation run that still references a
+            # now-stale asset_id but points at the on-disk file we kept.
+            with store.connect() as conn:
+                conn.execute(
+                    """
+                    insert into generation_runs (
+                      id, mode, source_prompt, refined_prompt, status,
+                      generation_skill, selected_assets_json, outputs_json,
+                      created_at, updated_at
+                    ) values (?, 'generate', 'src', 'refined', 'generated',
+                              'test', ?, ?, '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z')
+                    """,
+                    (
+                        "generation_orphan",
+                        json.dumps([visual_asset["id"]]),
+                        json.dumps(
+                            [
+                                {
+                                    "asset_id": "asset_does_not_exist",
+                                    "asset_path": current["asset_path"],
+                                    "image_path": current["asset_path"],
+                                    "sha256": current["sha256"],
+                                    "size_bytes": current["size_bytes"],
+                                }
+                            ]
+                        ),
+                    ),
+                )
+
+            data = collect_panel_data(config, store)
+            panel_asset = next(item for item in data["visual_assets"] if item["id"] == visual_asset["id"])
+
+            self.assertEqual([image["id"] for image in panel_asset["generated_images"]], [current["id"]])
+
+    def test_panel_data_links_subject_asset_to_generated_images(self):
+        """A generation run whose only link to a visual asset is
+        ``subject_asset_id`` should still propagate the generated
+        output back to that visual asset's ``generated_images`` list.
+        """
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            config = load_config(write_config(root))
+            store = AetherStore(config.database_path)
+            store.init()
+            generated_path = root / "generated.png"
+            generated_path.write_bytes(b"subject output")
+            subject = store.create_visual_asset(
+                {
+                    "type": "character",
+                    "name": "Subject Character",
+                    "summary": "Visual asset used as the subject of a generation.",
+                }
+            )
+            generated = store.create_asset(
+                {
+                    "kind": "generated",
+                    "source_path": str(generated_path),
+                    "asset_path": str(generated_path),
+                    "sha256": "subject-sha",
+                    "mime_type": "image/png",
+                    "size_bytes": generated_path.stat().st_size,
+                }
+            )
+            store.create_generation_run(
+                {
+                    "source_prompt": "portrait",
+                    "refined_prompt": "portrait refined",
+                    "generation_skill": "test",
+                    "subject_asset_id": subject["id"],
+                    "outputs": [{"asset_id": generated["id"], "asset_path": generated["asset_path"]}],
+                    "status": "generated",
+                }
+            )
+
+            data = collect_panel_data(config, store)
+            panel_asset = next(item for item in data["visual_assets"] if item["id"] == subject["id"])
+
+            self.assertEqual([image["id"] for image in panel_asset["generated_images"]], [generated["id"]])
+
+    def test_backfill_orphan_generated_assets_dry_run_and_apply(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            config = load_config(write_config(root))
+            store = AetherStore(config.database_path)
+            store.init()
+            generated_path = root / "generated.png"
+            generated_path.write_bytes(b"orphan bytes")
+            visual_asset = store.create_visual_asset(
+                {
+                    "type": "style",
+                    "name": "Backfill Style",
+                    "summary": "Style that owns the soon-to-be-recovered generation.",
+                }
+            )
+            with store.connect() as conn:
+                conn.execute(
+                    """
+                    insert into generation_runs (
+                      id, mode, source_prompt, refined_prompt, status,
+                      generation_skill, selected_assets_json, outputs_json,
+                      created_at, updated_at
+                    ) values (?, 'generate', 'src', 'refined', 'generated',
+                              'test', ?, ?, '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z')
+                    """,
+                    (
+                        "generation_orphan_apply",
+                        json.dumps([visual_asset["id"]]),
+                        json.dumps(
+                            [
+                                {
+                                    "asset_id": "asset_orphan",
+                                    "asset_path": str(generated_path),
+                                    "image_path": str(generated_path),
+                                    "sha256": "does-not-matter",
+                                    "size_bytes": generated_path.stat().st_size,
+                                }
+                            ]
+                        ),
+                    ),
+                )
+
+            dry_run = backfill_orphan_generated_assets(config, store, apply=False)
+            self.assertTrue(dry_run["apply"] is False)
+            self.assertEqual(dry_run["candidate_count"], 1)
+            self.assertEqual(dry_run["created"], [])
+            self.assertEqual(
+                store.list_assets(kind="generated", limit=None),
+                [],
+            )
+
+            applied = backfill_orphan_generated_assets(config, store, apply=True)
+            self.assertTrue(applied["apply"] is True)
+            self.assertEqual(applied["candidate_count"], 1)
+            self.assertEqual(len(applied["created"]), 1)
+            created_path = applied["created"][0]["asset_path"]
+            self.assertEqual(created_path, str(generated_path))
+
+            data = collect_panel_data(config, store)
+            panel_asset = next(item for item in data["visual_assets"] if item["id"] == visual_asset["id"])
+            self.assertEqual(
+                [image["id"] for image in panel_asset["generated_images"]],
+                [applied["created"][0]["id"]],
+            )
+
+            # Second apply is a no-op (idempotent).
+            again = backfill_orphan_generated_assets(config, store, apply=True)
+            self.assertEqual(again["candidate_count"], 0)
+            self.assertEqual(again["created"], [])
 
     def test_panel_bundle_exports_and_imports_material_library(self):
         with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as target_dir:

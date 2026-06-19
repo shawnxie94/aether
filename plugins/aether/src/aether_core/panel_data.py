@@ -21,11 +21,71 @@ def _selected_asset_id(selected: Any) -> str:
     return ""
 
 
-def _first_output_asset_id(output: Any) -> str:
-    if isinstance(output, dict):
-        value = output.get("asset_id") or output.get("id")
-        return value if isinstance(value, str) else ""
+def _resolve_output_asset_id(
+    output: Any,
+    asset_map: dict[str, dict[str, Any]],
+    path_to_asset_id: dict[str, str],
+) -> str:
+    """Resolve a generation output dict to a current ``asset_id``.
+
+    Historical ``generation_runs.outputs`` entries can carry an
+    ``asset_id`` that no longer exists in the ``assets`` table (the
+    asset row was rebuilt, archived, or replaced while the file on
+    disk was preserved). Falling back to ``asset_path`` /
+    ``image_path`` keeps those generations visible on the panel by
+    re-pointing them at whichever asset row currently owns the
+    underlying file. Returns an empty string when nothing matches.
+    """
+    if not isinstance(output, dict):
+        return ""
+    candidate = output.get("asset_id") or output.get("id")
+    if isinstance(candidate, str) and candidate in asset_map:
+        return candidate
+    for key in ("asset_path", "image_path", "file_path", "path"):
+        path = output.get(key)
+        if isinstance(path, str):
+            resolved = path_to_asset_id.get(path)
+            if isinstance(resolved, str) and resolved:
+                return resolved
     return ""
+
+
+def _collect_run_visual_asset_ids(
+    run: dict[str, Any],
+    system_assets_by_system_id: dict[str, list[dict[str, Any]]] | None = None,
+    recipe_assets_by_recipe_id: dict[str, list[dict[str, Any]]] | None = None,
+) -> list[str]:
+    """Return every visual asset id a generation run should propagate
+    to the panel's generated_images map.
+
+    Beyond the obvious ``selected_assets`` field, a run can be linked
+    to visual assets through ``subject_asset_id``,
+    ``recipe_id`` (joined via ``recipe_assets``), and
+    ``visual_system_id`` (joined via ``visual_system_assets``). Older
+    generation rows sometimes populate those columns without filling
+    in ``selected_assets``, so collecting them here keeps the panel
+    associations aligned with what the rest of the system records.
+    """
+    ids: list[str] = []
+    seen: set[str] = set()
+
+    def _add(value: Any) -> None:
+        if isinstance(value, str) and value and value not in seen:
+            seen.add(value)
+            ids.append(value)
+
+    for selected in run.get("selected_assets", []):
+        _add(_selected_asset_id(selected))
+    _add(run.get("subject_asset_id"))
+    recipe_id = run.get("recipe_id")
+    if isinstance(recipe_id, str) and recipe_id and recipe_assets_by_recipe_id is not None:
+        for relation in recipe_assets_by_recipe_id.get(recipe_id, []):
+            _add(relation.get("asset_id"))
+    visual_system_id = run.get("visual_system_id")
+    if isinstance(visual_system_id, str) and visual_system_id and system_assets_by_system_id is not None:
+        for relation in system_assets_by_system_id.get(visual_system_id, []):
+            _add(relation.get("asset_id"))
+    return ids
 
 
 def _image_from_asset(asset: dict[str, Any]) -> dict[str, Any]:
@@ -174,16 +234,18 @@ def collect_panel_data(config: LoadedConfig, store: AetherStore) -> dict[str, An
 
     generated_by_visual_asset: dict[str, list[str]] = {}
     for run in generations:
-        output_ids = [_first_output_asset_id(output) for output in run.get("outputs", [])]
-        output_ids = [asset_id for asset_id in output_ids if asset_id]
+        output_ids: list[str] = []
+        for output in run.get("outputs", []):
+            resolved_id = _resolve_output_asset_id(output, asset_map, path_to_asset_id)
+            if resolved_id and resolved_id not in output_ids:
+                output_ids.append(resolved_id)
         if not output_ids:
             continue
-        for selected in run.get("selected_assets", []):
-            selected_id = _selected_asset_id(selected)
-            if not selected_id:
-                continue
-            generated_by_visual_asset.setdefault(selected_id, [])
-            generated_by_visual_asset[selected_id].extend(output_ids)
+        for visual_asset_id in _collect_run_visual_asset_ids(run):
+            generated_by_visual_asset.setdefault(visual_asset_id, [])
+            for output_id in output_ids:
+                if output_id not in generated_by_visual_asset[visual_asset_id]:
+                    generated_by_visual_asset[visual_asset_id].append(output_id)
 
     visual_asset_by_id = {asset["id"]: asset for asset in visual_assets}
     system_by_id = {system["id"]: system for system in systems}
@@ -536,6 +598,10 @@ def collect_panel_visual_assets(config: LoadedConfig, store: AetherStore) -> lis
 def _generated_outputs_by_visual_asset(
     visual_assets: list[dict[str, Any]],
     generations: list[dict[str, Any]],
+    asset_map: dict[str, dict[str, Any]] | None = None,
+    path_to_asset_id: dict[str, str] | None = None,
+    system_assets_by_system_id: dict[str, list[dict[str, Any]]] | None = None,
+    recipe_assets_by_recipe_id: dict[str, list[dict[str, Any]]] | None = None,
 ) -> tuple[dict[str, list[str]], dict[str, Any]]:
     """Build a ``visual_asset_id -> [generated_output_asset_id]`` map.
 
@@ -547,23 +613,41 @@ def _generated_outputs_by_visual_asset(
     ``visual_assets`` and ``generations`` are passed in (rather than
     fetched here) so the per-section collectors can share a single
     pair of full-table scans via :func:`_gather_lookup_tables`.
+
+    ``asset_map`` and ``path_to_asset_id`` enable the orphan-id
+    fallback that re-points historical ``outputs[].asset_id`` values
+    to whichever asset row currently owns the underlying file; the
+    system / recipe join maps let older runs (which only set
+    ``subject_asset_id`` / ``recipe_id`` / ``visual_system_id``) still
+    propagate to the right visual assets.
     """
     visual_asset_by_id = {asset["id"]: asset for asset in visual_assets}
     generated_by_visual_asset: dict[str, list[str]] = {}
     for run in generations:
-        output_ids = [
-            (output.get("asset_id") or output.get("id"))
-            for output in run.get("outputs", [])
-            if isinstance(output, dict)
-            and (output.get("asset_id") or output.get("id"))
-        ]
+        output_ids: list[str] = []
+        if asset_map is not None and path_to_asset_id is not None:
+            for output in run.get("outputs", []):
+                resolved_id = _resolve_output_asset_id(output, asset_map, path_to_asset_id)
+                if resolved_id and resolved_id not in output_ids:
+                    output_ids.append(resolved_id)
+        else:
+            for output in run.get("outputs", []):
+                if not isinstance(output, dict):
+                    continue
+                candidate = output.get("asset_id") or output.get("id")
+                if isinstance(candidate, str) and candidate and candidate not in output_ids:
+                    output_ids.append(candidate)
         if not output_ids:
             continue
-        for selected in run.get("selected_assets", []):
-            selected_id = _selected_asset_id(selected)
-            if not selected_id:
-                continue
-            generated_by_visual_asset.setdefault(selected_id, []).extend(output_ids)
+        for visual_asset_id in _collect_run_visual_asset_ids(
+            run,
+            system_assets_by_system_id=system_assets_by_system_id,
+            recipe_assets_by_recipe_id=recipe_assets_by_recipe_id,
+        ):
+            generated_by_visual_asset.setdefault(visual_asset_id, [])
+            for output_id in output_ids:
+                if output_id not in generated_by_visual_asset[visual_asset_id]:
+                    generated_by_visual_asset[visual_asset_id].append(output_id)
     return generated_by_visual_asset, visual_asset_by_id
 
 
@@ -661,7 +745,14 @@ def _fill_lookup_tables(store: AetherStore) -> dict[str, Any]:
     (
         generated_by_visual_asset,
         visual_asset_by_id,
-    ) = _generated_outputs_by_visual_asset(visual_assets, generations)
+    ) = _generated_outputs_by_visual_asset(
+        visual_assets,
+        generations,
+        asset_map=asset_map,
+        path_to_asset_id=path_to_asset_id,
+        system_assets_by_system_id=system_assets_by_system_id,
+        recipe_assets_by_recipe_id=recipe_assets_by_recipe_id,
+    )
     tables = {
         "asset_map": asset_map,
         "path_to_asset_id": path_to_asset_id,

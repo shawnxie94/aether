@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from .assets import ingest_asset
+from .assets import backfill_orphan_generated_assets, ingest_asset
 from .chat_attachments import (
     chat_reference_name,
     find_input_images_by_indices,
@@ -18,7 +18,7 @@ from .composer import compose_prompt
 from .config import ensure_configured_dirs, load_config
 from .generation_params import apply_generation_skill_params, apply_prompt_generation_params
 from .jsonio import dump_json, read_json_arg
-from .output_archiving import archive_generation_outputs
+from .output_archiving import archive_generation_outputs, resolve_generation_relations
 from .panel import run_panel
 from .storage import AetherStore
 from .validation import validate_payload
@@ -853,6 +853,7 @@ def cmd_generation_record(args: argparse.Namespace) -> None:
     payload = read_json_arg(args.json)
     payload = apply_generation_skill_params(payload, config)
     payload = archive_generation_outputs(config, store, payload)
+    payload = resolve_generation_relations(payload, store)
     dump_json(store.create_generation_run(payload))
 
 
@@ -951,6 +952,29 @@ def cmd_serve(args: argparse.Namespace) -> None:
     cmd_panel(args)
 
 
+def cmd_backfill_orphan_assets(args: argparse.Namespace) -> None:
+    config, store = _store()
+    result = backfill_orphan_generated_assets(config, store, apply=args.apply)
+    print(
+        json.dumps(
+            {
+                "apply": result["apply"],
+                "candidate_count": result["candidate_count"],
+                "skipped_missing_count": result["skipped_missing_count"],
+                "created_count": len(result["created"]),
+                "created_ids": [row["id"] for row in result["created"]],
+                "skipped_missing": result["skipped_missing"],
+                "plan": [
+                    {k: v for k, v in entry.items() if k != "source_output"}
+                    for entry in result["plan"]
+                ],
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+
+
 def cmd_panel(args: argparse.Namespace) -> None:
     config, store = _store()
     backend = config.data.get("backend", {})
@@ -1005,6 +1029,26 @@ def build_parser() -> argparse.ArgumentParser:
     embedding_rebuild.add_argument("--entity-type", choices=["visual_asset", "visual_system", "recipe"])
     embedding_rebuild.add_argument("--all", action="store_true")
     embedding_rebuild.set_defaults(func=cmd_embedding_rebuild)
+
+    backfill = sub.add_parser(
+        "backfill",
+        help="Repair or re-derive database rows from existing on-disk assets.",
+    )
+    backfill_sub = backfill.add_subparsers(required=True)
+    backfill_orphan = backfill_sub.add_parser(
+        "orphan-generated-assets",
+        help=(
+            "Re-create assets rows for generated outputs that exist on disk "
+            "but are missing from the assets table. Default is dry-run; pass "
+            "--apply to write the rows."
+        ),
+    )
+    backfill_orphan.add_argument(
+        "--apply",
+        action="store_true",
+        help="Actually create the missing assets rows. Without this flag the command only reports a plan.",
+    )
+    backfill_orphan.set_defaults(func=cmd_backfill_orphan_assets)
 
     recall = sub.add_parser("recall", help="Search visual memory with lexical and optional embedding recall.")
     recall.add_argument("entity_type", choices=["visual_asset", "visual_system", "recipe", "all"])
