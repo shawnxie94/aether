@@ -251,6 +251,43 @@ class AetherStore:
             return normalized
         return normalized[: max(0, limit - 3)].rstrip() + "..."
 
+
+    @staticmethod
+    def _normalize_visual_asset_source_references(
+        references: list[Any] | None,
+    ) -> list[dict[str, Any]]:
+        """Normalize legacy `id` / `path` keys to the canonical panel keys.
+
+        ``save_candidate_batch`` and downstream agents historically wrote
+        ``source_references`` entries shaped as ``{"id": "asset_xxx",
+        "path": "/tmp/clipboard.png", "user_note": "..."}``. The panel only
+        resolves ``asset_id`` / ``asset_path`` / ``image_path``, so those
+        references were silently invisible. This helper aliases the legacy
+        keys onto the canonical ones while preserving any already-correct
+        values and any extra metadata (e.g. ``user_note``).
+        """
+        if not references:
+            return list(references or [])
+        normalized: list[dict[str, Any]] = []
+        for reference in references:
+            if not isinstance(reference, dict):
+                normalized.append(reference)
+                continue
+            merged = dict(reference)
+            legacy_id = merged.pop("id", None)
+            legacy_path = merged.pop("path", None)
+            if "asset_id" not in merged and isinstance(legacy_id, str) and legacy_id:
+                merged["asset_id"] = legacy_id
+            if "asset_path" not in merged and "image_path" not in merged:
+                if isinstance(legacy_path, str) and legacy_path:
+                    merged["image_path"] = legacy_path
+            elif isinstance(legacy_path, str) and legacy_path:
+                # Preserve the legacy field as original_image_path so evidence
+                # / provenance lookups can still find the chat-clipboard path.
+                merged.setdefault("original_image_path", legacy_path)
+            normalized.append(merged)
+        return normalized
+
     def _compact_json_value(self, value: Any, *, depth: int = 0, list_limit: int = 8) -> Any:
         if isinstance(value, str):
             return self._truncate_text(value)
@@ -758,6 +795,13 @@ class AetherStore:
 
     def create_visual_asset(self, payload: dict[str, Any]) -> dict[str, Any]:
         validate_visual_asset(payload)
+        if "source_references" in payload:
+            payload = {
+                **payload,
+                "source_references": self._normalize_visual_asset_source_references(
+                    payload.get("source_references")
+                ),
+            }
         timestamp = now_iso()
         asset_id = payload.get("id") or self._unique_slug_id(
             "visual_assets",
@@ -5260,6 +5304,12 @@ class AetherStore:
             constraints = prompt_record.get("constraints", {})
             if selected_assets is None and isinstance(constraints, dict):
                 selected_assets = constraints.get("selected_assets")
+        # Carry forward Recipe / Visual System / subject references even
+        # though they used to be ignored. See resolve_generation_relations in
+        # output_archiving.py for the selected_assets auto-injection.
+        recipe_id = payload.get("recipe_id")
+        visual_system_id = payload.get("visual_system_id")
+        subject_asset_id = payload.get("subject_asset_id")
         record = {
             "id": payload.get("id") or new_id("generation"),
             "mode": payload.get("mode", "generate"),
@@ -5270,8 +5320,11 @@ class AetherStore:
             "source_output_asset_id": payload.get("source_output_asset_id"),
             "edit_instruction": payload.get("edit_instruction", ""),
             "edit_regions": payload.get("edit_regions", []),
-            "style_id": None,
+            "style_id": payload.get("style_id"),
             "selected_assets": selected_assets or [],
+            "recipe_id": recipe_id if isinstance(recipe_id, str) and recipe_id else None,
+            "visual_system_id": visual_system_id if isinstance(visual_system_id, str) and visual_system_id else None,
+            "subject_asset_id": subject_asset_id if isinstance(subject_asset_id, str) and subject_asset_id else None,
             "generation_skill": payload["generation_skill"],
             "skill_params": payload.get("skill_params", {}),
             "skill_result_meta": payload.get("skill_result_meta", {}),
@@ -5283,6 +5336,15 @@ class AetherStore:
             "created_at": payload.get("created_at", timestamp),
             "updated_at": timestamp,
         }
+        # Ensure the Recipe / Visual System / subject columns exist on legacy
+        # databases before the INSERT runs. Safe to call on every create; the
+        # helper is a no-op when the column is already there. Must run before
+        # the INSERT so a fresh DB that has not seen these columns does not
+        # raise "no such column" mid-write.
+        with self.connect() as conn:
+            self._ensure_column(conn, "generation_runs", "recipe_id", "text")
+            self._ensure_column(conn, "generation_runs", "visual_system_id", "text")
+            self._ensure_column(conn, "generation_runs", "subject_asset_id", "text")
         with self.connect() as conn:
             conn.execute(
                 """
@@ -5290,9 +5352,10 @@ class AetherStore:
                   id, mode, source_prompt, refined_prompt, negative_prompt,
                   source_generation_id, source_output_asset_id, edit_instruction, edit_regions_json,
                   style_id, selected_assets_json,
+                  recipe_id, visual_system_id, subject_asset_id,
                   generation_skill, skill_params_json, skill_result_meta_json, visual_review_json,
                   outputs_json, status, feedback_json, error, created_at, updated_at
-                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     record["id"],
@@ -5306,6 +5369,9 @@ class AetherStore:
                     json_dumps(record["edit_regions"]),
                     record["style_id"],
                     json_dumps(record["selected_assets"]),
+                    record["recipe_id"],
+                    record["visual_system_id"],
+                    record["subject_asset_id"],
                     record["generation_skill"],
                     json_dumps(record["skill_params"]),
                     json_dumps(record["skill_result_meta"]),
@@ -6074,6 +6140,9 @@ class AetherStore:
             "edit_regions": json_loads(row["edit_regions_json"], []),
             "style_id": row["style_id"],
             "selected_assets": json_loads(row["selected_assets_json"], []),
+            "recipe_id": row["recipe_id"] if "recipe_id" in row.keys() else None,
+            "visual_system_id": row["visual_system_id"] if "visual_system_id" in row.keys() else None,
+            "subject_asset_id": row["subject_asset_id"] if "subject_asset_id" in row.keys() else None,
             "generation_skill": row["generation_skill"],
             "skill_params": json_loads(row["skill_params_json"], {}),
             "skill_result_meta": json_loads(row["skill_result_meta_json"], {}),

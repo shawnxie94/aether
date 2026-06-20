@@ -2020,6 +2020,71 @@ class StorageTests(unittest.TestCase):
                 ["first fragment", "second fragment"],
             )
 
+    def test_visual_asset_legacy_source_references_normalized(self):
+        """create_visual_asset must alias legacy `id`/`path` keys to the
+        canonical `asset_id`/`image_path` keys the panel resolves, while
+        preserving any extra fields the agent attached (e.g. user_note)."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = AetherStore(Path(temp_dir) / "aether.sqlite")
+            store.init()
+            asset = store.create_visual_asset(
+                {
+                    "type": "style",
+                    "name": "Legacy Ref Style",
+                    "summary": "x",
+                    "source_references": [
+                        {
+                            "id": "asset_c132f6d282d5",
+                            "path": "/tmp/codex-clipboard-legacy.png",
+                            "user_note": "white-haired girl, top-down light",
+                        },
+                        {
+                            # Mixed entry: only `id` (no path).
+                            "id": "asset_ccca24e6ce3a",
+                        },
+                        {
+                            # Already-canonical entry: must be left alone.
+                            "asset_id": "asset_7c8651b46873",
+                            "image_path": "/var/folders/.../codex.png",
+                            "user_note": "kept",
+                        },
+                    ],
+                }
+            )
+            refs = asset["source_references"]
+            self.assertEqual(refs[0]["asset_id"], "asset_c132f6d282d5")
+            self.assertEqual(refs[0]["image_path"], "/tmp/codex-clipboard-legacy.png")
+            self.assertNotIn("id", refs[0])
+            self.assertNotIn("path", refs[0])
+            self.assertEqual(refs[0]["user_note"], "white-haired girl, top-down light")
+            self.assertEqual(refs[1]["asset_id"], "asset_ccca24e6ce3a")
+            self.assertNotIn("id", refs[1])
+            self.assertEqual(refs[2]["asset_id"], "asset_7c8651b46873")
+            self.assertEqual(refs[2]["image_path"], "/var/folders/.../codex.png")
+            self.assertEqual(refs[2]["user_note"], "kept")
+
+    def test_normalize_visual_asset_source_references_preserves_existing(self):
+        """When canonical keys are already present, the normalizer must not
+        clobber them with legacy values."""
+        normalized = AetherStore._normalize_visual_asset_source_references(
+            [
+                {
+                    "asset_id": "asset_keep",
+                    "image_path": "/keep.png",
+                    "id": "asset_legacy_should_be_dropped",
+                    "path": "/drop.png",
+                    "user_note": "n",
+                }
+            ]
+        )
+        self.assertEqual(normalized[0]["asset_id"], "asset_keep")
+        self.assertEqual(normalized[0]["image_path"], "/keep.png")
+        # Legacy keys are always removed to keep the JSON tidy, but the
+        # original path is preserved as original_image_path.
+        self.assertNotIn("id", normalized[0])
+        self.assertNotIn("path", normalized[0])
+        self.assertEqual(normalized[0]["original_image_path"], "/drop.png")
+
 
 if __name__ == "__main__":
     unittest.main()
