@@ -942,6 +942,125 @@ class PanelSectionEndpointTests(unittest.TestCase):
         # differ.
         self.assertNotEqual(summary_etag, assets_etag)
 
+    def test_favorite_toggle_refreshes_per_section_payloads(self):
+        """Favorite toggles must round-trip through every relevant endpoint.
+
+        Two regressions were bundled here: the ``recipes`` and
+        ``visual_systems`` collectors used to hardcode ``is_favorite``
+        to ``False`` in the per-entity item builders, so a starred
+        recipe never showed up as starred in the Recipes tab. On top of
+        that, ``/api/recipes`` and ``/api/visual-systems`` computed
+        their ETag from the recipes / visual_systems tables only, so a
+        304 hid the new ``is_favorite`` flag from the client after a
+        toggle. The endpoint sections now include ``favorites`` so the
+        ETag changes and the refetched payload reflects the toggle.
+        """
+        from aether_core.panel_server import PanelRequestHandler, PanelServer
+        from aether_core.panel_data import (
+            collect_panel_recipes,
+            collect_panel_visual_systems,
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            config_path = root / "config.json"
+            config_path.write_text(
+                json.dumps({
+                    "storage": {
+                        "databasePath": "aether.sqlite",
+                        "assetRoot": "assets",
+                        "referenceImageDir": "assets/references",
+                        "generatedImageDir": "assets/generated",
+                        "cacheDir": "cache",
+                        "runDir": "runs",
+                    },
+                }),
+                encoding="utf-8",
+            )
+            config = load_config(config_path)
+            store = AetherStore(config.database_path)
+            store.init()
+            recipe = store.create_recipe({
+                "name": "Fav Toggle Recipe",
+                "summary": "s",
+                "status": "active",
+            })
+
+            # The panel lookup tables are cached at the module level,
+            # so a previous test using a different ``AetherStore`` may
+            # have populated them. Drop the cache eagerly so the
+            # collectors see this test's brand-new database.
+            from aether_core import panel_data
+            panel_data.invalidate_panel_lookup_cache()
+
+            # Per-section collectors must surface the favorite flag for
+            # the entity, not just the dedicated favorites collector.
+            self.assertFalse(collect_panel_recipes(config, store)[0]["is_favorite"])
+            store.set_panel_favorite("recipe", recipe["id"], True)
+            self.assertTrue(collect_panel_recipes(config, store)[0]["is_favorite"])
+            self.assertEqual(collect_panel_visual_systems(config, store), [])
+            store.set_panel_favorite("recipe", recipe["id"], False)
+            self.assertFalse(collect_panel_recipes(config, store)[0]["is_favorite"])
+
+            # Now drive the full HTTP round trip to make sure the panel
+            # server stops handing out 304s for unchanged recipes /
+            # visual_systems ETags after a favorite toggle.
+            from http.client import HTTPConnection
+            import threading
+
+            server = PanelServer(("127.0.0.1", 0), PanelRequestHandler)
+            server.config = config
+            server.store = store
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            self.addCleanup(server.shutdown)
+            self.addCleanup(server.server_close)
+            host, port = server.server_address
+            conn = HTTPConnection(host, port, timeout=5)
+
+            def post_favorite(fav):
+                body = json.dumps({
+                    "entity_type": "recipe",
+                    "entity_id": recipe["id"],
+                    "favorite": fav,
+                }).encode()
+                conn.request("POST", "/api/favorite", body=body, headers={"Content-Type": "application/json"})
+                response = conn.getresponse()
+                response.read()
+                return response.status
+
+            def get_with_etag(path, etag):
+                headers = {"If-None-Match": etag} if etag else {}
+                conn.request("GET", path, headers=headers)
+                response = conn.getresponse()
+                payload = response.read()
+                return response.status, response.getheader("ETag"), payload
+
+            for path in ("/api/recipes", "/api/visual-systems", "/api/favorites"):
+                first = self._get(conn, path)
+                first.read()
+                etag = first.getheader("ETag")
+                self.assertTrue(etag, path)
+
+                self.assertEqual(post_favorite(True), 200)
+                # ETag must change after a favorite insert so the
+                # client refetches and sees ``is_favorite=True``.
+                status, etag_after, payload = get_with_etag(path, etag)
+                self.assertEqual(status, 200, f"{path}: expected 200 after favorite insert, got {status}")
+
+                if path == "/api/recipes":
+                    items = json.loads(payload)
+                    self.assertTrue(items[0]["is_favorite"], path)
+
+                self.assertEqual(post_favorite(False), 200)
+                status, etag_after_2, payload = get_with_etag(path, etag_after)
+                self.assertEqual(status, 200, f"{path}: expected 200 after favorite delete, got {status}")
+                if path == "/api/recipes":
+                    items = json.loads(payload)
+                    self.assertFalse(items[0]["is_favorite"], path)
+
+
+
 
 class PanelAsyncExportTests(unittest.TestCase):
     """The export endpoint should run the zip build in a background thread.

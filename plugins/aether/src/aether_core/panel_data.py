@@ -665,10 +665,18 @@ _panel_lookup_lock = threading.Lock()
 def invalidate_panel_lookup_cache() -> None:
     """Drop the shared panel lookup cache. Call after any write that
     mutates the underlying tables the panel renders from."""
-    global _panel_lookup_cache, _panel_lookup_expires_at
+    global _panel_lookup_cache, _panel_lookup_expires_at, _etag_cache, _etag_cache_expires_at
     with _panel_lookup_lock:
         _panel_lookup_cache = None
         _panel_lookup_expires_at = 0.0
+        # The ETag snapshot is computed from the same underlying tables
+        # (_section_etag_values reads max(updated_at) / count(*)
+        # per table) so any write that invalidates the lookup cache must
+        # also invalidate the ETag cache. Otherwise a 304 hides the new
+        # row state and the panel keeps rendering stale is_favorite
+        # flags (or misses a deleted favorite entirely).
+        _etag_cache = None
+        _etag_cache_expires_at = 0.0
 
 
 # Tracks an in-progress fill so a burst of concurrent section
@@ -880,6 +888,8 @@ def _build_visual_system_item(
     visual_asset_by_id: dict[str, dict[str, Any]],
     generated_by_visual_asset: dict[str, list[str]],
     system_assets: list[dict[str, Any]],
+    is_favorite: bool = False,
+    favorite_at: str | None = None,
 ) -> dict[str, Any]:
     """Assemble the panel item dict for a single visual system.
 
@@ -917,8 +927,8 @@ def _build_visual_system_item(
         "updated_at": system["updated_at"],
         "entity_type": "visual_system",
         "source_view": "visual_systems",
-        "is_favorite": False,
-        "favorite_at": None,
+        "is_favorite": is_favorite,
+        "favorite_at": favorite_at,
         "related_assets": related_assets,
         "reference_images": direct_reference_images,
         "generated_images": _merge_images(direct_generated_images, related_generated_images),
@@ -933,6 +943,8 @@ def _build_recipe_item(
     visual_asset_by_id: dict[str, dict[str, Any]],
     generated_by_visual_asset: dict[str, list[str]],
     recipe_assets: list[dict[str, Any]],
+    is_favorite: bool = False,
+    favorite_at: str | None = None,
 ) -> dict[str, Any]:
     """Assemble the panel item dict for a single recipe.
 
@@ -977,8 +989,8 @@ def _build_recipe_item(
         "updated_at": recipe["updated_at"],
         "entity_type": "recipe",
         "source_view": "recipes",
-        "is_favorite": False,
-        "favorite_at": None,
+        "is_favorite": is_favorite,
+        "favorite_at": favorite_at,
         "parent_systems": parent_systems,
         "use_cases": recipe.get("use_cases", []),
         "required_asset_types": recipe.get("required_asset_types", []),
@@ -1003,6 +1015,8 @@ def collect_panel_visual_systems(
     """
     lookups = _gather_lookup_tables(store)
     system_assets_by_system_id = lookups["system_assets_by_system_id"]
+    favorite_keys = lookups["favorite_keys"]
+    favorite_created_at = lookups["favorite_created_at"]
     return [
         _build_visual_system_item(
             system,
@@ -1010,6 +1024,8 @@ def collect_panel_visual_systems(
             visual_asset_by_id=lookups["visual_asset_by_id"],
             generated_by_visual_asset=lookups["generated_by_visual_asset"],
             system_assets=system_assets_by_system_id.get(system["id"], []),
+            is_favorite=("visual_system", system["id"]) in favorite_keys,
+            favorite_at=favorite_created_at.get(("visual_system", system["id"])),
         )
         for system in lookups["systems"]
     ]
@@ -1025,6 +1041,8 @@ def collect_panel_recipes(config: LoadedConfig, store: AetherStore) -> list[dict
     """
     lookups = _gather_lookup_tables(store)
     recipe_assets_by_recipe_id = lookups["recipe_assets_by_recipe_id"]
+    favorite_keys = lookups["favorite_keys"]
+    favorite_created_at = lookups["favorite_created_at"]
     return [
         _build_recipe_item(
             recipe,
@@ -1033,6 +1051,8 @@ def collect_panel_recipes(config: LoadedConfig, store: AetherStore) -> list[dict
             visual_asset_by_id=lookups["visual_asset_by_id"],
             generated_by_visual_asset=lookups["generated_by_visual_asset"],
             recipe_assets=recipe_assets_by_recipe_id.get(recipe["id"], []),
+            is_favorite=("recipe", recipe["id"]) in favorite_keys,
+            favorite_at=favorite_created_at.get(("recipe", recipe["id"])),
         )
         for recipe in lookups["recipes"]
     ]
