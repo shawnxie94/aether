@@ -222,6 +222,12 @@ def import_panel_bundle(config: LoadedConfig, store: AetherStore, bundle: bytes,
                 table: _insert_rows(conn, table, rows)
                 for table, rows in prepared_records.items()
             }
+        try:
+            from .panel_data import invalidate_panel_lookup_cache
+
+            invalidate_panel_lookup_cache()
+        except Exception:
+            pass
 
     return {
         "ok": True,

@@ -147,6 +147,7 @@ class EmbeddingRetryTests(unittest.TestCase):
         self.assertEqual(calls["n"], 3)
 
     def test_retryable_http_status_5xx_is_retried(self):
+        import io
         import urllib.error
         from aether_core.embeddings import embed_with_retry
         calls = {"n": 0}
@@ -159,7 +160,7 @@ class EmbeddingRetryTests(unittest.TestCase):
                     503,
                     "Service Unavailable",
                     {},
-                    __import__("io").BytesIO(b"try again"),
+                    io.BytesIO(b"try again"),
                 )
             return [[0.0]]
 
@@ -185,8 +186,9 @@ class EmbeddingRetryTests(unittest.TestCase):
                 io.BytesIO(b"bad"),
             )
 
-        with self.assertRaises(urllib.error.HTTPError):
+        with self.assertRaises(urllib.error.HTTPError) as raised:
             embed_with_retry(fake_fn, ["a"], max_attempts=5, base_delay=0.01, sleep=lambda d: None)
+        raised.exception.close()
         self.assertEqual(calls["n"], 1)
 
     def test_chunk_texts_splits_and_handles_empty(self):

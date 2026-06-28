@@ -1,6 +1,7 @@
 import sqlite3
 import tempfile
 import unittest
+from contextlib import closing
 from pathlib import Path
 
 from aether_core.config import load_config
@@ -23,31 +24,31 @@ class MigrationFrameworkTests(unittest.TestCase):
     def test_ensure_column_is_idempotent(self):
         with tempfile.TemporaryDirectory() as td:
             db = Path(td) / "t.sqlite"
-            conn = sqlite3.connect(db)
-            conn.row_factory = sqlite3.Row
-            conn.execute("create table t (a integer)")
-            ensure_column(conn, "t", "b", "text not null default ''")
-            ensure_column(conn, "t", "b", "text not null default ''")
-            cols = {row["name"] for row in conn.execute("pragma table_info(t)").fetchall()}
+            with closing(sqlite3.connect(db)) as conn:
+                conn.row_factory = sqlite3.Row
+                conn.execute("create table t (a integer)")
+                ensure_column(conn, "t", "b", "text not null default ''")
+                ensure_column(conn, "t", "b", "text not null default ''")
+                cols = {row["name"] for row in conn.execute("pragma table_info(t)").fetchall()}
             self.assertEqual(cols, {"a", "b"})
 
     def test_applied_versions_empty_for_uninitialised_db(self):
         with tempfile.TemporaryDirectory() as td:
             db = Path(td) / "t.sqlite"
-            conn = sqlite3.connect(db)
-            conn.execute("create table dummy (x integer)")
-            conn.row_factory = sqlite3.Row
-            self.assertEqual(applied_versions(conn), set())
+            with closing(sqlite3.connect(db)) as conn:
+                conn.execute("create table dummy (x integer)")
+                conn.row_factory = sqlite3.Row
+                self.assertEqual(applied_versions(conn), set())
 
     def test_record_schema_version_is_idempotent(self):
         with tempfile.TemporaryDirectory() as td:
             db = Path(td) / "t.sqlite"
-            conn = sqlite3.connect(db)
-            conn.execute("create table dummy (x integer)")
-            conn.row_factory = sqlite3.Row
-            record_schema_version(conn, 5)
-            record_schema_version(conn, 5)
-            self.assertEqual(applied_versions(conn), {5})
+            with closing(sqlite3.connect(db)) as conn:
+                conn.execute("create table dummy (x integer)")
+                conn.row_factory = sqlite3.Row
+                record_schema_version(conn, 5)
+                record_schema_version(conn, 5)
+                self.assertEqual(applied_versions(conn), {5})
 
     def _init_store(self) -> AetherStore:
         td_ctx = tempfile.TemporaryDirectory()

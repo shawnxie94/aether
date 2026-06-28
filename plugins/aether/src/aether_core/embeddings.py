@@ -62,8 +62,11 @@ def embed_with_retry(
         try:
             return fn(texts)
         except Exception as exc:  # noqa: BLE001 — we re-raise below
-            if attempt >= max_attempts or not is_retryable(exc):
+            retryable = is_retryable(exc)
+            if attempt >= max_attempts or not retryable:
                 raise
+            if isinstance(exc, urllib.error.HTTPError):
+                exc.close()
             sleep(delay + random.uniform(0, delay * 0.25))
             attempt += 1
             delay = min(delay * 2, max_delay)

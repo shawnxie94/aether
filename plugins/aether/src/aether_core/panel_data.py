@@ -447,10 +447,11 @@ def _section_etag_values(store: AetherStore) -> dict[str, tuple[str, int]]:
     # than ``updated_at``. Look up the timestamp column per table to keep
     # the ETag computation in one place.
     timestamp_columns: dict[str, str] = {
+        "assets": "created_at",
         "visual_assets": "updated_at",
         "visual_systems": "updated_at",
         "recipes": "updated_at",
-        "generation_runs": "created_at",
+        "generation_runs": "updated_at",
         "panel_favorites": "created_at",
     }
     global _etag_cache, _etag_cache_expires_at
@@ -463,6 +464,7 @@ def _section_etag_values(store: AetherStore) -> dict[str, tuple[str, int]]:
             return _etag_cache
         with store.connect() as conn:
             for label, table in (
+                ("assets", "assets"),
                 ("visual_assets", "visual_assets"),
                 ("visual_systems", "visual_systems"),
                 ("recipes", "recipes"),
@@ -470,10 +472,19 @@ def _section_etag_values(store: AetherStore) -> dict[str, tuple[str, int]]:
                 ("favorites", "panel_favorites"),
             ):
                 column = timestamp_columns[table]
-                row = conn.execute(
-                    f"select coalesce(max({column}), '') as ts, count(*) as n"
-                    f" from {table}"
-                ).fetchone()
+                if table == "assets":
+                    row = conn.execute(
+                        "select coalesce(group_concat("
+                        "id || ':' || created_at || ':' || asset_path || ':' || fingerprint_json, "
+                        "char(31)"
+                        "), '') as ts, count(*) as n "
+                        "from (select id, created_at, asset_path, fingerprint_json from assets order by id)"
+                    ).fetchone()
+                else:
+                    row = conn.execute(
+                        f"select coalesce(max({column}), '') as ts, count(*) as n"
+                        f" from {table}"
+                    ).fetchone()
                 sections[label] = (row["ts"], int(row["n"]))
         _etag_cache = sections
         _etag_cache_expires_at = time.monotonic() + _ETAG_TTL_SECONDS
@@ -488,6 +499,8 @@ def panel_etag(store: AetherStore, sections: list[str] | None = None) -> str:
 
     - ``["summary"]`` covers counts and type breakdowns
     - ``["visual_assets"]`` covers the visual asset list
+    - ``["assets"]`` covers reference/generated file rows used by image lists
+    - ``["generations"]`` covers generation output links used by image lists
     - ``["visual_systems"]`` covers the visual system list
     - ``["recipes"]`` covers the recipe list
     - ``["favorites"]`` covers the favorites list

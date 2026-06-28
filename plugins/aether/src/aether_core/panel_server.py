@@ -76,7 +76,7 @@ class PanelRequestHandler(BaseHTTPRequestHandler):
         # even on a multi-thousand-asset database.
         for path, sections, collector in (
             ("/api/panel-data/summary", ["summary"], collect_panel_summary),
-            ("/api/visual-assets", ["visual_assets"], collect_panel_visual_assets),
+            ("/api/visual-assets", ["visual_assets", "assets", "generations"], collect_panel_visual_assets),
             # visual_systems and recipes also include the
             # favorites section in the ETag so a favorite toggle
             # forces the client to refetch and see the new
@@ -84,8 +84,8 @@ class PanelRequestHandler(BaseHTTPRequestHandler):
             # per-section ETag would not change (favorite edits do not
             # touch the recipes / visual_systems tables) and the
             # client would keep rendering stale star states.
-            ("/api/visual-systems", ["visual_systems", "favorites"], collect_panel_visual_systems),
-            ("/api/recipes", ["recipes", "favorites"], collect_panel_recipes),
+            ("/api/visual-systems", ["visual_systems", "assets", "generations", "favorites"], collect_panel_visual_systems),
+            ("/api/recipes", ["recipes", "assets", "generations", "favorites"], collect_panel_recipes),
             ("/api/favorites", ["favorites"], collect_panel_favorites),
         ):
             if parsed.path == path:

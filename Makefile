@@ -26,7 +26,7 @@ help:
 	@printf "  make install-global Reinstall the global Codex marketplace entry\n"
 	@printf "  make verify        Run scripts/verify_aether_layout.sh\n"
 	@printf "  make cache-sync    Sync source changes into the Codex plugin cache\n"
-	@printf "  make clean         Remove __pycache__ and .pyc files\n"
+	@printf "  make clean         Remove Python build/cache files\n"
 
 test:
 	PYTHONPATH=$(SRC) $(PY) -m unittest discover -s $(TESTS)
@@ -88,3 +88,4 @@ cache-sync:
 clean:
 	find . -type d -name __pycache__ -prune -exec rm -rf {} +
 	find . -type f -name '*.pyc' -delete
+	find . -type d -name '*.egg-info' -prune -exec rm -rf {} +

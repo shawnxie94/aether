@@ -58,7 +58,7 @@ function copyPath(source, target) {
         "node_modules",
         "__pycache__",
         ".pytest_cache",
-      ].includes(base) && !base.endsWith(".pyc");
+      ].includes(base) && !base.endsWith(".pyc") && !base.endsWith(".egg-info");
     },
   });
 }

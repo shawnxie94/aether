@@ -684,6 +684,7 @@ class PanelGzipTests(unittest.TestCase):
 
         host, port = server.server_address
         conn = HTTPConnection(host, port, timeout=5)
+        self.addCleanup(conn.close)
         if accept_encoding is not None:
             conn.request("GET", "/api/panel-data/summary", headers={"Accept-Encoding": accept_encoding})
         else:
@@ -928,7 +929,10 @@ class PanelSectionEndpointTests(unittest.TestCase):
         self.addCleanup(server.shutdown)
         self.addCleanup(server.server_close)
         host, port = server.server_address
-        return HTTPConnection(host, port, timeout=5)
+        conn = HTTPConnection(host, port, timeout=5)
+        self.addCleanup(conn.close)
+        self._section_server = server
+        return conn
 
     def _get(self, conn, path, headers=None):
         conn.request("GET", path, headers=headers or {})
@@ -980,28 +984,118 @@ class PanelSectionEndpointTests(unittest.TestCase):
         etag_before = first.getheader("ETag")
         first.read()
         # Insert a new visual asset; ETag must change.
-        self.server.store.create_visual_asset({
+        self._section_server.store.create_visual_asset({
             "type": "style", "name": "post-etag-style", "summary": "s",
             "tags": [], "profile": {}, "source_references": [],
             "prompt_fragments": [], "negative_fragments": [],
             "compatible_with": [], "avoid_with": [],
             "recommended_aspect_ratios": [], "status": "active",
-        }) if hasattr(self, "server") else None
-        # The server fixture is referenced via the spawned server's store.
-        # Re-fetch the second ETag from a fresh request after the write.
-        # Use the test instance's spawned server through its handler.
-        from aether_core.panel_server import PanelServer
-        # Find the live server through thread registry is fragile; use the
-        # store directly through the connection's host.
-        second = self._get(conn, "/api/visual-assets")
+        })
+        second = self._get(conn, "/api/visual-assets", headers={"If-None-Match": etag_before})
         self.assertEqual(second.status, 200)
-        # The second ETag may match the first if the write did not happen
-        # (because we lost the server reference). Make the write go through
-        # the connection's server by hitting an admin endpoint would be
-        # intrusive; instead, just confirm the ETag is a strong quoted
-        # value. The round-trip test above covers the 304 contract.
+        etag_after = second.getheader("ETag")
         second.read()
-        self.assertTrue(etag_before.startswith('"'))
+        self.assertNotEqual(etag_before, etag_after)
+
+    def test_visual_asset_etag_changes_after_generation_write(self):
+        conn = self._spawn_server()
+        store = self._section_server.store
+        root = store.database_path.parent
+        generated_path = root / "generated.png"
+        generated_path.write_bytes(b"generated")
+        visual_asset = store.create_visual_asset(
+            {
+                "type": "style",
+                "name": "Generated ETag Style",
+                "summary": "Receives generated images.",
+                "status": "active",
+            }
+        )
+
+        first = self._get(conn, "/api/visual-assets")
+        self.assertEqual(first.status, 200)
+        etag_before = first.getheader("ETag")
+        first_payload = json.loads(first.read())
+        self.assertEqual(first_payload[0]["generated_images"], [])
+
+        generated = store.create_asset(
+            {
+                "kind": "generated",
+                "source_path": str(generated_path),
+                "asset_path": str(generated_path),
+                "sha256": "generated-etag",
+                "mime_type": "image/png",
+                "size_bytes": generated_path.stat().st_size,
+            }
+        )
+        store.create_generation_run(
+            {
+                "source_prompt": "source",
+                "refined_prompt": "refined",
+                "generation_skill": "test",
+                "selected_assets": [{"asset_id": visual_asset["id"]}],
+                "outputs": [{"asset_id": generated["id"], "asset_path": generated["asset_path"]}],
+                "status": "generated",
+            }
+        )
+
+        second = self._get(conn, "/api/visual-assets", headers={"If-None-Match": etag_before})
+        self.assertEqual(second.status, 200)
+        self.assertNotEqual(etag_before, second.getheader("ETag"))
+        second_payload = json.loads(second.read())
+        self.assertEqual(second_payload[0]["generated_images"][0]["id"], generated["id"])
+
+    def test_visual_asset_etag_changes_after_asset_fingerprint_update(self):
+        conn = self._spawn_server()
+        store = self._section_server.store
+        root = store.database_path.parent
+        reference_path = root / "reference.png"
+        reference_path.write_bytes(b"reference")
+        reference = store.create_asset(
+            {
+                "kind": "reference",
+                "source_path": str(reference_path),
+                "asset_path": str(reference_path),
+                "sha256": "reference-etag",
+                "mime_type": "image/png",
+                "size_bytes": reference_path.stat().st_size,
+            }
+        )
+        store.create_visual_asset(
+            {
+                "type": "style",
+                "name": "Fingerprint ETag Style",
+                "summary": "Receives source-reference fingerprints.",
+                "status": "active",
+                "source_references": [{"asset_id": reference["id"], "image_path": reference["asset_path"]}],
+            }
+        )
+
+        first = self._get(conn, "/api/visual-assets")
+        self.assertEqual(first.status, 200)
+        etag_before = first.getheader("ETag")
+        first_payload = json.loads(first.read())
+        self.assertEqual(first_payload[0]["image_fingerprint"], {})
+
+        store.update_asset_fingerprint(
+            reference["id"],
+            {
+                "palette": {
+                    "dominant_hex": ["#112233"],
+                    "temperature": "cool",
+                    "saturation": "muted",
+                }
+            },
+        )
+
+        second = self._get(conn, "/api/visual-assets", headers={"If-None-Match": etag_before})
+        self.assertEqual(second.status, 200)
+        self.assertNotEqual(etag_before, second.getheader("ETag"))
+        second_payload = json.loads(second.read())
+        self.assertEqual(
+            second_payload[0]["image_fingerprint"]["palette"]["dominant_hex"],
+            ["#112233"],
+        )
 
     def test_section_endpoints_have_independent_etags(self):
         conn = self._spawn_server()
@@ -1087,6 +1181,7 @@ class PanelSectionEndpointTests(unittest.TestCase):
             self.addCleanup(server.server_close)
             host, port = server.server_address
             conn = HTTPConnection(host, port, timeout=5)
+            self.addCleanup(conn.close)
 
             def post_favorite(fav):
                 body = json.dumps({
@@ -1173,6 +1268,7 @@ class PanelSectionEndpointTests(unittest.TestCase):
             self.addCleanup(server.server_close)
             host, port = server.server_address
             conn = HTTPConnection(host, port, timeout=5)
+            self.addCleanup(conn.close)
 
             conn.request("DELETE", f"/api/generated-image/{reference['id']}")
             response = conn.getresponse()
@@ -1228,7 +1324,9 @@ class PanelAsyncExportTests(unittest.TestCase):
         self.addCleanup(server.shutdown)
         self.addCleanup(server.server_close)
         host, port = server.server_address
-        return server, HTTPConnection(host, port, timeout=10)
+        conn = HTTPConnection(host, port, timeout=10)
+        self.addCleanup(conn.close)
+        return server, conn
 
     def _read_zip(self, response):
         import io as _io

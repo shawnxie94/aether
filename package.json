@@ -30,6 +30,7 @@
   ],
   "scripts": {
     "pack:plugin": "npm pack --pack-destination dist",
+    "prepack": "make clean",
     "validate:plugin": "node scripts/aether-plugin.js doctor",
     "test": "PYTHONPATH=src python -m unittest discover -s plugins/aether/tests"
   },

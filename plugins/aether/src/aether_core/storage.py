@@ -33,6 +33,14 @@ from .validation import (
 )
 
 
+def _invalidate_panel_cache() -> None:
+    try:
+        from .panel_data import invalidate_panel_lookup_cache
+
+        invalidate_panel_lookup_cache()
+    except Exception:
+        pass
+
 
 # Mapping from ``visual_assets.type`` to the fingerprint blocks and
 # stat fields that the merge step is allowed to surface in the asset's
@@ -782,15 +790,7 @@ class AetherStore:
                     "delete from panel_favorites where entity_type = ? and entity_id = ?",
                     (entity_type, entity_id),
                 )
-        # The panel keeps an in-memory snapshot of the per-section
-        # lookup tables and the ETag values. A favorite toggle mutates
-        # the ``panel_favorites`` table, so the snapshot is now stale.
-        # Drop it eagerly so the next read sees the new row count.
-        try:
-            from .panel_data import invalidate_panel_lookup_cache
-            invalidate_panel_lookup_cache()
-        except ImportError:
-            pass
+        _invalidate_panel_cache()
         return {"entity_type": entity_type, "entity_id": entity_id, "favorite": favorite}
 
     def create_visual_asset(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -886,6 +886,7 @@ class AetherStore:
         record["profile"] = self._merge_image_fingerprint_into_profile(
             record["profile"], record
         )
+        _invalidate_panel_cache()
         return record
 
     def get_visual_asset(self, asset_id: str) -> dict[str, Any] | None:
@@ -4934,6 +4935,7 @@ class AetherStore:
                     record["created_at"],
                 ),
             )
+        _invalidate_panel_cache()
         return record
 
     def update_asset_fingerprint(self, asset_id: str, fingerprint: dict[str, Any]) -> None:
@@ -4949,6 +4951,7 @@ class AetherStore:
                 "update assets set fingerprint_json = ? where id = ?",
                 (json_dumps(fingerprint), asset_id),
             )
+        _invalidate_panel_cache()
 
     def backfill_fingerprints(
         self,
@@ -5201,12 +5204,7 @@ class AetherStore:
                 else:
                     file_missing = True
 
-        try:
-            from .panel_data import invalidate_panel_lookup_cache
-
-            invalidate_panel_lookup_cache()
-        except Exception:
-            pass
+        _invalidate_panel_cache()
 
         return {
             "ok": True,
@@ -5483,6 +5481,7 @@ class AetherStore:
         suggestions = self.suggest_generation_reuse(record["id"], auto=True)
         if suggestions.get("recipe_candidates") or suggestions.get("visual_system_candidates"):
             record["reuse_suggestions"] = suggestions
+        _invalidate_panel_cache()
         return record
 
     def update_generation_feedback(self, run_id: str, feedback: dict[str, Any], status: str | None) -> dict[str, Any]:
@@ -5516,6 +5515,7 @@ class AetherStore:
             suggestions = self.suggest_generation_reuse(run_id, auto=True)
             if suggestions.get("recipe_candidates") or suggestions.get("visual_system_candidates"):
                 current["reuse_suggestions"] = suggestions
+        _invalidate_panel_cache()
         return current
 
     def get_generation_run(self, run_id: str) -> dict[str, Any] | None:
