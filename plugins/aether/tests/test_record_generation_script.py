@@ -6,6 +6,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from aether_core.storage import AetherStore
+
 
 SCRIPT = Path(__file__).resolve().parents[1] / "skills" / "image-generate" / "scripts" / "record_generation.py"
 ATTEMPTS_SCRIPT = Path(__file__).resolve().parents[1] / "skills" / "image-generate" / "scripts" / "record_generation_attempts.py"
@@ -189,6 +191,78 @@ class RecordGenerationScriptTests(unittest.TestCase):
             self.assertEqual(output["visual_review"]["style_consistency"], "major_deviation")
             self.assertEqual(output["visual_review"]["recommendation"], "regenerate")
             self.assertIn("assets/generated", output["outputs"][0]["asset_path"])
+
+    def test_successful_generation_adds_reuse_suggestion_message(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "config.json").write_text(
+                json.dumps(
+                    {
+                        "storage": {
+                            "databasePath": "aether.sqlite",
+                            "assetRoot": "assets",
+                            "referenceImageDir": "assets/references",
+                            "generatedImageDir": "assets/generated",
+                            "cacheDir": "cache",
+                            "runDir": "runs",
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            store = AetherStore(root / "aether.sqlite")
+            store.init()
+            scene = store.create_visual_asset(
+                {"type": "scene", "name": "Lotus Pond", "summary": "lotus pond world", "status": "active"}
+            )
+            style = store.create_visual_asset(
+                {"type": "style", "name": "Painterly Anime", "summary": "bright painterly anime", "status": "active"}
+            )
+            palette = store.create_visual_asset(
+                {"type": "color_palette", "name": "Amber Green", "summary": "amber and green", "status": "active"}
+            )
+            output_path = root / "lotus.png"
+            output_path.write_bytes(b"fake png")
+            payload = {
+                "source_prompt": "lotus pond key art",
+                "refined_prompt": "lotus pond key art",
+                "selected_assets": [
+                    {"asset_id": scene["id"], "type": "scene"},
+                    {"asset_id": style["id"], "type": "style"},
+                    {"asset_id": palette["id"], "type": "color_palette"},
+                ],
+                "generation_skill": "imagegen",
+                "skill_params": {"aspectRatio": "16:9"},
+                "status": "generated",
+                "visual_review": {
+                    "reviewed": True,
+                    "style_consistency": "high",
+                    "score": 0.92,
+                    "recipe_fidelity": "high",
+                    "subject_consistency": "high",
+                },
+                "outputs": [str(output_path)],
+            }
+
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), "--json", "-"],
+                cwd=root,
+                env={**os.environ, "HOME": str(root)},
+                input=json.dumps(payload),
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            output = json.loads(result.stdout)
+            message = output["reuse_suggestion_message"]
+
+            self.assertIn("reuse_suggestions", output)
+            self.assertIn("这次生成已经形成可复用沉淀候选", message)
+            self.assertIn("Recipe（组合方式）", message)
+            self.assertIn("Visual System（整体视觉系统）", message)
+            self.assertIn("Generated Recipe", message)
+            self.assertIn("Generated System", message)
+            self.assertIn("不会自动写入长期记忆", message)
 
     def test_edit_record_preserves_source_lineage(self):
         with tempfile.TemporaryDirectory() as temp_dir:

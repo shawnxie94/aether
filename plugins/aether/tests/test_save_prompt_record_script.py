@@ -109,6 +109,78 @@ class SavePromptRecordScriptTests(unittest.TestCase):
 
             self.assertEqual(output["record"]["generation_params"]["aspectRatio"], "3:4")
 
+    def test_emit_confirmation_includes_memory_composition_preview(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "config.json").write_text(
+                json.dumps(
+                    {
+                        "storage": {
+                            "databasePath": "aether.sqlite",
+                            "assetRoot": "assets",
+                            "referenceImageDir": "assets/references",
+                            "generatedImageDir": "assets/generated",
+                            "cacheDir": "cache",
+                            "runDir": "runs",
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            payload = {
+                "source_prompt": "lotus pond key art",
+                "selected_assets": [
+                    {
+                        "asset_id": "visual_asset_internal-style",
+                        "type": "style",
+                        "name": "Painterly Anime",
+                        "reason": "recalled asset score 0.91",
+                    },
+                    {
+                        "asset_id": "visual_asset_internal-palette",
+                        "type": "color_palette",
+                        "name": "Amber Green",
+                    },
+                ],
+                "composition_plan": {
+                    "subject": "lotus pond heroine",
+                    "style": "bright painterly anime",
+                    "color": "amber and green",
+                    "lighting": "soft backlight",
+                    "composition": "wide key art",
+                    "camera": "slightly elevated view",
+                    "mood": ["quiet", "hopeful"],
+                    "negative_rules": ["no text overlays"],
+                    "recipes": [{"name": "Lotus Key Art Recipe", "reason": "requested recipe"}],
+                    "visual_systems": [{"name": "Lotus Pond World", "kind": "worldview"}],
+                },
+                "refined_prompt": "lotus pond heroine key art",
+                "negative_prompt": "no text overlays",
+                "conflicts": ["palette conflicts with original monochrome request"],
+            }
+
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), "--json", "-", "--emit-confirmation"],
+                cwd=root,
+                env={**os.environ, "HOME": str(root)},
+                input=json.dumps(payload),
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            output = json.loads(result.stdout)
+            message = output["confirmation_message"]
+
+            self.assertIn("**记忆组合预览**", message)
+            self.assertIn("主体/场景: lotus pond heroine", message)
+            self.assertIn("风格: bright painterly anime", message)
+            self.assertIn("Recipe / Visual System", message)
+            self.assertIn("Lotus Key Art Recipe", message)
+            self.assertIn("Lotus Pond World", message)
+            self.assertIn("Painterly Anime", message)
+            self.assertIn("palette conflicts with original monochrome request", message)
+            self.assertNotIn("visual_asset_internal-style", message)
+
     def test_emit_confirmation_lists_multi_image_prompt_variants(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

@@ -50,6 +50,87 @@ def format_selected_assets(assets: list) -> str:
     return "\n".join(lines)
 
 
+def compact_value(value) -> str:
+    if value in (None, "", [], {}):
+        return ""
+    if isinstance(value, list):
+        values = [compact_value(item) for item in value]
+        return "；".join(item for item in values if item)
+    if isinstance(value, dict):
+        label = value.get("name") or value.get("summary") or value.get("kind") or value.get("type")
+        if label:
+            return str(label)
+        return "；".join(
+            f"{key}: {compact_value(item)}"
+            for key, item in value.items()
+            if key not in {"id", "asset_id", "system_id", "recipe_id"} and compact_value(item)
+        )
+    return str(value)
+
+
+def format_named_items(items: list, fallback: str) -> str:
+    if not items:
+        return fallback
+    lines = []
+    for item in items:
+        if not isinstance(item, dict):
+            text = compact_value(item)
+        else:
+            name = item.get("name") or item.get("summary") or item.get("kind") or item.get("type") or fallback
+            detail_parts = []
+            if item.get("kind"):
+                detail_parts.append(str(item["kind"]))
+            if item.get("type"):
+                detail_parts.append(str(item["type"]))
+            if item.get("reason"):
+                detail_parts.append(str(item["reason"]))
+            text = str(name)
+            if detail_parts:
+                text += "（" + "，".join(detail_parts) + "）"
+        if text:
+            lines.append(f"- {text}")
+    return "\n".join(lines) if lines else fallback
+
+
+def format_memory_composition_preview(record: dict) -> str:
+    plan = record.get("composition_plan", {})
+    constraints = record.get("constraints", {})
+    if not isinstance(plan, dict):
+        plan = {}
+    if not isinstance(constraints, dict):
+        constraints = {}
+
+    selected_assets = record.get("selected_assets", [])
+    selected_systems = (
+        plan.get("visual_systems")
+        or constraints.get("selected_systems")
+        or []
+    )
+    selected_recipes = (
+        plan.get("recipes")
+        or constraints.get("selected_recipes")
+        or []
+    )
+    lines = [
+        "这次生成会按下面的方式组合已选记忆，确认后再进入生图：",
+        f"- 主体/场景: {compact_value(plan.get('subject')) or compact_value(plan.get('scene')) or '沿用原始需求'}",
+        f"- 风格: {compact_value(plan.get('style')) or compact_value(plan.get('texture')) or compact_value(plan.get('shape_line')) or '未指定'}",
+        f"- 色彩/光影: {compact_value([plan.get('color'), plan.get('lighting'), plan.get('palette_hints')]) or '未指定'}",
+        f"- 构图/镜头: {compact_value([plan.get('composition'), plan.get('camera')]) or '未指定'}",
+        f"- 情绪/角色/符号: {compact_value([plan.get('mood'), plan.get('character'), plan.get('symbols')]) or '未指定'}",
+        f"- 负面规则: {compact_value(plan.get('negative_rules')) or compact_value(record.get('negative_prompt')) or '未指定'}",
+        "- Recipe / Visual System:",
+        format_named_items(selected_recipes, "  - 未使用 recipe"),
+        format_named_items(selected_systems, "  - 未使用 visual system"),
+        "- 参与组合的视觉资产:",
+        format_named_items(selected_assets, "  - 未指定长期视觉记忆"),
+    ]
+    conflicts = record.get("conflicts") or constraints.get("conflicts") or []
+    if conflicts:
+        lines.extend(["- 需要确认的冲突:", format_list(conflicts)])
+    return "\n".join(lines)
+
+
 def format_variants(variants: list) -> str:
     if not variants:
         return "无"
@@ -103,6 +184,9 @@ def build_confirmation_message(record: dict) -> str:
             "",
             "**使用的视觉记忆**",
             selected_assets,
+            "",
+            "**记忆组合预览**",
+            format_memory_composition_preview(record),
             "",
             "**精修后的提示词**",
             "```text",
