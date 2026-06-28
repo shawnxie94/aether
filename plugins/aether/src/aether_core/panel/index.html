@@ -487,6 +487,21 @@
       background: #f4eee1;
       flex: 0 0 auto;
     }
+    .delete-image {
+      border: 1px solid rgba(170, 73, 55, .35);
+      border-radius: 8px;
+      background: #fff3ed;
+      color: var(--red);
+      cursor: pointer;
+      flex: 0 0 auto;
+      font-size: 12px;
+      min-height: 0;
+      padding: 5px 8px;
+    }
+    .delete-image:disabled {
+      cursor: wait;
+      opacity: .62;
+    }
     .error {
       padding: 18px;
       background: #fff3ed;
@@ -755,9 +770,10 @@
       </article>`;
     }
 
-    function imageGallery(images, emptyText) {
+    function imageGallery(images, emptyText, options = {}) {
       images = existingImages(images);
       if (!images || !images.length) return `<div class="empty-gallery">${esc(emptyText)}</div>`;
+      const deletable = !!options.deletable;
       return `<div class="gallery">${images.map(image => `<div class="image-tile">
         <button class="preview" data-src="${attr(image.src)}" data-label="${attr(image.label)}">
           <img src="${attr(image.src)}" alt="${attr(image.label)}" loading="lazy">
@@ -765,6 +781,7 @@
         <div class="image-actions">
           <span>${esc(image.label)}</span>
           <a class="download" href="${attr(image.src)}" download="${attr(image.label)}">Download</a>
+          ${deletable ? `<button class="delete-image" data-asset-id="${attr(image.id)}" data-label="${attr(image.label)}">Delete</button>` : ""}
         </div>
         ${imageFingerprintBlock(image)}
       </div>`).join("")}</div>`;
@@ -1003,7 +1020,7 @@
             </div>
             <div class="section">
               <h4>Generated Images</h4>
-              ${imageGallery(generated, "No generated image")}
+              ${imageGallery(generated, "No generated image", { deletable: true })}
             </div>
           </div>
         </div>
@@ -1042,6 +1059,30 @@
       document.querySelectorAll(".preview").forEach(button => {
         button.addEventListener("click", () => openLightbox(button.dataset.src, button.dataset.label));
       });
+      document.querySelectorAll(".delete-image").forEach(button => {
+        button.addEventListener("click", () => deleteGeneratedImage(button));
+      });
+    }
+
+    async function deleteGeneratedImage(button) {
+      const assetId = button.dataset.assetId;
+      const label = button.dataset.label || "this generated image";
+      if (!assetId || !window.confirm(`Delete ${label}?`)) return;
+      button.disabled = true;
+      try {
+        const response = await fetch(`/api/generated-image/${encodeURIComponent(assetId)}`, { method: "DELETE" });
+        if (!response.ok) {
+          const message = (await response.text()).replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+          throw new Error(message || `Delete failed: ${response.status}`);
+        }
+        state.etags = {};
+        await refreshData();
+        render();
+      } catch (error) {
+        console.error(error);
+        window.alert(error.message);
+        button.disabled = false;
+      }
     }
 
     const sectionEndpoints = [

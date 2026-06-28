@@ -5142,6 +5142,101 @@ class AetherStore:
         assets = [self._asset_from_row(row) for row in rows]
         return assets[:limit] if limit is not None and limit >= 0 else assets
 
+    def delete_generated_asset(self, asset_id: str, *, delete_file: bool = True) -> dict[str, Any]:
+        """Delete one generated image asset and unlink it from generation outputs.
+
+        The panel exposes this for cleanup of generated images only. Reference
+        assets are intentionally rejected because they can be source material
+        for visual assets, recipes, and systems.
+        """
+
+        timestamp = now_iso()
+        file_deleted = False
+        file_missing = False
+        with self.connect() as conn:
+            row = conn.execute("select * from assets where id = ?", (asset_id,)).fetchone()
+            if not row:
+                raise KeyError(f"Generated asset not found: {asset_id}")
+            asset = self._asset_from_row(row)
+            if asset["kind"] != "generated":
+                raise ValueError(f"Asset is not generated: {asset_id}")
+
+            asset_path = asset["asset_path"]
+            other_same_path_count = conn.execute(
+                "select count(*) as n from assets where asset_path = ? and id != ?",
+                (asset_path, asset_id),
+            ).fetchone()["n"]
+            remove_path_only_outputs = int(other_same_path_count) == 0
+
+            updated_runs: list[str] = []
+            rows = conn.execute("select * from generation_runs").fetchall()
+            for run_row in rows:
+                outputs = json_loads(run_row["outputs_json"], [])
+                if not isinstance(outputs, list):
+                    continue
+                next_outputs = [
+                    output
+                    for output in outputs
+                    if not self._output_references_generated_asset(
+                        output,
+                        asset_id=asset_id,
+                        asset_path=asset_path,
+                        remove_path_only_outputs=remove_path_only_outputs,
+                    )
+                ]
+                if len(next_outputs) == len(outputs):
+                    continue
+                conn.execute(
+                    "update generation_runs set outputs_json = ?, updated_at = ? where id = ?",
+                    (json_dumps(next_outputs), timestamp, run_row["id"]),
+                )
+                updated_runs.append(run_row["id"])
+
+            conn.execute("delete from assets where id = ?", (asset_id,))
+            if delete_file and remove_path_only_outputs and asset_path:
+                path = Path(asset_path)
+                if path.exists():
+                    path.unlink()
+                    file_deleted = True
+                else:
+                    file_missing = True
+
+        try:
+            from .panel_data import invalidate_panel_lookup_cache
+
+            invalidate_panel_lookup_cache()
+        except Exception:
+            pass
+
+        return {
+            "ok": True,
+            "asset_id": asset_id,
+            "asset_path": asset_path,
+            "file_deleted": file_deleted,
+            "file_missing": file_missing,
+            "generation_runs_updated": updated_runs,
+        }
+
+    def _output_references_generated_asset(
+        self,
+        output: Any,
+        *,
+        asset_id: str,
+        asset_path: str,
+        remove_path_only_outputs: bool,
+    ) -> bool:
+        if isinstance(output, dict):
+            output_asset_id = output.get("asset_id") or output.get("id")
+            if output_asset_id == asset_id:
+                return True
+            if not remove_path_only_outputs:
+                return False
+            return any(
+                output.get(key) == asset_path
+                for key in ("asset_path", "image_path", "file_path", "path")
+            )
+        return bool(remove_path_only_outputs and isinstance(output, str) and output == asset_path)
+
     def asset_stats(self) -> dict[str, Any]:
         assets = self.list_assets(limit=None)
         by_kind: dict[str, dict[str, int]] = {}

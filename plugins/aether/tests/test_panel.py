@@ -51,6 +51,9 @@ class PanelTests(unittest.TestCase):
         self.assertIn('fetch("/api/export", { method: "POST"', PANEL_HTML)
         self.assertIn('/api/export/status?job_id=', PANEL_HTML)
         self.assertIn('fetch(`/api/import?mode=${encodeURIComponent(mode)}`', PANEL_HTML)
+        self.assertIn('class="delete-image"', PANEL_HTML)
+        self.assertIn('async function deleteGeneratedImage', PANEL_HTML)
+        self.assertIn('/api/generated-image/${encodeURIComponent(assetId)}', PANEL_HTML)
         self.assertNotIn('data-view="files"', PANEL_HTML)
 
     def test_panel_data_links_reference_and_generated_images_to_visual_asset(self):
@@ -145,6 +148,70 @@ class PanelTests(unittest.TestCase):
             self.assertEqual(data["favorites"][0]["id"], recipe["id"])
             self.assertEqual(panel_asset["reference_images"][0]["id"], reference["id"])
             self.assertEqual(panel_asset["generated_images"][0]["id"], generated["id"])
+
+    def test_delete_generated_asset_removes_file_row_and_generation_output(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            config = load_config(write_config(root))
+            store = AetherStore(config.database_path)
+            store.init()
+            target_path = root / "target.png"
+            other_path = root / "other.png"
+            target_path.write_bytes(b"target")
+            other_path.write_bytes(b"other")
+            target = store.create_asset(
+                {
+                    "kind": "generated",
+                    "source_path": str(target_path),
+                    "asset_path": str(target_path),
+                    "sha256": "target",
+                    "mime_type": "image/png",
+                    "size_bytes": target_path.stat().st_size,
+                }
+            )
+            other = store.create_asset(
+                {
+                    "kind": "generated",
+                    "source_path": str(other_path),
+                    "asset_path": str(other_path),
+                    "sha256": "other",
+                    "mime_type": "image/png",
+                    "size_bytes": other_path.stat().st_size,
+                }
+            )
+            visual_asset = store.create_visual_asset(
+                {
+                    "type": "style",
+                    "name": "Cleanup Style",
+                    "summary": "Owns generated images.",
+                    "status": "active",
+                }
+            )
+            run = store.create_generation_run(
+                {
+                    "source_prompt": "source",
+                    "refined_prompt": "refined",
+                    "generation_skill": "test",
+                    "selected_assets": [{"asset_id": visual_asset["id"]}],
+                    "outputs": [
+                        {"asset_id": target["id"], "asset_path": target["asset_path"]},
+                        {"asset_id": other["id"], "asset_path": other["asset_path"]},
+                    ],
+                    "status": "generated",
+                }
+            )
+
+            result = store.delete_generated_asset(target["id"])
+
+            self.assertTrue(result["ok"])
+            self.assertTrue(result["file_deleted"])
+            self.assertFalse(target_path.exists())
+            self.assertIsNone(store.get_asset(target["id"]))
+            self.assertIsNotNone(store.get_asset(other["id"]))
+            self.assertEqual([output["asset_id"] for output in store.get_generation_run(run["id"])["outputs"]], [other["id"]])
+            data = collect_panel_data(config, store)
+            panel_asset = next(item for item in data["visual_assets"] if item["id"] == visual_asset["id"])
+            self.assertEqual([image["id"] for image in panel_asset["generated_images"]], [other["id"]])
 
     def test_panel_favorites_only_joins_favorited_entities(self):
         """collect_panel_favorites must not pay the per-entity join cost
@@ -685,6 +752,9 @@ class PanelFingerprintTests(unittest.TestCase):
     """
 
     def _setUpPanel(self):
+        from aether_core import panel_data as panel_data_mod
+
+        panel_data_mod.invalidate_panel_lookup_cache()
         ctx = tempfile.TemporaryDirectory()
         self.addCleanup(ctx.cleanup)
         root = Path(ctx.name)
@@ -1058,6 +1128,66 @@ class PanelSectionEndpointTests(unittest.TestCase):
                 if path == "/api/recipes":
                     items = json.loads(payload)
                     self.assertFalse(items[0]["is_favorite"], path)
+
+    def test_delete_generated_image_endpoint(self):
+        from http.client import HTTPConnection
+        from aether_core.panel_server import PanelRequestHandler, PanelServer
+        import threading
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            config = load_config(write_config(root))
+            store = AetherStore(config.database_path)
+            store.init()
+            generated_path = root / "generated.png"
+            reference_path = root / "reference.png"
+            generated_path.write_bytes(b"generated")
+            reference_path.write_bytes(b"reference")
+            generated = store.create_asset(
+                {
+                    "kind": "generated",
+                    "source_path": str(generated_path),
+                    "asset_path": str(generated_path),
+                    "sha256": "generated",
+                    "mime_type": "image/png",
+                    "size_bytes": generated_path.stat().st_size,
+                }
+            )
+            reference = store.create_asset(
+                {
+                    "kind": "reference",
+                    "source_path": str(reference_path),
+                    "asset_path": str(reference_path),
+                    "sha256": "reference",
+                    "mime_type": "image/png",
+                    "size_bytes": reference_path.stat().st_size,
+                }
+            )
+
+            server = PanelServer(("127.0.0.1", 0), PanelRequestHandler)
+            server.config = config
+            server.store = store
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            self.addCleanup(server.shutdown)
+            self.addCleanup(server.server_close)
+            host, port = server.server_address
+            conn = HTTPConnection(host, port, timeout=5)
+
+            conn.request("DELETE", f"/api/generated-image/{reference['id']}")
+            response = conn.getresponse()
+            response.read()
+            self.assertEqual(response.status, 400)
+            self.assertTrue(reference_path.exists())
+
+            conn.request("DELETE", f"/api/generated-image/{generated['id']}")
+            response = conn.getresponse()
+            payload = json.loads(response.read())
+            self.assertEqual(response.status, 200)
+            self.assertEqual(payload["asset_id"], generated["id"])
+            self.assertTrue(payload["file_deleted"])
+            self.assertFalse(generated_path.exists())
+            self.assertIsNone(store.get_asset(generated["id"]))
 
 
 

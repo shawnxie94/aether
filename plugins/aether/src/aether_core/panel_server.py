@@ -125,6 +125,14 @@ class PanelRequestHandler(BaseHTTPRequestHandler):
             return
         self.send_error(HTTPStatus.NOT_FOUND)
 
+    def do_DELETE(self) -> None:
+        parsed = urlparse(self.path)
+        if parsed.path.startswith("/api/generated-image/"):
+            asset_id = parsed.path.removeprefix("/api/generated-image/")
+            self._delete_generated_image(asset_id)
+            return
+        self.send_error(HTTPStatus.NOT_FOUND)
+
     def _client_accepts_gzip(self) -> bool:
         """Return True when the client advertised gzip in Accept-Encoding."""
         header = self.headers.get("Accept-Encoding", "")
@@ -258,6 +266,30 @@ class PanelRequestHandler(BaseHTTPRequestHandler):
             self.send_error(HTTPStatus.NOT_FOUND, "Entity not found")
             return
         self._send_json(self.server.store.set_panel_favorite(entity_type, entity_id, favorite))
+
+    def _delete_generated_image(self, asset_id: str) -> None:
+        if not asset_id:
+            self.send_error(HTTPStatus.BAD_REQUEST, "asset_id is required")
+            return
+        asset = self.server.store.get_asset(asset_id)
+        if asset is None:
+            self.send_error(HTTPStatus.NOT_FOUND, "Generated image not found")
+            return
+        if asset.get("kind") != "generated":
+            self.send_error(HTTPStatus.BAD_REQUEST, "Only generated images can be deleted")
+            return
+        try:
+            result = self.server.store.delete_generated_asset(asset_id)
+        except KeyError:
+            self.send_error(HTTPStatus.NOT_FOUND, "Generated image not found")
+            return
+        except ValueError as error:
+            self.send_error(HTTPStatus.BAD_REQUEST, str(error))
+            return
+        except OSError as error:
+            self.send_error(HTTPStatus.INTERNAL_SERVER_ERROR, str(error))
+            return
+        self._send_json(result)
 
     def _export_start(self) -> None:
         """Kick off a background export job and return its handles.
