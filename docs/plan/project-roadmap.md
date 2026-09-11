@@ -16,7 +16,22 @@ assets、recipes、visual systems 的可演进治理方案见 [Aether 可演进�
 - 新能力应尽量复用现有 visual asset、prompt record、generation run 和 asset 结构。
 - 本地个人使用体验优先，团队协作和常驻服务放到后续阶段。
 
-## 3. Phase 2: 风格资产引擎
+## 3. Architecture Stabilization: 架构收敛批次
+
+状态：已完成（2026-09-11）。
+
+在继续扩展检索、治理和可视化能力前，先完成一轮不改变用户行为的架构收敛：
+
+- 统一 Python 版本、依赖入口和测试/CI 命令。
+- 将 generation relation 字段纳入正式 SQLite migration，停止业务路径懒改 schema。
+- 为 `AetherStore`、generation/candidate 流程和 Panel 查询建立清晰的应用层边界，优先采用兼容 facade，不做一次性大重写。
+- 明确跨文件系统与数据库的操作状态、失败恢复和幂等测试。
+
+完成标准：锁定依赖下全量测试通过；旧数据库可迁移；现有 CLI、Skill、Panel API 行为保持兼容；架构拆分后的模块边界有针对性测试覆盖。
+
+完成记录：全量测试 203 项通过；新增正式 migration v8 和 `generation_service` 应用边界；Makefile 默认使用锁定依赖；新增 GitHub Actions 基础校验。
+
+## 4. Phase 2: 风格资产引擎
 
 Phase 2 的目标是让风格资产从“可保存”升级为“可搜索、可比较、可维护”。
 

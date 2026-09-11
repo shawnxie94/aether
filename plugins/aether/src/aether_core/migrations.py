@@ -5,7 +5,7 @@ import sqlite3
 from .storage_time import now_iso
 
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 
 def ensure_column(
@@ -225,6 +225,31 @@ def _migration_v7_image_fingerprints(conn: sqlite3.Connection) -> None:
     )
 
 
+def _migration_v8_generation_relations(conn: sqlite3.Connection) -> None:
+    """Add explicit generation relations introduced after schema v7.
+
+    These columns used to be added lazily by ``create_generation_run``. Keeping
+    the upgrade in the migration stream means fresh and legacy databases now
+    share one schema contract, and write paths no longer mutate schema.
+    """
+
+    ensure_column(conn, "generation_runs", "recipe_id", "text")
+    ensure_column(conn, "generation_runs", "visual_system_id", "text")
+    ensure_column(conn, "generation_runs", "subject_asset_id", "text")
+    conn.execute(
+        "create index if not exists idx_generation_runs_recipe "
+        "on generation_runs(recipe_id) where recipe_id is not null"
+    )
+    conn.execute(
+        "create index if not exists idx_generation_runs_system "
+        "on generation_runs(visual_system_id) where visual_system_id is not null"
+    )
+    conn.execute(
+        "create index if not exists idx_generation_runs_subject "
+        "on generation_runs(subject_asset_id) where subject_asset_id is not null"
+    )
+
+
 # Ordered list of ``(schema_version, [callable])``. Each callable receives a
 # connection and applies one idempotent migration step. New schema changes
 # should append a new version tuple rather than editing an existing step.
@@ -232,6 +257,7 @@ MIGRATIONS: list[tuple[int, list]] = [
     (5, [_migration_v5_column_enhancements]),
     (6, [_migration_v6_business_indexes]),
     (7, [_migration_v7_image_fingerprints]),
+    (8, [_migration_v8_generation_relations]),
 ]
 
 

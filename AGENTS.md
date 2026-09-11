@@ -26,7 +26,7 @@ Aether 是一个 Codex 插件：将参考图、提示词想法与生图结果沉
 ## 常用命令（仓库根目录）
 
 ```bash
-make test            # PYTHONPATH=src python -m unittest discover -s plugins/aether/tests
+make test            # PYTHONPATH=plugins/aether/src uv run --frozen python -m unittest discover -s plugins/aether/tests
 make doctor          # 运行 aether CLI doctor，验证本地安装/配置
 make schemas         # 校验 plugins/aether/schemas/*.json
 make validate        # 载荷校验器冒烟

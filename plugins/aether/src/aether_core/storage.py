@@ -717,6 +717,9 @@ class AetherStore:
                   edit_regions_json text not null default '[]',
                   style_id text,
                   selected_assets_json text not null default '[]',
+                  recipe_id text,
+                  visual_system_id text,
+                  subject_asset_id text,
                   generation_skill text not null,
                   skill_params_json text not null default '{}',
                   skill_result_meta_json text not null default '{}',
@@ -5382,11 +5385,6 @@ class AetherStore:
             )
         return record
 
-    def _ensure_column(self, conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:
-        columns = {row["name"] for row in conn.execute(f"pragma table_info({table})").fetchall()}
-        if column not in columns:
-            conn.execute(f"alter table {table} add column {column} {definition}")
-
     def create_generation_run(self, payload: dict[str, Any]) -> dict[str, Any]:
         validate_generation_run(payload)
         timestamp = now_iso()
@@ -5429,15 +5427,6 @@ class AetherStore:
             "created_at": payload.get("created_at", timestamp),
             "updated_at": timestamp,
         }
-        # Ensure the Recipe / Visual System / subject columns exist on legacy
-        # databases before the INSERT runs. Safe to call on every create; the
-        # helper is a no-op when the column is already there. Must run before
-        # the INSERT so a fresh DB that has not seen these columns does not
-        # raise "no such column" mid-write.
-        with self.connect() as conn:
-            self._ensure_column(conn, "generation_runs", "recipe_id", "text")
-            self._ensure_column(conn, "generation_runs", "visual_system_id", "text")
-            self._ensure_column(conn, "generation_runs", "subject_asset_id", "text")
         with self.connect() as conn:
             conn.execute(
                 """

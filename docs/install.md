@@ -158,7 +158,7 @@ More examples: [cli.md](cli.md)
 Development from the repository root can use:
 
 ```bash
-PYTHONPATH=src python -m aether_core.cli doctor
+make doctor
 ```
 
 ## Data Locations

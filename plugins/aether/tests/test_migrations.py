@@ -18,8 +18,8 @@ from aether_core.storage import AetherStore
 
 class MigrationFrameworkTests(unittest.TestCase):
     def test_schema_version_is_current(self):
-        self.assertEqual(SCHEMA_VERSION, 7)
-        self.assertEqual([version for version, _ in MIGRATIONS], [5, 6, 7])
+        self.assertEqual(SCHEMA_VERSION, 8)
+        self.assertEqual([version for version, _ in MIGRATIONS], [5, 6, 7, 8])
 
     def test_ensure_column_is_idempotent(self):
         with tempfile.TemporaryDirectory() as td:
@@ -68,7 +68,9 @@ class MigrationFrameworkTests(unittest.TestCase):
         store = self._init_store()
         store.init()
         with store.connect() as conn:
-            self.assertEqual(applied_versions(conn), {5, 6, 7})
+            self.assertEqual(applied_versions(conn), {5, 6, 7, 8})
+            columns = {row["name"] for row in conn.execute("pragma table_info(generation_runs)").fetchall()}
+            self.assertTrue({"recipe_id", "visual_system_id", "subject_asset_id"}.issubset(columns))
         # Calling init() a second time must not throw and must not
         # duplicate migration rows.
         store.init()
@@ -79,7 +81,7 @@ class MigrationFrameworkTests(unittest.TestCase):
                     "select version from schema_migrations order by version"
                 ).fetchall()
             ]
-            self.assertEqual(versions, [5, 6, 7])
+            self.assertEqual(versions, [5, 6, 7, 8])
 
     def test_init_after_partial_migration_picks_up_missing(self):
         store = self._init_store()
@@ -87,12 +89,31 @@ class MigrationFrameworkTests(unittest.TestCase):
         # Simulate a database that was created on the pre-migration framework
         # and only has the historical v5 row recorded.
         with store.connect() as conn:
-            conn.execute("delete from schema_migrations where version in (6, 7)")
+            conn.execute("delete from schema_migrations where version in (6, 7, 8)")
             self.assertEqual(applied_versions(conn), {5})
         # init() should re-apply the missing migrations and record them.
         store.init()
         with store.connect() as conn:
-            self.assertEqual(applied_versions(conn), {5, 6, 7})
+            self.assertEqual(applied_versions(conn), {5, 6, 7, 8})
+
+    def test_generation_relations_upgrade_from_legacy_table_shape(self):
+        store = self._init_store()
+        store.init()
+        with store.connect() as conn:
+            for index in (
+                "idx_generation_runs_recipe",
+                "idx_generation_runs_system",
+                "idx_generation_runs_subject",
+            ):
+                conn.execute(f"drop index if exists {index}")
+            for column in ("recipe_id", "visual_system_id", "subject_asset_id"):
+                conn.execute(f"alter table generation_runs drop column {column}")
+            conn.execute("delete from schema_migrations where version = 8")
+        store.init()
+        with store.connect() as conn:
+            columns = {row["name"] for row in conn.execute("pragma table_info(generation_runs)").fetchall()}
+            self.assertTrue({"recipe_id", "visual_system_id", "subject_asset_id"}.issubset(columns))
+            self.assertEqual(applied_versions(conn), {5, 6, 7, 8})
 
     def test_business_indexes_exist_after_init(self):
         store = self._init_store()
@@ -113,6 +134,9 @@ class MigrationFrameworkTests(unittest.TestCase):
             "idx_recipes_status",
             "idx_recipe_assets_recipe",
             "idx_generation_runs_source",
+            "idx_generation_runs_recipe",
+            "idx_generation_runs_system",
+            "idx_generation_runs_subject",
             "idx_assets_sha256",
         ):
             self.assertIn(required, indexes)

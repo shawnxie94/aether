@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Run Python tests
+        run: make test
+
+      - name: Validate schemas
+        run: make schemas
+
+      - name: Validate example payload
+        run: make validate
+
+      - name: Check marketplace package
+        run: node scripts/aether-plugin.js doctor
+
+      - name: Check npm package contents
+        run: npm pack --dry-run
+
+      - name: Check whitespace
+        run: git diff --check

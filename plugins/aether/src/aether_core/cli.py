@@ -16,9 +16,9 @@ from .chat_attachments import (
 )
 from .composer import compose_prompt
 from .config import ensure_configured_dirs, load_config
-from .generation_params import apply_generation_skill_params, apply_prompt_generation_params
+from .generation_params import apply_prompt_generation_params
+from .generation_service import record_generation_run
 from .jsonio import dump_json, read_json_arg
-from .output_archiving import archive_generation_outputs, resolve_generation_relations
 from .panel import run_panel
 from .storage import AetherStore
 from .validation import validate_payload
@@ -851,10 +851,7 @@ def cmd_prompt_compose(args: argparse.Namespace) -> None:
 def cmd_generation_record(args: argparse.Namespace) -> None:
     config, store = _store()
     payload = read_json_arg(args.json)
-    payload = apply_generation_skill_params(payload, config)
-    payload = archive_generation_outputs(config, store, payload)
-    payload = resolve_generation_relations(payload, store)
-    dump_json(store.create_generation_run(payload))
+    dump_json(record_generation_run(config, store, payload))
 
 
 def cmd_generation_feedback(args: argparse.Namespace) -> None:

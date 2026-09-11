@@ -1,11 +1,14 @@
 # Aether project tasks.
 #
-# Most of the targets mirror the shell snippets that AGENT.md documents, so
+# The default Python command uses uv.lock so local and CI validation share the
+# same dependency set. Most targets mirror the shell snippets that AGENT.md documents, so
 # "make doctor" is the same as
-#   PYTHONPATH=src python -m aether_core.cli doctor
+#   PYTHONPATH=plugins/aether/src uv run --frozen python -m aether_core.cli doctor
 # without anyone having to remember the prefix every time.
 
-PY ?= python3
+# Use the repository's locked environment by default. Override with
+# `make PY='python3.12' ...` when an already-provisioned interpreter is desired.
+PY ?= uv run --frozen python
 NODE ?= node
 SRC := plugins/aether/src
 TESTS := plugins/aether/tests
