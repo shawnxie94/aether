@@ -11,3 +11,6 @@ build/
 outputs/
 .playwright-mcp/
 .playwright-cli/
+
+# agent-brain local (personal harness — do not commit)
+.agent/
